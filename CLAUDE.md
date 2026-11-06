@@ -58,5 +58,6 @@ allenamenti, allenatori, cassa. Regole decise dal titolare: valgono per ogni mod
 
 ## Tecnica
 - JavaScript puro, nessun passaggio di compilazione. Firebase 10.12.2 in `vendor/firebase`.
+- Indirizzo pubblico: https://quattromoritennisteam.web.app (sito Hosting `quattromoritennisteam`).
 - Progetto Firebase `quattromoritennisteam-d3258`, database in `europe-west8`, piano Spark (niente Cloud Functions per ora).
 - Prove: `npm test` (calcoli) e `npm run test:rules` (regole, con l'emulatore). Girano anche su GitHub prima di pubblicare.

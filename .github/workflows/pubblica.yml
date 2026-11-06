@@ -1,9 +1,11 @@
 # Pubblicazione automatica di Quattro Mori Tennis Team su Firebase Hosting (sito + regole del database).
+# Indirizzo: https://quattromoritennisteam.web.app (sito "quattromoritennisteam" in firebase.json).
 # Parte da sola quando cambia "main" (cioè quando si unisce una PR); si può anche lanciare a mano:
 # scheda Actions → "Pubblica" → Run workflow.
 # Prima di pubblicare prova i calcoli e le regole del database: se una prova fallisce, non pubblica nulla.
 # Serve un secret del repository (Settings → Secrets and variables → Actions):
 #   FIREBASE_SA_QUATTROMORI   chiave JSON dell'account di servizio del progetto quattromoritennisteam-d3258
+# L'account di servizio deve avere i ruoli Amministratore Firebase e Consumer di Service Usage.
 name: Pubblica
 
 on:
