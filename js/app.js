@@ -1246,19 +1246,24 @@
   const coachName = uid => { const m = memberByUid(uid), c = coachOf(uid); return m ? personName(m) : (c && c.name) || '—'; };
   const priceFor = n => { const p = S().prices || {}; const v = p['w' + Math.min(n, 4)]; return n && v != null && v !== '' ? Number(v) : null; };
   const euro = v => (v == null || v === '' ? '—' : Number(v).toLocaleString('it-IT', { style: 'currency', currency: 'EUR' }));
-  // certificato medico: scaduto, in scadenza (entro 30 giorni) o valido
+  // certificato medico (agonistico o non agonistico): scaduto, entro 7 giorni (rosso), entro 30 giorni (arancio), valido
+  const CERT_TYPES = ['agon', 'nonagon'];
   const certState = a => {
     if (!a || !a.certExp) return 'none';
-    const today = todayStr(), soon = new Date(); soon.setDate(soon.getDate() + 30);
-    return a.certExp < today ? 'expired' : a.certExp <= soon.toLocaleDateString('sv') ? 'soon' : 'ok';
+    const today = todayStr();
+    return a.certExp < today ? 'expired' : a.certExp <= addDays(today, 7) ? 'd7' : a.certExp <= addDays(today, 30) ? 'd30' : 'ok';
   };
+  const certDue = a => ['expired', 'd7', 'd30'].includes(certState(a));
+  const certDays = a => Math.round((new Date(a.certExp + 'T12:00') - new Date(todayStr() + 'T12:00')) / 86400000);
   const certBadge = a => {
-    const st = certState(a);
-    return `<span class="badge cert-${st}"><i class="ti ti-${st === 'ok' ? 'heart-check' : st === 'none' ? 'heart-question' : 'alert-triangle'}" aria-hidden="true"></i> ${esc(st === 'none' ? t('certNone') : t('cert_' + st, { d: fmtDate(a.certExp) }))}</span>`;
+    const st = certState(a), ty = a && CERT_TYPES.includes(a.certType) ? t('certType_' + a.certType) + ' · ' : '';
+    return `<span class="badge cert-${st}"><i class="ti ti-${st === 'ok' ? 'heart-check' : st === 'none' ? 'heart-question' : 'alert-triangle'}" aria-hidden="true"></i> ${esc(st === 'none' ? t('certNone') : ty + t('cert_' + st, { d: fmtDate(a.certExp), n: certDays(a) }))}</span>`;
   };
+  const certTypeSelect = v => `<label>${esc(t('certType'))}<select name="certType"><option value="">—</option>${CERT_TYPES.map(k => `<option value="${k}" ${v === k ? 'selected' : ''}>${esc(t('certType_' + k))}</option>`).join('')}</select></label>`;
+  // tesseramento FITP della stagione: qui si segna solo pagato / non pagato (si fa sulla piattaforma della federazione)
   const tessBadge = a => {
     const s = seasonOf(todayStr()), ok = !!(a && a.tess && a.tess[s]);
-    return `<span class="badge ${ok ? 'st-done' : 'tess-no'}">${esc(t(ok ? 'tessYes' : 'tessNo', { s }))}</span>`;
+    return `<span class="badge ${ok ? 'st-done' : 'tess-no'}"><i class="ti ti-${ok ? 'id-badge-2' : 'id-off'}" aria-hidden="true"></i> ${esc(t(ok ? 'tessYes' : 'tessNo', { s }))}</span>`;
   };
   // Allenamenti che il coach può vedere (tutti o solo i suoi)
   const visibleTrainings = () => (admin() || centerAdm() ? trainings() : coach() ? trainings().filter(tr => coach().all || tr.coachUid === myUid()) : []);
@@ -1331,6 +1336,7 @@
           <label class="span-all">${esc(t('athPerson'))}<select name="uid" required data-change="grp-pick"><option value="">— ${esc(t('chooseUser'))} —</option>
             ${members.map(m => `<option value="${m.uid}">${esc(personName(m))}${athleteOf(m.uid) || !admin() ? '' : ' ·  ' + esc(t('athNew'))}</option>`).join('')}</select></label>
           <label class="check"><input type="checkbox" name="tess"> ${esc(t('tessLabel', { s: seasonOf(todayStr()) }))}</label>
+          ${admin() ? certTypeSelect('') : ''}
           <label>${esc(t('certExp'))}<input type="date" name="certExp"></label>
           <div class="form-actions span-all"><button class="btn primary">${esc(t('grpAddBtn'))}</button></div>
         </form></details>`;
@@ -1421,21 +1427,21 @@
   function viewAthletes(certOnly) {
     const month = ui.trMonth || curMonth();
     const q = (ui.athFilter || '').toLowerCase();
-    const due = a => ['expired', 'soon'].includes(certState(a));
+    const due = certDue;
     // solo certificati scaduti o in scadenza (dall'avviso): prima i più vecchi
     const list = (S().athletes || []).map(a => ({ a, m: memberByUid(a.id) }))
       .filter(x => !certOnly || due(x.a))
       .filter(x => !q || personName(x.m || { first: x.a.first || '', last: x.a.last || '' }).toLowerCase().includes(q))
       .sort(certOnly ? (x, y) => (x.a.certExp || '').localeCompare(y.a.certExp || '') : (x, y) => (x.m ? personName(x.m) : '').localeCompare(y.m ? personName(y.m) : ''));
     const noSheet = (S().members || []).filter(m => !athleteOf(m.uid)).sort((a, b) => personName(a).localeCompare(personName(b)));
-    const warnN = (S().athletes || []).filter(a => ['expired', 'soon'].includes(certState(a))).length;
+    const warnN = (S().athletes || []).filter(certDue).length;
     return `
       <div class="page-head row"><h1><i class="ti ti-id-badge-2" aria-hidden="true"></i> ${esc(t('athTitle'))}</h1>
         <span class="btn-row">${/* TODO passo 2: pacchetti. Nell'app di origine le presenze scalate dai pacchetti (packuse) e il pulsante
           "Ricalcola" li scriveva solo il motore (Cloud Functions), che sul piano Spark non c'è: da rifare nell'app. */ ''}
         <a class="btn small" href="#/train"><i class="ti ti-barbell" aria-hidden="true"></i> ${esc(t('navTrain'))} →</a></span></div>
       ${certOnly ? `<div class="note warn cert-only"><span><i class="ti ti-heart-exclamation" aria-hidden="true"></i> <strong>${esc(t('certOnlyTitle', { n: list.length }))}</strong></span> <a class="btn small" href="#/athletes">${esc(t('certShowAll'))}</a></div>`
-        : warnN ? `<p class="note warn"><i class="ti ti-alert-triangle" aria-hidden="true"></i> ${esc(t('certWarnCount', { n: warnN }))} <a href="#/athletes/cert">${esc(t('certSee'))} →</a></p>` : ''}
+        : warnN ? certSummary('note') : ''}
       <div class="month-nav card">
         <button class="btn small" data-action="tr-month" data-m="${shiftMonth(month, -1)}" aria-label="${esc(t('prevMonth'))}"><i class="ti ti-chevron-left" aria-hidden="true"></i></button>
         <strong>${esc(monthLabel(month))}</strong>
@@ -1446,6 +1452,7 @@
         <form class="grid-form" data-form="ath-new" data-m="${month}">
           <label class="span-all">${esc(t('athPerson'))}<select name="uid" required><option value="">— ${esc(t('chooseUser'))} —</option>${noSheet.map(m => `<option value="${m.uid}">${esc(personName(m))}</option>`).join('')}</select></label>
           <label class="check"><input type="checkbox" name="tess"> ${esc(t('tessLabel', { s: seasonOf(todayStr()) }))}</label>
+          ${certTypeSelect('')}
           <label>${esc(t('certExp'))}<input type="date" name="certExp"></label>
           ${trChecks(null, month)}
           <div class="form-actions span-all"><button class="btn primary">${esc(t('athCreate'))}</button></div></form></details>`}
@@ -1473,6 +1480,7 @@
         <label>${esc(t('athCity'))}<input name="city" maxlength="60" value="${esc(a.city || '')}"></label>
         <label>${esc(t('athAddress'))}<input name="address" maxlength="100" value="${esc(a.address || '')}" placeholder="${esc(t('athAddressPh'))}"></label>
         <label>${esc(t('athCf'))}<input name="cf" maxlength="16" value="${esc(a.cf || '')}" autocapitalize="characters" pattern="[A-Za-z0-9]{16}"></label>
+        ${certTypeSelect(a.certType || '')}
         <label>${esc(t('certExp'))}<input type="date" name="certExp" value="${esc(a.certExp || '')}"></label>
         <label class="check span-all"><input type="checkbox" name="tess" ${a.tess && a.tess[s] ? 'checked' : ''}> ${esc(t('tessLabel', { s }))}</label>
         <div class="form-actions span-all"><button class="btn primary">${esc(t('save'))}</button></div>
@@ -1549,16 +1557,23 @@
     return n ? `<div class="msg-alert" role="alert"><div class="msg-head"><strong><span class="tess-star" aria-hidden="true">★</span> ${esc(t('rcNotTessTitle', { n }))}</strong></div>
       <div class="msg-text">${esc(t('rcNotTessHelp'))}</div><a class="btn small" href="#/payments">${esc(t('payAdminTitle'))} →</a></div>` : '';
   }
+  // Riepilogo dei certificati da rinnovare (admin e segreteria): scaduti e entro 7 giorni in rosso, entro 30 in arancio.
+  function certSummary(kind) {
+    const all = S().athletes || [], k = st => all.filter(a => certState(a) === st).length;
+    const ex = k('expired'), d7 = k('d7'), d30 = k('d30');
+    if (!ex && !d7 && !d30) return '';
+    const chips = [ex ? `<span class="badge cert-expired">${esc(t('certSumExpired', { n: ex }))}</span>` : '', d7 ? `<span class="badge cert-d7">${esc(t('certSumD7', { n: d7 }))}</span>` : '',
+      d30 ? `<span class="badge cert-d30">${esc(t('certSumD30', { n: d30 }))}</span>` : ''].filter(Boolean).join(' ');
+    if (kind === 'note') return `<p class="note ${ex || d7 ? 'cert-red' : 'warn'} cert-sum"><i class="ti ti-heart-exclamation" aria-hidden="true"></i> ${chips} <a href="#/athletes/cert">${esc(t('certSee'))} →</a></p>`;
+    return `<div class="msg-alert ${ex || d7 ? 'danger' : ''}" role="alert"><div class="msg-head"><strong><i class="ti ti-heart-exclamation" aria-hidden="true"></i> ${esc(t('certTitle'))}</strong></div>
+      <div class="msg-text">${chips}<br><small>${esc(t('certSumHelp'))}</small></div><a class="btn small" href="#/athletes/cert">${esc(t('certSee'))} →</a></div>`;
+  }
   function certAlerts() {
-    if (admin()) {
-      const n = (S().athletes || []).filter(a => ['expired', 'soon'].includes(certState(a))).length;
-      return (n ? `<div class="msg-alert" role="alert"><div class="msg-head"><strong><i class="ti ti-heart-exclamation" aria-hidden="true"></i> ${esc(t('certTitle'))}</strong></div>
-        <div class="msg-text">${esc(t('certWarnCount', { n }))}</div><a class="btn small" href="#/athletes/cert">${esc(t('certSee'))} →</a></div>` : '') + notTessAlert();
-    }
+    if (admin()) return certSummary('alert') + notTessAlert();
     const m = member(), a = m && athleteOf(m.uid), st = certState(a);
-    if (st !== 'expired' && st !== 'soon') return '';
-    return `<div class="msg-alert ${st === 'expired' ? 'danger' : ''}" role="alert"><div class="msg-head"><strong><i class="ti ti-heart-exclamation" aria-hidden="true"></i> ${esc(t('certTitle'))}</strong></div>
-      <div class="msg-text">${esc(t(st === 'expired' ? 'certExpiredMsg' : 'certSoonMsg', { d: fmtDate(a.certExp) }))}</div></div>`;
+    if (!certDue(a)) return '';
+    return `<div class="msg-alert ${st === 'd30' ? '' : 'danger'}" role="alert"><div class="msg-head"><strong><i class="ti ti-heart-exclamation" aria-hidden="true"></i> ${esc(t('certTitle'))}</strong></div>
+      <div class="msg-text">${esc(t(st === 'expired' ? 'certExpiredMsg' : 'certSoonMsg', { d: fmtDate(a.certExp), n: certDays(a) }))}</div></div>`;
   }
 
   // ---------- salvataggi ----------
@@ -2957,6 +2972,7 @@
       const ad = admin() ? { id: uid, first: m.first, last: m.last, tess: Object.assign({}, (a && a.tess) || {}, { [s]: f.tess.checked }), updated: Date.now() }
         : Object.assign({ id: uid, first: m.first, last: m.last, updated: Date.now() }, f.tess.checked ? { tess: { [s]: true } } : {});
       if (f.certExp.value) ad.certExp = f.certExp.value;
+      if (f.certType && f.certType.value) ad.certType = f.certType.value;
       if (!a && admin()) ad.created = Date.now();
       grpChange(tid, month, uid, true, ad).then(() => { ui.flash = { text: t('grpAdded', { n: personName(m) }) }; render(); }).catch(e => warn('regError', { code: e.code || e.message }));
     },
@@ -2965,6 +2981,7 @@
       if (!m) return;
       const ad = { id: m.uid, first: m.first, last: m.last, tess: { [seasonOf(todayStr())]: f.tess.checked }, created: Date.now(), updated: Date.now() };
       if (f.certExp.value) ad.certExp = f.certExp.value;
+      if (f.certType.value) ad.certType = f.certType.value;
       const tids = [...f.querySelectorAll('[name=tid]:checked')].map(x => x.value);
       setAthleteTrainings(m.uid, f.dataset.m, tids, ad).then(ok => { if (!ok) return; (ui.keep || {})['ath-new'] = false; ui.athEdit = m.uid; ui.flash = { text: t('athCreated') }; render(); })
         .catch(e => warn('regError', { code: e.code || e.message }));
@@ -2978,7 +2995,7 @@
       const uid = f.dataset.uid, a = athleteOf(uid) || {}, m = memberByUid(uid), s = seasonOf(todayStr());
       const cf = f.cf.value.trim().toUpperCase();
       const d = { birthPlace: f.birthPlace.value.trim(), birthDate: f.birthDate.value, city: f.city.value.trim(), address: f.address.value.trim(), cf,
-        certExp: f.certExp.value, tess: Object.assign({}, a.tess || {}, { [s]: f.tess.checked }), updated: Date.now() };
+        certExp: f.certExp.value, certType: f.certType.value, tess: Object.assign({}, a.tess || {}, { [s]: f.tess.checked }), updated: Date.now() };
       if (m) Object.assign(d, { first: m.first, last: m.last });
       window.Cloud.saveAthlete(uid, d).then(() => { ui.flash = { text: t('athSaved') }; render(); }).catch(e => warn('regError', { code: e.code || e.message }));
     },
@@ -3834,6 +3851,7 @@
       case 'grp-pick': {   // scheda già esistente: precompila tesseramento e certificato
         const a = athleteOf(el.value), f = el.form;
         f.tess.checked = !!(a && a.tess && a.tess[seasonOf(todayStr())]); f.certExp.value = (a && a.certExp) || '';
+        if (f.certType) f.certType.value = (a && a.certType) || '';
         break;
       }
       case 'coach-all': if (admin()) { const c = coachOf(el.dataset.uid); window.Cloud.setCoach(el.dataset.uid, { all: el.value === '1', name: (c && c.name) || coachName(el.dataset.uid) }).then(() => { ui.flash = { text: t('saved') }; render(); }).catch(e => warn('regError', { code: e.code || e.message })); } break;

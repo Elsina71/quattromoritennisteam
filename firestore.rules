@@ -258,9 +258,9 @@ service cloud.firestore {
     // ---------- allenamenti ----------
     // trainings: pubblici (giorno, orari, coach, livello, massimo, campi); li scrivono admin e segreteria.
     // coaches/{uid}: coach indicato dall'admin (all = vede tutti gli allenamenti, altrimenti solo i suoi).
-    // athletes/{uid}: scheda corsista con dati personali: solo admin e interessato (in lettura).
-    // groups/{tid_mese}: nomi del gruppo: admin e coach (tutti o solo i gruppi dei suoi allenamenti).
-    // plans/{uid_mese}: piano e prezzo del mese: admin e interessato (in lettura).
+    // athletes/{uid}: scheda corsista (dati, certificato, tesseramento FITP, pagamenti): solo admin, segreteria e interessato.
+    // groups/{tid_mese}: nomi del gruppo: admin, segreteria e allenatore (tutti o solo i gruppi dei suoi allenamenti).
+    // plans/{uid_mese}: piano e prezzo del mese: admin, segreteria e interessato (in lettura).
     function coachDoc() { return /databases/$(database)/documents/coaches/$(request.auth.uid); }
     function isCoach() { return request.auth != null && exists(coachDoc()); }
     match /trainings/{id} {
@@ -278,9 +278,6 @@ service cloud.firestore {
     match /athletes/{uid} {
       allow get: if (request.auth != null && request.auth.uid == uid) || isStaff();
       allow list, write: if isStaff();
-      // admin centro: aggiungendo al gruppo crea/aggiorna solo nome, tesseramento e scadenza del certificato
-      allow create: if isCenter() && request.resource.data.keys().hasOnly(['first', 'last', 'tess', 'certExp', 'created', 'updated']);
-      allow update: if isCenter() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['first', 'last', 'tess', 'certExp', 'updated']);
     }
     match /groups/{id} {
       allow read: if isCenter() || (isCoach() && (get(coachDoc()).data.get('all', false) == true || resource.data.coachUid == request.auth.uid));

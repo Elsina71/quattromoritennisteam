@@ -1048,6 +1048,11 @@ dl.summary dd:first-letter { text-transform: uppercase; }
 .bk-durs { margin: 8px 0 4px; }
 .bk-durs button { min-height: 44px; min-width: 64px; }
 .bk-durs button:disabled { opacity: .45; cursor: not-allowed; }
+.badge.cert-d30 { background: #fff1db; color: #8a5300; border-color: transparent; }
+.badge.cert-d7 { background: #fde3e3; color: #a11; border-color: transparent; font-weight: 700; }
+.badge.cert-expired { font-weight: 700; }
+.note.cert-red { background: #fde3e3; color: #5a0000; }
+.cert-sum .badge { margin: 2px 2px 2px 0; }
 li.is-void { opacity: .6; }
 /* grafici del profilo (una serie, colore primario) */
 .charts-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 18px; margin: 10px 0; }
