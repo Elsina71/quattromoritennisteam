@@ -1495,6 +1495,8 @@
         <div class="form-actions span-all">${p.manual ? `<button type="button" class="btn" data-action="plan-auto" data-uid="${esc(a.id)}" data-m="${month}">${esc(t('planUseList', { p: euro(priceFor(p.n)) }))}</button>` : ''}
           <button class="btn primary">${esc(t('save'))}</button></div>
       </form>${payBox('month', p, a.id, p.price)}` : `<p class="muted small">${esc(t('planHint'))}</p>`}
+      <div class="pack-box fitp-box"><h3><i class="ti ti-id-badge-2" aria-hidden="true"></i> ${esc(t('fitpTitle'))} ${esc(s)}</h3>
+        <p class="muted small">${esc(t('fitpHelp'))}</p>${payBox('fitp', fitpObj(a.id, s), a.id, fitpPrice())}</div>
       ${packCard(a.id)}
       ${evalSummary(a.id)}
     </div>`;
@@ -1546,6 +1548,13 @@
       ${[1, 2, 3, 4].map(n => `<label>${esc(t('planN', { n }))}<input type="number" name="w${n}" min="0" step="0.01" value="${p['w' + n] != null ? p['w' + n] : ''}" inputmode="decimal"></label>`).join('')}
       ${[1, 2].map(n => `<label>${esc(t('priceQuarter', { n }))}<input type="number" name="q${n}" min="0" step="0.01" value="${p['q' + n] != null ? p['q' + n] : ''}" inputmode="decimal"></label>`).join('')}
       <label>${esc(t('priceSpot'))}<input type="number" name="spot" min="0" step="0.01" value="${p.spot != null ? p.spot : ''}" inputmode="decimal"></label>
+      <h3 class="span-all">${esc(t('priceCourseTitle'))}</h3>
+      <p class="muted small span-all">${esc(t('priceCourseHelp'))}</p>
+      <label>${esc(t('priceCourseFrom'))}<input type="date" name="courseFrom" value="${esc(p.courseFrom || '')}"></label>
+      <label>${esc(t('priceCourseTo'))}<input type="date" name="courseTo" value="${esc(p.courseTo || '')}"></label>
+      ${[1, 2].map(n => `<label>${esc(t('priceCourse', { n }))}<input type="number" name="c${n}" min="0" step="0.01" value="${p['c' + n] != null ? p['c' + n] : ''}" inputmode="decimal"></label>`).join('')}
+      <h3 class="span-all">${esc(t('fitpTitle'))}</h3>
+      <label>${esc(t('priceFitp'))}<input type="number" name="fitp" min="0" step="0.01" value="${p.fitp != null ? p.fitp : ''}" inputmode="decimal"></label>
       <div class="form-actions span-all"><button class="btn primary">${esc(t('save'))}</button></div>
     </form>`;
   }
@@ -2194,7 +2203,8 @@
   // dati dell'associazione sulle ricevute (da js/club.js)
   const ASSOC = [Club.legalName, Club.address, Club.city, 'CF ' + Club.cf + ' · PI ' + Club.vat, 'PEC ' + Club.pec];
   const PAY_METHODS = ['cash', 'card', 'transfer'];
-  const PAY_IT = { cash: 'contanti', card: 'bancomat', transfer: 'bonifico' };
+  // si incassa solo in sede: contanti, POS, bonifico
+  const PAY_IT = { cash: 'contanti', card: 'POS', transfer: 'bonifico' };
   const MONTHS_IT = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
   const itDate = d => (d ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : '');
   const itMonth = m => { const x = MONTHS_IT[+m.slice(5, 7) - 1]; return `${x.charAt(0).toUpperCase() + x.slice(1)} ${m.slice(0, 4)}`; };
@@ -2215,7 +2225,7 @@
   const personOf = (uid, a) => { const m = memberByUid(uid); return { name: m ? `${m.first} ${m.last}` : `${(a && a.first) || ''} ${(a && a.last) || ''}`.trim(), gender: (m && m.gender) || 'M', birthPlace: a.birthPlace, birthDate: a.birthDate, city: a.city, address: a.address, cf: a.cf }; };
   const causaleMonth = m => `Quota sociale allenamenti - mese di ${itMonth(m)}`;
   const causaleSpot = d => `Quota sociale allenamenti - allenamento del ${itDate(d)}`;
-  const paidLine = (p, pd) => { pd = pd || (p && p.paid); return pd ? `${esc(t('paidOn', { d: fmtDate(pd.date), m: t('pay_' + pd.method) }))}${pd.quarter ? ` · ${esc(t('payQuarterOf', { a: monthLabel(pd.months[0]), b: monthLabel(pd.months[2]) }))}` : ''}${pd.rn ? ` · ${esc(t('receiptN', { n: rnFmt(pd.rn) }))}` : ''}` : ''; };
+  const paidLine = (p, pd) => { pd = pd || (p && p.paid); return pd ? `${esc(t('paidOn', { d: fmtDate(pd.date), m: t('pay_' + pd.method) }))}${pd.quarter ? ` · ${esc(t(pd.course ? 'payCourseOf' : 'payQuarterOf', { a: monthLabel(pd.months[0]), b: monthLabel(pd.months[pd.months.length - 1]) }))}` : ''}${pd.rn ? ` · ${esc(t('receiptN', { n: rnFmt(pd.rn) }))}` : ''}` : ''; };
   const receiptById = id => (S().receipts || []).find(r => r.id === id);
   // numero della ricevuta con la serie: Q quote sociali, C commerciali (le vecchie, senza serie, sono Q)
   const rSeries = r => r.series || 'Q';
@@ -2227,6 +2237,15 @@
   const planPaid = p => p.paid || prepaidOf(p.uid, p.month);
   const payState = p => planPaid(p) ? 'paid' : (todayStr() > `${p.month}-10` ? 'late' : 'due');
   const quarterMonths = m => [m, shiftMonth(m, 1), shiftMonth(m, 2)];
+  // CORSO INTERO: prezzo per 1 o 2 allenamenti a settimana e date del corso nel listino; copre tutti i mesi del corso
+  const courseInfo = () => { const p = S().prices || {}; return /^\d{4}-\d{2}-\d{2}$/.test(p.courseFrom || '') && /^\d{4}-\d{2}-\d{2}$/.test(p.courseTo || '') && p.courseFrom <= p.courseTo ? { from: p.courseFrom, to: p.courseTo } : null; };
+  const courseMonths = () => { const c = courseInfo(), out = []; if (!c) return out; for (let m = c.from.slice(0, 7); m <= c.to.slice(0, 7) && out.length < 24; m = shiftMonth(m, 1)) out.push(m); return out; };
+  const coursePrice = n => { const v = (S().prices || {})['c' + n]; return (n === 1 || n === 2) && v != null && v !== '' ? Number(v) : null; };
+  const causaleCourse = () => { const c = courseInfo(); return `Quota sociale allenamenti - corso intero dal ${itDate(c.from)} al ${itDate(c.to)}`; };
+  // TESSERAMENTO FITP: quota a parte, per stagione (qui solo pagato / non pagato)
+  const fitpPrice = () => { const v = (S().prices || {}).fitp; return v != null && v !== '' ? Number(v) : null; };
+  const causaleFitp = s => `Quota tesseramento FITP - stagione ${s}`;
+  const fitpObj = (uid, s) => { const a = athleteOf(uid) || {}; return { id: `${uid}|${s}`, uid, season: s, paid: (a.fitp || {})[s] || null }; };
   const quarterPrice = n => { const v = (S().prices || {})['q' + n]; return (n === 1 || n === 2) && v != null && v !== '' ? Number(v) : null; };
   const causaleQuarter = m => `Quota sociale allenamenti - trimestre ${itMonth(m)} - ${itMonth(shiftMonth(m, 2))}`;
   const payBadge = p => `<span class="badge pay-${payState(p)}">${esc(t('payState_' + payState(p)))}</span>`;
@@ -2254,11 +2273,13 @@
     const a = athleteOf(uid) || {}, miss = missingPerson(a);
     const plan = kind === 'month' ? (S().plans || []).find(p => p.id === ref) : null;
     const qp = plan ? quarterPrice(plan.n) : null;
+    const cm = courseMonths(), cp = plan && cm.includes(plan.month) ? coursePrice(plan.n) : null, ci = courseInfo();
     return `<form class="grid-form pay-form" data-form="pay-save" data-kind="${kind}" data-ref="${ref}" data-uid="${uid}">
-      <h4 class="span-all">${esc(t('payRecord'))}</h4>
-      ${qp != null ? `<label class="span-all">${esc(t('payPeriod'))}<select name="period" data-change="pay-period" data-m="${amount != null ? amount : ''}" data-q="${qp}">
+      <h4 class="span-all">${esc(t(kind === 'fitp' ? 'fitpPayTitle' : 'payRecord'))}</h4>
+      ${qp != null || cp != null ? `<label class="span-all">${esc(t('payPeriod'))}<select name="period" data-change="pay-period" data-m="${amount != null ? amount : ''}" data-q="${qp != null ? qp : ''}" data-c="${cp != null ? cp : ''}">
         <option value="month">${esc(t('payMonthly', { p: euro(amount) }))}</option>
-        <option value="quarter">${esc(t('payQuarterly', { p: euro(qp), a: monthLabel(plan.month), b: monthLabel(shiftMonth(plan.month, 2)) }))}</option></select></label>` : ''}
+        ${qp != null ? `<option value="quarter">${esc(t('payQuarterly', { p: euro(qp), a: monthLabel(plan.month), b: monthLabel(shiftMonth(plan.month, 2)) }))}</option>` : ''}
+        ${cp != null ? `<option value="course">${esc(t('payCourse', { p: euro(cp), a: fmtDate(ci.from), b: fmtDate(ci.to) }))}</option>` : ''}</select></label>` : ''}
       <label>${esc(t('payDate'))}<input type="date" name="payDate" required value="${todayStr()}"></label>
       <label>${esc(t('payMethod'))}<select name="method">${PAY_METHODS.map(x => `<option value="${x}">${esc(t('pay_' + x))}</option>`).join('')}</select></label>
       <label>${esc(t('payAmount'))}<input type="number" name="amount" min="0" step="0.01" required value="${amount != null ? amount : ''}" inputmode="decimal"></label>
@@ -2274,6 +2295,8 @@
   }
   // Riga di pagamento sotto un piano o uno spot (admin): stato, ricevuta, oppure pulsante per registrare.
   function payBox(kind, obj, uid, amount) {
+    if (kind === 'fitp' && !obj.paid && ui.payFor !== `fitp:${esc(obj.id)}`) return `<p class="pay-line"><span class="badge pay-due">${esc(t('payState_due'))}</span>
+        <button class="btn small primary" data-action="pay-open" data-key="fitp:${esc(obj.id)}"><i class="ti ti-cash" aria-hidden="true"></i> ${esc(t('fitpPayBtn'))}</button></p>`;
     if (kind === 'spot' && obj.pack) return `<p class="pay-line"><span class="badge st-done"><i class="ti ti-ticket" aria-hidden="true"></i> ${esc(t(obj.packBack ? 'packReturned' : 'packUsed'))}</span></p>`;
     const pd = kind === 'month' ? planPaid(obj) : obj.paid;
     if (pd) {
@@ -2385,7 +2408,7 @@
         <button class="btn small" data-action="pay-month" data-m="${shiftMonth(month, -1)}" aria-label="${esc(t('prevMonth'))}"><i class="ti ti-chevron-left" aria-hidden="true"></i></button>
         <strong>${esc(monthLabel(month))}</strong>
         <button class="btn small" data-action="pay-month" data-m="${shiftMonth(month, 1)}" aria-label="${esc(t('nextMonth'))}"><i class="ti ti-chevron-right" aria-hidden="true"></i></button>
-        <select data-change="pay-kind" aria-label="${esc(t('payKind'))}">${['all', 'month', 'pack', 'spot', 'cassa'].map(k => `<option value="${k}" ${k === kind ? 'selected' : ''}>${esc(t('payKind_' + k))}</option>`).join('')}</select>
+        <select data-change="pay-kind" aria-label="${esc(t('payKind'))}">${['all', 'month', 'pack', 'spot', 'fitp', 'cassa'].map(k => `<option value="${k}" ${k === kind ? 'selected' : ''}>${esc(t('payKind_' + k))}</option>`).join('')}</select>
       </div>
       <div class="stats-row">
         <div class="stat"><span>${esc(t('payTotal'))}</span><strong>${esc(euro(valid.reduce((s, r) => s + r.amount, 0)))}</strong><small class="muted">${esc(t('receiptsCount', { n: valid.length }))}</small></div>
@@ -2495,7 +2518,7 @@
     },
     'pay-save': f => {
       const kind = f.dataset.kind, ref = f.dataset.ref, uid = f.dataset.uid;
-      const obj = kind === 'month' ? (S().plans || []).find(p => p.id === ref) : kind === 'pack' ? packById(ref) : (S().spots || []).find(s => s.id === ref);
+      const obj = kind === 'month' ? (S().plans || []).find(p => p.id === ref) : kind === 'pack' ? packById(ref) : kind === 'fitp' ? fitpObj(uid, ref.split('|')[1]) : (S().spots || []).find(s => s.id === ref);
       if (!obj) return;
       const amount = Math.round(Number(f.amount.value || 0) * 100) / 100;
       const a = Object.assign({}, athleteOf(uid) || {});
@@ -2511,11 +2534,15 @@
       // ricevuta: solo se richiesta (di base no)
       const receipt = wantReceipt(f);
       if (amount > 0 && receipt && missingPerson(a).length) return warn('payNeedData');
-      const quarter = kind === 'month' && f.period && f.period.value === 'quarter';
+      const course = kind === 'month' && f.period && f.period.value === 'course' && courseMonths().includes(obj.month);
+      const quarter = course || (kind === 'month' && f.period && f.period.value === 'quarter');
       const p = { kind, ref, uid, amount, receipt, method: f.method.value, payDate: f.payDate.value, issued: todayStr(), person: personOf(uid, a), athlete,
-        causale: quarter ? causaleQuarter(obj.month) : kind === 'month' ? causaleMonth(obj.month) : kind === 'pack' ? causalePack(obj) : causaleSpot(obj.date), month: obj.month || '', spotDate: obj.date || '' };
+        causale: course ? causaleCourse() : quarter ? causaleQuarter(obj.month) : kind === 'month' ? causaleMonth(obj.month) : kind === 'pack' ? causalePack(obj) : kind === 'fitp' ? causaleFitp(obj.season) : causaleSpot(obj.date), month: obj.month || '', spotDate: obj.date || '' };
+      if (kind === 'fitp') p.season = obj.season;
       if (quarter) {
-        p.quarter = true; p.months = quarterMonths(obj.month);
+        // trimestrale: il mese e i due successivi; corso intero: tutti i mesi del corso (dal mese del piano in poi)
+        p.quarter = true; p.months = course ? courseMonths().filter(m => m >= obj.month) : quarterMonths(obj.month);
+        if (course) p.course = true;
         p.planIds = (S().plans || []).filter(x => x.uid === uid && p.months.includes(x.month)).map(x => x.id);
         if (p.months.slice(1).some(m => prepaidOf(uid, m) || ((S().plans || []).find(x => x.uid === uid && x.month === m) || {}).paid) && !confirmed('payQuarterOverlap')) return;
       }
@@ -2526,10 +2553,10 @@
   // ---------- CASSA: registro degli incassi, ricevute Q (quote sociali) e C (commerciali) ----------
   // Ogni incasso ha una o più righe; le quote sociali vanno nella ricevuta Q, il commerciale nella ricevuta C
   // (numerazioni autonome per anno). La ricevuta si emette solo se richiesta, con qualsiasi modalità.
-  const CA_CATS = [['q_train', 'Q'], ['q_court', 'Q'], ['c_drink', 'C'], ['c_other', 'C']];
+  const CA_CATS = [['q_train', 'Q'], ['q_fitp', 'Q'], ['q_court', 'Q'], ['c_drink', 'C'], ['c_other', 'C']];
   const caSeries = cat => (CA_CATS.find(c => c[0] === cat) || [, 'C'])[1];
   // descrizione della riga sulla ricevuta (in italiano: è un documento contabile)
-  const CA_IT = { q_train: 'Quota sociale allenamenti', q_court: 'Quota sociale - prenotazione campo per allenamento', c_drink: 'Bevande', c_other: 'Altro' };
+  const CA_IT = { q_train: 'Quota sociale allenamenti', q_fitp: 'Quota tesseramento FITP', q_court: 'Quota sociale - prenotazione campo per allenamento', c_drink: 'Bevande', c_other: 'Altro' };
   const caLineDesc = (cat, desc) => (cat === 'c_other' && desc ? desc : CA_IT[cat] + (desc ? ` - ${desc}` : ''));
   const caCausale = (series, lines) => (lines.length === 1 ? lines[0].desc : series === 'Q' ? 'Quote sociali (dettaglio)' : 'Vendita (dettaglio)');
   const bkLabel = b => `${fmtDate(b.date)} ${esc(b.from)}–${esc(b.to)} · ${courtName(b.courtId)}${b.guest ? ' · ' + bkWho(b) : b.userId ? ' · ' + uidName(b.userId) : ''}`;
@@ -2678,7 +2705,9 @@
     const what = [tq ? t('caConfirmQ', { v: euro(tq) }) : '', tc ? t('caConfirmC', { v: euro(tc) }) : ''].filter(Boolean).join(' + ');
     if (!confirmed(want ? 'caConfirmRc' : 'caConfirmNoRc', { w: what, m: t('pay_' + method), h: (person && person.name) || t('caNoHolder') })) return;
     f.querySelector('button.primary').disabled = true;
-    window.Cloud.recordIncasso(p).then(() => { ui.flash = { text: t(want ? 'caSavedRc' : 'caSaved') }; render(); }).catch(e => { f.querySelector('button.primary').disabled = false; trErr(e); });
+    // quota del tesseramento FITP incassata in cassa: la persona risulta tesserata per la stagione (admin e segreteria)
+    const fitpUid = admin() && uid && lines.some(l => l.cat === 'q_fitp') ? uid : null;
+    window.Cloud.recordIncasso(p).then(() => { if (fitpUid) window.Cloud.saveAthlete(fitpUid, { tess: { [seasonOf(date)]: true }, updated: Date.now() }).catch(() => {}); ui.flash = { text: t(want ? 'caSavedRc' : 'caSaved') }; render(); }).catch(e => { f.querySelector('button.primary').disabled = false; trErr(e); });
   }
   // prospetto mensile in Excel: incassi riga per riga, riepilogo per categoria e modalità, ricevute
   async function caXlsx(month) {
@@ -2867,7 +2896,7 @@
     const rows = new Map();
     const row = tid => { if (!rows.has(tid)) { const tr = trainingById(tid); rows.set(tid, { tid, label: tr ? `${trTitle(tr)} · ${trLabel(tr)}` : t('rpDeleted'), plans: 0, spot: 0, pack: 0, due: 0 }); } return rows.get(tid); };
     (S().plans || []).filter(p => p.month === month && (p.tids || []).length).forEach(p => {
-      const pd = planPaid(p), amount = pd ? (pd.quarter ? (pd.amount || 0) / 3 : (pd.amount != null ? pd.amount : p.price || 0)) : (p.price || 0);
+      const pd = planPaid(p), amount = pd ? (pd.quarter ? (pd.amount || 0) / ((pd.months || []).length || 3) : (pd.amount != null ? pd.amount : p.price || 0)) : (p.price || 0);
       p.tids.forEach(tid => { const r = row(tid); r.plans += amount / p.tids.length; if (!pd) r.due += amount / p.tids.length; });
     });
     d.spots.filter(s => s.status === 'ok' && s.date.slice(0, 7) === month && !s.packBack).forEach(s => {
@@ -2949,7 +2978,7 @@
   async function backupXlsx(month) {
     const d = rangeData(month + '-01', monthEnd(month));
     if (!d) return;
-    const trs = trainings(), PAYM = { cash: 'contanti', card: 'bancomat', transfer: 'bonifico' };
+    const trs = trainings(), PAYM = { cash: 'contanti', card: 'POS', transfer: 'bonifico' };
     const sheetTr = [['Allenamento', 'Giorno', 'Orario', 'Livello', 'Allenatore', 'Max persone', 'Campi', 'Iscritti nel mese']]
       .concat(trs.map(tr => [trTitle(tr), dayName(tr.dow), `${esc(tr.from)}–${esc(tr.to)}`, t('fpLevel_' + tr.level), tr.coachUid ? coachName(tr.coachUid) : '', tr.max || 0,
         (tr.courts || []).map(courtName).join(', '), ((groupOf(tr.id, month) || {}).uids || []).length]));
@@ -3124,7 +3153,9 @@
     },
     'prices-save': f => {
       const n = x => (f[x].value === '' ? null : Math.round(Number(f[x].value) * 100) / 100);
-      S().prices = { w1: n('w1'), w2: n('w2'), w3: n('w3'), w4: n('w4'), q1: n('q1'), q2: n('q2'), spot: n('spot') };
+      const cf = f.courseFrom.value, ct = f.courseTo.value;
+      if (cf && ct && ct < cf) return warn('priceCourseErr');
+      S().prices = { w1: n('w1'), w2: n('w2'), w3: n('w3'), w4: n('w4'), q1: n('q1'), q2: n('q2'), spot: n('spot'), c1: n('c1'), c2: n('c2'), courseFrom: cf || '', courseTo: ct || '', fitp: n('fitp') };
       commit(t('saved'));
     }
   };
@@ -3976,7 +4007,7 @@
       case 'coach-all': if (admin()) { const c = coachOf(el.dataset.uid); window.Cloud.setCoach(el.dataset.uid, { all: el.value === '1', name: (c && c.name) || coachName(el.dataset.uid) }).then(() => { ui.flash = { text: t('saved') }; render(); }).catch(e => warn('regError', { code: e.code || e.message })); } break;
       case 'ath-filter': ui.athFilter = el.value; render(); break;
       case 'pay-kind': ui.payKind = el.value; render(); break;
-      case 'pay-period': el.form.amount.value = el.value === 'quarter' ? el.dataset.q : el.dataset.m; break;
+      case 'pay-period': el.form.amount.value = el.value === 'quarter' ? el.dataset.q : el.value === 'course' ? el.dataset.c : el.dataset.m; break;
       case 'bk-date': if (el.value) { ui.bookDate = el.value; render(); } break;
       case 'bk-np': if (ui.bkSel) { ui.bkSel.plTouched = true; ui.bkSel.np = +el.value; ui.bkSel.players = (ui.bkSel.players || []).slice(0, ui.bkSel.np); render(); } break;
       case 'bk-pl': if (ui.bkSel) { ui.bkSel.plTouched = true; (ui.bkSel.players = ui.bkSel.players || [])[+el.dataset.i] = el.value; render(); } break;

@@ -1005,7 +1005,7 @@ function voidIncasso(inc) {
     else if (l.ref.kind === 'quarter') {
       (l.ref.planIds || []).forEach(id => batch.update(doc(db, 'plans', id), { paid: deleteField() }));
       batch.update(doc(db, 'athletes', l.ref.uid), Object.fromEntries((l.ref.months || []).map(m => [`prepaid.${m}`, deleteField()])));
-    } else batch.update(doc(db, payCol(l.ref.kind), l.ref.id), { paid: deleteField() });
+    } else clearPaid(batch, l.ref.kind, l.ref.id);
   });
   return batch.commit();
 }
@@ -1033,19 +1033,24 @@ function recordPayment(p) {
       const rref = doc(collection(db, 'receipts'));
       tr.set(cref, { last: n, updated: Date.now() });
       tr.set(rref, { year: +year, n, series: 'Q', issued: p.issued, payDate: p.payDate, amount: p.amount, method: p.method, kind: p.kind, ref: p.ref, incasso: iref.id,
-        uid: p.uid, person: p.person, causale: p.causale, month: p.month || '', months: p.months || [], quarter: !!p.quarter, spotDate: p.spotDate || '', void: false, created: Date.now(), by: user.uid });
+        uid: p.uid, person: p.person, causale: p.causale, month: p.month || '', months: p.months || [], quarter: !!p.quarter, course: !!p.course, spotDate: p.spotDate || '', void: false, created: Date.now(), by: user.uid });
       Object.assign(paid, { rid: rref.id, rn: rnOf('Q', n, year) });
       rec.Q = { id: rref.id, rn: paid.rn };
     }
     if (p.amount > 0) {
       paid.iid = iref.id;
       const ref = p.quarter ? { kind: 'quarter', planIds: p.planIds || [], uid: p.uid, months: p.months } : { kind: p.kind, id: p.ref };
-      tr.set(iref, incassoDoc({ date: p.payDate, method: p.method, uid: p.uid, person: p.person, lines: [{ cat: 'q_train', series: 'Q', desc: p.causale, amount: p.amount, ref }] }, rec));
+      tr.set(iref, incassoDoc({ date: p.payDate, method: p.method, uid: p.uid, person: p.person, lines: [{ cat: p.kind === 'fitp' ? 'q_fitp' : 'q_train', series: 'Q', desc: p.causale, amount: p.amount, ref }] }, rec));
+    }
+    if (p.kind === 'fitp') {
+      // tesseramento FITP della stagione: pagato (e quindi tesserato) nella scheda del corsista
+      tr.set(doc(db, 'athletes', p.uid), Object.assign({}, p.athlete || {}, { tess: { [p.season]: true }, fitp: { [p.season]: paid } }), { merge: true });
+      return;
     }
     if (p.quarter) {
-      // trimestrale: pagati il mese e i due successivi; i piani già creati si segnano subito,
+      // trimestrale (o corso intero): pagati il mese e i successivi; i piani già creati si segnano subito,
       // per gli altri mesi resta il "prepagato" nella scheda (vale quando si compone il gruppo)
-      Object.assign(paid, { quarter: true, months: p.months });
+      Object.assign(paid, { quarter: true, months: p.months }, p.course ? { course: true } : {});
       (p.planIds || []).forEach(id => tr.update(doc(db, 'plans', id), { paid }));
       const athlete = Object.assign({}, p.athlete || {}, { prepaid: Object.fromEntries(p.months.map(m => [m, paid])) });
       tr.set(doc(db, 'athletes', p.uid), athlete, { merge: true });
@@ -1064,7 +1069,7 @@ function voidReceipt(r, planIds) {
   if (r.quarter) {
     (planIds || []).forEach(id => batch.update(doc(db, 'plans', id), { paid: deleteField() }));
     batch.update(doc(db, 'athletes', r.uid), Object.fromEntries((r.months || []).map(m => [`prepaid.${m}`, deleteField()])));
-  } else batch.update(doc(db, payCol(r.kind), r.ref), { paid: deleteField() });
+  } else clearPaid(batch, r.kind, r.ref);
   return batch.commit();
 }
 // Rinumera le ricevute (admin): nuovi numeri, numero mostrato su piani/spot/prepagati, ultimo numero dell'anno.
@@ -1078,11 +1083,16 @@ function renumberReceipts(changes, links, year, last, series) {
 // Toglie un pagamento registrato senza ricevuta (l'incasso collegato si annulla).
 function unpay(kind, ref, iid) {
   const batch = writeBatch(db);
-  batch.update(doc(db, payCol(kind), ref), { paid: deleteField() });
+  clearPaid(batch, kind, ref);
   if (iid) batch.update(doc(db, 'incassi', iid), { void: true, voidAt: Date.now(), voidBy: user.uid });
   return batch.commit();
 }
 const payCol = kind => ({ month: 'plans', spot: 'spots', pack: 'packs' })[kind];
+// toglie il "pagato": per il tesseramento FITP (ref = "uid|stagione") la stagione torna non pagata
+function clearPaid(batch, kind, ref) {
+  if (kind === 'fitp') { const [uid, s] = String(ref).split('|'); batch.update(doc(db, 'athletes', uid), { [`fitp.${s}`]: deleteField(), [`tess.${s}`]: false }); }
+  else batch.update(doc(db, payCol(kind), ref), { paid: deleteField() });
+}
 // Pacchetti (admin): crea, modifica numero/prezzo, elimina (solo se non usato e non pagato).
 function savePack(id, data) { return id ? updateDoc(doc(db, 'packs', id), data) : addDoc(collection(db, 'packs'), Object.assign({ used: 0, created: Date.now(), by: user.uid }, data)); }
 function deletePack(id) { return deleteDoc(doc(db, 'packs', id)); }

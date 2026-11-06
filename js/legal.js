@@ -33,7 +33,7 @@ const Legal = (() => {
       <li><strong>Allenamenti</strong>: gruppi, presenze, assenze, posti spot e recuperi. Il coach vede solo nomi e presenze dei propri allenamenti.</li>
       <li><strong>Scheda del corsista</strong> (solo per chi si allena con l'associazione): luogo e data di nascita, comune e indirizzo di residenza, codice fiscale, tesseramento della stagione e <em>data di scadenza</em> del certificato medico di idoneità sportiva. Non conserviamo il certificato: solo la data di scadenza, che è comunque un dato relativo alla salute (vedi punto 3).</li>
       <li><strong>Wrapped</strong>: il riepilogo periodico della tua attività (ore in campo, prenotazioni, presenze), calcolato dall'app e mostrato solo a te (puoi condividerne l'immagine se lo desideri).</li>
-      <li><strong>Pagamenti</strong>: importo, data, modalità (contanti, bancomat, bonifico) e ricevute emesse. Nell'app non si inseriscono dati di carte o conti bancari.</li>
+      <li><strong>Pagamenti</strong>: importo, data, modalità (contanti, POS, bonifico) e ricevute emesse. Nell'app non si inseriscono dati di carte o conti bancari.</li>
       <li><strong>Dati tecnici</strong>: indirizzo IP e informazioni del browser registrati dai fornitori dei servizi (vedi punto 5) per farli funzionare e proteggerli.</li>
     </ul>
 
