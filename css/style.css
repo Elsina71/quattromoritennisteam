@@ -1096,6 +1096,11 @@ dl.summary dd:first-letter { text-transform: uppercase; }
 .badge.ev-mini.low { background: #fde3e3; color: #a11; border-color: transparent; }
 .ev-note-txt { font-style: italic; }
 @media (max-width: 520px) { .ev-avg { grid-template-columns: 7.5em 1fr 4.6em; gap: 6px; } }
+.google-login { display: flex; flex-direction: column; align-items: stretch; gap: 10px; margin: 6px 0 14px; max-width: 420px; }
+.google-btn { justify-content: center; min-height: 46px; font-weight: 700; }
+.google-btn .ti-brand-google { color: #4285f4; font-size: 1.2em; }
+.or-sep { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: .9rem; }
+.or-sep::before, .or-sep::after { content: ""; flex: 1; height: 1px; background: var(--border); }
 li.is-void { opacity: .6; }
 /* grafici del profilo (una serie, colore primario) */
 .charts-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 18px; margin: 10px 0; }

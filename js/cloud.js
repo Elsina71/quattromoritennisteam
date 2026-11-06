@@ -6,7 +6,7 @@ import {
 } from '../vendor/firebase/firebase-firestore.js';
 import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail, connectAuthEmulator,
-  createUserWithEmailAndPassword, sendEmailVerification
+  createUserWithEmailAndPassword, sendEmailVerification, GoogleAuthProvider, signInWithPopup
 } from '../vendor/firebase/firebase-auth.js';
 import { firebaseConfig } from './firebase-config.js';
 
@@ -122,7 +122,9 @@ function setUserRole(uid, role, name, wasCoach) {
 async function adminCheck() {
   try { await getDoc(doc(db, 'admins', 'probe')); return true; } catch (e) { return false; }
 }
+let authBusy = true;   // profilo e ruoli in caricamento dopo l'accesso
 onAuthStateChanged(auth, async u => {
+  authBusy = true;
   user = u;
   isAdmin = false;
   isSeg = false;
@@ -174,6 +176,7 @@ onAuthStateChanged(auth, async u => {
   listenOccFree();
   listenBkPlayers();
   listenReceipts();
+  authBusy = false;
   refresh();
 });
 
@@ -285,6 +288,33 @@ async function register(data) {
   return { mailErr };
 }
 
+// Accesso con Google (finestra di Google, dall'indirizzo di serie del progetto: authDomain in firebase-config.js).
+// Al primo accesso il profilo non c'è ancora: l'app chiede di completarlo (nome e cognome già presi da Google).
+async function loginGoogle() {
+  const prov = new GoogleAuthProvider();
+  prov.setCustomParameters({ prompt: 'select_account' });
+  auth.languageCode = (window.I18n && I18n.lang) || 'it';
+  const cred = await signInWithPopup(auth, prov);
+  const parts = String(cred.user.displayName || '').trim().split(/\s+/).filter(Boolean);
+  return { uid: cred.user.uid, first: parts[0] || '', last: parts.slice(1).join(' ') };
+}
+// Primo accesso con Google (o account senza profilo): profilo come nella registrazione; l'email Google è già confermata.
+async function completeProfile(data) {
+  if (!user) throw Object.assign(new Error('auth'), { code: 'permission-denied' });
+  const prof = { first: data.first, last: data.last, gender: data.gender, created: Date.now(), privacyAt: Date.now(), privacyVer: data.privacyVer || '' };
+  await setDoc(doc(db, 'members', user.uid), prof);
+  if (user.email) await setDoc(doc(db, 'accounts', user.uid), { email: user.email.toLowerCase(), verified: !!user.emailVerified }).catch(() => {});
+  member = Object.assign({ uid: user.uid, email: user.email || '' }, prof);
+  try { const c = await getDoc(doc(db, 'coaches', user.uid)); coach = c.exists() ? c.data() : null; } catch (e) { coach = null; }
+  listenAccount();
+  listenBookings();
+  listenVerified();
+  listenTraining();
+  listenAttendance();
+  listenBkPlayers();
+  listenReceipts();
+  refresh();
+}
 // Email di conferma nella lingua dell'app, con il pulsante
 // "Continua" che riporta al profilo nell'app. Se l'indirizzo di ritorno non fosse autorizzato, si invia senza.
 async function sendVerifyMail(u) {
@@ -1335,6 +1365,10 @@ window.Cloud = {
   setUserRole,
   push,
   login: (email, password) => signInWithEmailAndPassword(auth, email, password),
+  loginGoogle,
+  completeProfile,
+  get authBusy() { return authBusy; },
+  get googleUser() { return !!(user && (user.providerData || []).some(p => p.providerId === 'google.com')); },
   logout: () => { member = null; return signOut(auth); },
   resetPassword: email => sendPasswordResetEmail(auth, email)
 };

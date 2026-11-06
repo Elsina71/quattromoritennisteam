@@ -3644,12 +3644,27 @@
       account = `<p><i class="ti ti-circle-check" aria-hidden="true"></i> ${esc(t('loggedInAs', { email: `${personName(member())} · ${user.email}` }))}</p>
         <div class="btn-row"><a class="btn primary" href="#/me"><i class="ti ti-user" aria-hidden="true"></i> ${esc(t('profile'))}</a>
         <button class="btn" data-action="logout">${esc(t('logout'))}</button></div>`;
-    } else if (user) {
-      account = `<p class="note warn">${esc(t('notAdmin', { email: user.email }))}</p>
-        <p class="muted small">UID: <code>${esc(user.uid)}</code></p>
+    } else if (user && window.Cloud.authBusy) {
+      account = `<p class="muted"><i class="ti ti-loader-2" aria-hidden="true"></i> ${esc(t('loading'))}</p>`;
+    } else if (user && cashier()) {
+      account = `<p><i class="ti ti-circle-check" aria-hidden="true"></i> ${esc(t('loggedInAs', { email: user.email }))}</p>
         <button class="btn" data-action="logout">${esc(t('logout'))}</button>`;
+    } else if (user) {
+      // primo accesso con Google (o account senza profilo): si completa la registrazione
+      const g = ui.gName || (() => { const p = String(user.displayName || '').trim().split(/\s+/).filter(Boolean); return { first: p[0] || '', last: p.slice(1).join(' ') }; })();
+      account = `<p>${esc(t('completeHelp', { email: user.email || '' }))}</p>
+        <form class="grid-form" data-form="complete-profile">
+          <label>${esc(t('firstName'))}<input name="first" required maxlength="60" autocomplete="given-name" value="${esc(g.first)}"></label>
+          <label>${esc(t('lastName'))}<input name="last" required maxlength="60" autocomplete="family-name" value="${esc(g.last)}"></label>
+          <label>${esc(t('gender'))}<select name="gender" required><option value="">—</option><option value="M">${esc(t('male'))}</option><option value="F">${esc(t('female'))}</option></select></label>
+          <label class="check span-all legal-check"><input type="checkbox" name="privacy" required> <span>${t('registerPrivacy')}</span></label>
+          <label class="check span-all legal-check"><input type="checkbox" name="age14" required> <span>${esc(t('registerAge'))}</span></label>
+          <div class="form-actions span-all"><button type="button" class="btn" data-action="logout">${esc(t('logout'))}</button><button class="btn primary">${esc(t('completeBtn'))}</button></div>
+        </form>`;
     } else {
       account = `<p class="muted">${esc(t('loginHelpAll'))}</p>
+        <div class="google-login"><button type="button" class="btn google-btn" data-action="login-google"><i class="ti ti-brand-google" aria-hidden="true"></i> ${esc(t('loginGoogle'))}</button>
+          <span class="or-sep">${esc(t('orEmail'))}</span></div>
         <form class="grid-form" data-form="login">
           <label>Email<input name="email" type="email" autocomplete="username" autocapitalize="off" spellcheck="false" required></label>
           <label>${esc(t('password'))}<input name="password" type="password" autocomplete="current-password" autocapitalize="off" spellcheck="false" required></label>
@@ -3677,7 +3692,7 @@
     return `
       <div class="page-head"><h1>${esc(t('settings'))}</h1></div>
       <div class="card admin-card" id="login">
-        <h2><i class="ti ti-key" aria-hidden="true"></i> ${esc(t(member() ? 'myAccount' : user ? 'adminArea' : 'loginOrRegister'))}</h2>
+        <h2><i class="ti ti-key" aria-hidden="true"></i> ${esc(t(member() ? 'myAccount' : user && !admin() && !cashier() && !window.Cloud.authBusy ? 'completeTitle' : user ? 'adminArea' : 'loginOrRegister'))}</h2>
         ${account}
       </div>
       ${fullAdmin() ? link('mail', t('messages'), t('messagesIntro'), '#/messages', t('messagesOpen')) : ''}
@@ -3836,6 +3851,18 @@
       setNotice('home', '');
     },
     'logout': () => { window.Cloud.logout(); location.hash = '#/settings'; },
+    'login-google': el => {
+      el.disabled = true;
+      window.Cloud.loginGoogle().then(g => new Promise(resolve => {
+        ui.gName = { first: g.first, last: g.last };
+        const t0 = Date.now();
+        (function wait() { if (!window.Cloud.authBusy || Date.now() - t0 > 10000) resolve(); else setTimeout(wait, 150); })();
+      })).then(() => {
+        if (member() || admin() || cashier()) { ui.flash = { text: t('loginOk') }; if (location.hash.startsWith('#/settings')) location.hash = '#/'; }
+        else { ui.flash = { text: t('completeFirst') }; location.hash = '#/settings'; }
+        render();
+      }).catch(e => { el.disabled = false; if (e && /popup-closed|cancelled-popup/.test(e.code || '')) return; warn(e && e.code === 'auth/popup-blocked' ? 'googlePopupBlocked' : 'googleFailed', { code: (e && (e.code || e.message)) || '' }); });
+    },
     'reset-password': el => {
       const email = el.closest('form').email.value.trim();
       if (!email) return warn('enterEmailFirst');
@@ -3920,6 +3947,15 @@
       })
         .catch(e => { btn.disabled = false; ui.showRegister = true; warn(e.code === 'auth/email-already-in-use' ? 'registerExists' : e.code === 'auth/weak-password' ? 'registerWeak' : e.code === 'auth/too-many-requests' ? 'tooManyTries' : 'registerErr', { code: e.code || e.message }); });
     },
+    'complete-profile': f => {
+      const d = { first: f.first.value.trim(), last: f.last.value.trim(), gender: f.gender.value, privacyVer: Legal.VERSION };
+      if (!d.first || !d.last || !d.gender) return warn('errRegFields');
+      if (!f.privacy.checked) return warn('registerPrivacyNeeded');
+      if (!f.age14.checked) return warn('registerAgeNeeded');
+      const btn = f.querySelector('button.primary'); btn.disabled = true;
+      window.Cloud.completeProfile(d).then(() => { ui.gName = null; ui.flash = { text: t('completeDone') }; location.hash = '#/'; render(); })
+        .catch(e => { btn.disabled = false; warn('regError', { code: e.code || e.message }); });
+    },
     'profile-save': f => {
       const d = { first: f.first.value.trim(), last: f.last.value.trim(), gender: f.gender.value };
       if (!d.first || !d.last) return warn('errRegFields');
@@ -3947,14 +3983,14 @@
   });
 
   // Azioni consentite a tutti; le altre solo agli amministratori (o al ruolo indicato).
-  const PUBLIC_ACTIONS = new Set(['set-lang', 'set-theme', 'set-design', 'logout', 'reset-password', 'close-dialog', 'bk-day', 'bk-band', 'bk-type', 'bk-dur', 'bk-slot', 'bk-clear', 'bk-shorter', 'bk-longer']);
+  const PUBLIC_ACTIONS = new Set(['login-google', 'set-lang', 'set-theme', 'set-design', 'logout', 'reset-password', 'close-dialog', 'bk-day', 'bk-band', 'bk-type', 'bk-dur', 'bk-slot', 'bk-clear', 'bk-shorter', 'bk-longer']);
   // cassa: registra incassi, scarica ricevute e prospetto
   const CASH_ACTIONS = new Set(['ca-month', 'ca-addline', 'ca-xlsx', 'rc-pdf']);
   const CASH_FORMS = new Set(['ca-save']);
   // Admin Centro: allenamenti (vede tutti, annulla una giornata, elimina)
   const CENTER_ACTIONS = new Set(['tr-delete', 'occ-cancel', 'occ-remove', 'occ-restore', 'occ-copy-group', 'tr-edit', 'tr-edit-cancel', 'tr-copy', 'grp-remove', 'att-force']);
   const CENTER_FORMS = new Set(['tr-save', 'grp-add', 'occ-copy']);
-  const PUBLIC_FORMS = new Set(['login', 'register']);
+  const PUBLIC_FORMS = new Set(['login', 'register', 'complete-profile']);
   // solo admin (non la segreteria): impostazioni dei campi, regole di prenotazione, listino, avvisi, articoli, messaggi
   const ADMIN_FORMS = new Set(['court-save', 'recurring-add', 'booking-settings', 'book-rewards-save', 'msg-send', 'nick-save', 'editorial-save', 'notice-save', 'prices-save']);
   const ADMIN_ACTIONS = new Set(['court-add', 'court-delete', 'recurring-delete', 'court-copy', 'msg-delete', 'msg-target', 'editorial-edit', 'editorial-clear', 'notice-edit', 'notice-clear']);
