@@ -34,7 +34,9 @@ const prof = { first: 'Anna', last: 'Mura', gender: 'F', created: 1 };
 await env.withSecurityRulesDisabled(async c => {
   const f = c.firestore();
   await setDoc(doc(f, 'data/settings'), { json: '{}', minMinutes: 60 });
-  for (const uid of ['mario', 'luca', 'cassiere', 'coach1', 'centro', 'capo']) await setDoc(doc(f, 'members', uid), Object.assign({}, prof, { first: uid }));
+  for (const uid of ['mario', 'luca', 'cassiere', 'coach1', 'coach2', 'centro', 'capo', 'segr', 'sara']) await setDoc(doc(f, 'members', uid), Object.assign({}, prof, { first: uid }));
+  await setDoc(doc(f, 'roles/segr'), { seg: true });
+  await setDoc(doc(f, 'coaches/coach2'), { all: false, name: 'Coach Due' });
   await setDoc(doc(f, 'admins/capo'), { note: 'admin di prova' });
   await setDoc(doc(f, 'roles/cassiere'), { cash: true });
   await setDoc(doc(f, 'roles/centro'), { center: true });
@@ -174,6 +176,136 @@ await test('il coach vede i gruppi dei propri allenamenti, gli altri utenti no',
   await env.withSecurityRulesDisabled(c => setDoc(doc(c.firestore(), 'groups/t1_2030-05'), { tid: 't1', month: '2030-05', uids: ['mario'], names: { mario: 'Mura Mario' }, coachUid: 'coach1' }));
   await assertSucceeds(getDocs(query(collection(db('coach1'), 'groups'), where('coachUid', '==', 'coach1'))));
   await assertFails(getDoc(doc(db('luca'), 'groups/t1_2030-05')));
+});
+
+
+// ---------- segreteria ----------
+await test('la segreteria legge profili ed email, non è admin', async () => {
+  await assertSucceeds(getDoc(doc(db('segr'), 'members/mario')));
+  await assertSucceeds(getDoc(doc(db('segr'), 'accounts/mario')));
+  await assertSucceeds(getDocs(collection(db('segr'), 'roles')));
+  await assertFails(getDoc(doc(db('segr'), 'admins/probe')));
+});
+await test('la segreteria non cambia i ruoli né i campi', async () => {
+  await assertFails(setDoc(doc(db('segr'), 'roles/luca'), { cash: true }));
+  await assertFails(setDoc(doc(db('segr'), 'roles/segr'), { seg: true, center: true }));
+  await assertFails(setDoc(doc(db('segr'), 'data/settings'), { json: '{}', minMinutes: 30 }));
+});
+await test('la segreteria crea un utente e un allenatore', async () => {
+  const f = db('segr'), b = writeBatch(f);
+  b.set(doc(f, 'members/nuovo2'), prof); b.set(doc(f, 'accounts/nuovo2'), { email: 'n2@prova.it', verified: false });
+  b.set(doc(f, 'verified/nuovo2'), { by: 'segr', at: 1 }); b.set(doc(f, 'coaches/nuovo2'), { all: false, name: 'Nuovo' });
+  await assertSucceeds(b.commit());
+});
+await test('la segreteria modifica ed elimina utenti e allenatori, non admin e cassa', async () => {
+  await assertSucceeds(setDoc(doc(db('segr'), 'members/sara'), Object.assign({}, prof, { first: 'Sarina' })));
+  await assertFails(setDoc(doc(db('segr'), 'members/luca'), Object.assign({}, prof, { first: 'Luchino' })));   // luca ora è cassa
+  await assertFails(setDoc(doc(db('segr'), 'members/cassiere'), Object.assign({}, prof, { first: 'X' })));
+  await assertFails(deleteDoc(doc(db('segr'), 'members/capo')));
+  await assertFails(deleteDoc(doc(db('segr'), 'members/centro')));
+  await assertFails(deleteDoc(doc(db('segr'), 'members/cassiere')));
+  await assertSucceeds(deleteDoc(doc(db('segr'), 'members/nuovo2')));
+});
+await test('la segreteria gestisce corsisti, cassa e prenotazioni di tutti', async () => {
+  await assertSucceeds(getDoc(doc(db('segr'), 'athletes/mario')));
+  await assertSucceeds(setDoc(doc(db('segr'), 'athletes/mario'), { certExp: '2027-02-01', certType: 'agon' }, { merge: true }));
+  await assertSucceeds(setDoc(doc(db('segr'), 'incassi/i9'), inc('segr')));
+  await assertSucceeds(updateDoc(doc(db('segr'), 'receipts/r1'), { void: false }));
+  const f = db('segr'), b = writeBatch(f);
+  ['09:00', '09:30'].forEach(t => { const x = { courtId: 'c1', date: '2030-05-08', start: t, from: '09:00', to: '10:00', gid: 'gs', userId: 'segr', blocked: '', first: t === '09:00', guest: 'Ospite' }; b.set(doc(f, 'bookings', `2030-05-08_c1_${t}`), x); b.set(doc(f, 'busy', `2030-05-08_c1_${t}`), busyOf(x)); });
+  await assertSucceeds(b.commit());
+});
+await test('la cassa non legge le schede dei corsisti', async () => {
+  await assertFails(getDoc(doc(db('cassiere'), 'athletes/mario')));
+});
+
+// ---------- durata delle prenotazioni: da 1 h a 2 h, a mezz'ore ----------
+async function bookRange(uid, date, from, to) {
+  const f = db(uid), b = writeBatch(f), gid = 'g' + from.replace(':', '');
+  const mm = hm => +hm.slice(0, 2) * 60 + +hm.slice(3), hm = n => String(Math.floor(n / 60)).padStart(2, '0') + ':' + String(n % 60).padStart(2, '0');
+  for (let x = mm(from); x < mm(to); x += 30) { const t = hm(x), s = { courtId: 'c2', date, start: t, from, to, gid, userId: uid, blocked: '', first: t === from }; b.set(doc(f, 'bookings', `${date}_c2_${t}`), s); b.set(doc(f, 'busy', `${date}_c2_${t}`), busyOf(s)); }
+  return b.commit();
+}
+await test('prenotazione di 1 h 30: ammessa', async () => { await assertSucceeds(bookRange('luca', '2030-05-09', '10:00', '11:30')); });
+await test('prenotazione di 2 h: ammessa', async () => { await assertSucceeds(bookRange('mario', '2030-05-10', '10:00', '12:00')); });
+await test('prenotazione di 2 h 30: rifiutata', async () => { await assertFails(bookRange('mario', '2030-05-11', '10:00', '12:30')); });
+await test('senza minMinutes nelle impostazioni la durata minima è 60 minuti', async () => {
+  await env.withSecurityRulesDisabled(c => setDoc(doc(c.firestore(), 'data/settings'), { json: '{}' }));
+  await assertFails(bookRange('luca', '2030-05-12', '10:00', '10:30'));
+  await assertSucceeds(bookRange('luca', '2030-05-12', '11:00', '12:00'));
+  await env.withSecurityRulesDisabled(c => setDoc(doc(c.firestore(), 'data/settings'), { json: '{}', minMinutes: 60, maxMinutes: 120 }));
+});
+
+// ---------- allenatore: presenze e scheda di valutazione ----------
+await env.withSecurityRulesDisabled(async c => {
+  const f = c.firestore();
+  await setDoc(doc(f, 'trainings/t2'), { name: 'Padel', dow: 2, from: '18:00', to: '19:00', coachUid: 'coach2' });
+  await setDoc(doc(f, 'groups/t1_2030-05'), { tid: 't1', month: '2030-05', uids: ['mario', 'sara'], names: {}, coachUid: 'coach1' });
+});
+const att = (uid, st) => ({ tid: 't1', date: '2030-05-06', uid, status: st, at: 1, coachUid: 'coach1', forced: true, by: 'coach1' });
+await test('l\'allenatore segna le presenze del suo allenamento', async () => {
+  const f = db('coach1'), b = writeBatch(f);
+  b.set(doc(f, 'att/t1_2030-05-06_mario'), att('mario', 'in'));
+  b.set(doc(f, 'occ/t1_2030-05-06'), { tid: 't1', date: '2030-05-06', p: 1, a: 0, s: 0, cancelled: false });
+  await assertSucceeds(b.commit());
+});
+await test('l\'allenatore non segna presenze di altri allenamenti o di chi non è nel gruppo', async () => {
+  await assertFails(setDoc(doc(db('coach2'), 'att/t1_2030-05-06_sara'), Object.assign(att('sara', 'in'), { by: 'coach2' })));
+  await assertFails(setDoc(doc(db('coach1'), 'att/t1_2030-05-06_luca'), att('luca', 'in')));
+  await assertFails(updateDoc(doc(db('coach1'), 'occ/t1_2030-05-06'), { cancelled: true }));
+});
+await test('l\'allenatore non vede schede, certificati e pacchetti dei corsisti', async () => {
+  await assertFails(getDoc(doc(db('coach1'), 'athletes/mario')));
+  await env.withSecurityRulesDisabled(c => setDoc(doc(c.firestore(), 'packs/k1'), { uid: 'mario', n: 2, used: 0, price: 40, from: '2030-01-01' }));
+  await assertFails(getDoc(doc(db('coach1'), 'packs/k1')));
+});
+const ev = (by, v, extra) => Object.assign({ tid: 't1', date: '2030-05-06', uid: 'mario', coachUid: 'coach1', by, v, note: 'Buon dritto / rovescio in ritardo', at: 1 }, extra || {});
+await test('scheda di valutazione: l\'allenatore la scrive con voti interi da 1 a 10', async () => {
+  await assertSucceeds(setDoc(doc(db('coach1'), 'evals/t1_2030-05-06_mario'), ev('coach1', { tec: 7, mov: 5, con: 10 })));
+  await assertSucceeds(setDoc(doc(db('coach1'), 'evals/t1_2030-05-06_mario'), ev('coach1', {})));   // tutti i voti sono facoltativi
+});
+await test('scheda di valutazione: voti fuori scala, decimali o voci in più rifiutati', async () => {
+  await assertFails(setDoc(doc(db('coach1'), 'evals/t1_2030-05-06_mario'), ev('coach1', { tec: 11 })));
+  await assertFails(setDoc(doc(db('coach1'), 'evals/t1_2030-05-06_mario'), ev('coach1', { tec: 0 })));
+  await assertFails(setDoc(doc(db('coach1'), 'evals/t1_2030-05-06_mario'), ev('coach1', { tec: 6.5 })));
+  await assertFails(setDoc(doc(db('coach1'), 'evals/t1_2030-05-06_mario'), ev('coach1', { servizio: 7 })));
+  await assertFails(setDoc(doc(db('coach1'), 'evals/t1_2030-05-06_mario'), ev('coach1', { tec: 7 }, { note: 'x'.repeat(161) })));
+});
+await test('scheda di valutazione: solo corsisti del gruppo e solo l\'allenatore di quell\'allenamento', async () => {
+  await assertFails(setDoc(doc(db('coach1'), 'evals/t1_2030-05-06_luca'), ev('coach1', { tec: 7 }, { uid: 'luca' })));
+  await assertFails(setDoc(doc(db('coach2'), 'evals/t1_2030-05-06_sara'), ev('coach2', { tec: 7 }, { uid: 'sara' })));
+  await assertFails(setDoc(doc(db('mario'), 'evals/t1_2030-05-06_sara'), ev('mario', { tec: 7 }, { uid: 'sara' })));
+  await assertSucceeds(setDoc(doc(db('segr'), 'evals/t1_2030-05-06_sara'), ev('segr', { att: 4 }, { uid: 'sara' })));
+});
+await test('scheda di valutazione: la leggono admin, segreteria e l\'allenatore, non il corsista', async () => {
+  await assertSucceeds(getDoc(doc(db('coach1'), 'evals/t1_2030-05-06_mario')));
+  await assertSucceeds(getDocs(query(collection(db('coach1'), 'evals'), where('coachUid', '==', 'coach1'))));
+  await assertSucceeds(getDoc(doc(db('capo'), 'evals/t1_2030-05-06_mario')));
+  await assertSucceeds(getDoc(doc(db('segr'), 'evals/t1_2030-05-06_mario')));
+  await assertFails(getDoc(doc(db('mario'), 'evals/t1_2030-05-06_mario')));
+  await assertFails(getDoc(doc(db('coach2'), 'evals/t1_2030-05-06_mario')));
+});
+
+// ---------- pacchetti: scalo nell'app (niente Cloud Functions) ----------
+const use = by => ({ pack: 'k1', uid: 'mario', tid: 't1', date: '2030-05-06', at: 1, by });
+await test('la segreteria scala un pacchetto: packuse e used insieme', async () => {
+  const f = db('segr'), b = writeBatch(f);
+  b.set(doc(f, 'packuse/t1_2030-05-06_mario'), use('segr')); b.update(doc(f, 'packs/k1'), { used: 1 });
+  await assertSucceeds(b.commit());
+});
+await test('il pacchetto non scende sotto zero lezioni rimaste', async () => {
+  await assertFails(updateDoc(doc(db('capo'), 'packs/k1'), { used: 3 }));
+  await assertFails(updateDoc(doc(db('capo'), 'packs/k1'), { used: -1 }));
+});
+await test('allenatore e corsista non scalano i pacchetti', async () => {
+  await assertFails(setDoc(doc(db('coach1'), 'packuse/t1_2030-05-07_mario'), Object.assign(use('coach1'), { date: '2030-05-07' })));
+  await assertFails(updateDoc(doc(db('mario'), 'packs/k1'), { used: 0 }));
+  await assertFails(setDoc(doc(db('mario'), 'packuse/t1_2030-05-07_mario'), Object.assign(use('mario'), { date: '2030-05-07' })));
+});
+await test('il corsista vede il proprio pacchetto e le lezioni scalate', async () => {
+  await assertSucceeds(getDoc(doc(db('mario'), 'packs/k1')));
+  await assertSucceeds(getDoc(doc(db('mario'), 'packuse/t1_2030-05-06_mario')));
+  await assertFails(getDoc(doc(db('luca'), 'packuse/t1_2030-05-06_mario')));
 });
 
 await env.cleanup();
