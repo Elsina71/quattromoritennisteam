@@ -265,6 +265,89 @@ dialog[open] { animation: pop var(--t-ui) var(--ease-out); }
 
 .footer { margin-top: 48px; color: var(--muted); font-size: var(--fs-small); }
 
+
+/* ---------- pezzo 2: allenamenti, valutazioni, corsisti ---------- */
+.pill.neg { background: var(--pill-negative-bg); color: var(--pill-negative-ink); }
+.back { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 8px; color: var(--muted); font-size: 13px; transition: color var(--t-hover) ease; }
+.back:hover { color: var(--text); }
+.back .ic { width: 14px; height: 14px; }
+.notice.strong { border-color: #f5c2c0; background: var(--pill-negative-bg); color: var(--pill-negative-ink); }
+.notice { margin-bottom: 16px; }
+.notice .link { color: inherit; margin-left: 6px; }
+.form-foot { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 24px; }
+.form-foot .left { margin-right: auto; }
+.field.check { grid-template-columns: auto 1fr; align-items: center; gap: 12px; }
+.field.check > span { font-weight: 400; }
+textarea.input.area { height: auto; padding: 10px 12px; resize: vertical; line-height: 20px; }
+.search.wide { width: 100%; }
+.pick-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 4px 16px; max-height: 280px; overflow: auto; padding: 4px 0; }
+.pick { display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 0 8px; border-radius: 6px; cursor: pointer; transition: background-color var(--t-hover) ease; }
+.pick:hover { background: var(--raised); }
+.pick input { width: 16px; height: 16px; accent-color: var(--accent); margin: 0; }
+.pick small { margin-left: auto; color: var(--muted); font-size: var(--fs-small); }
+
+/* allenamenti della settimana */
+.day-group { margin-top: 28px; }
+.day-group h2 { font-size: 15px; line-height: 20px; font-weight: 600; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.day-group.today h2::after { content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 8px; border-radius: 50%; background: var(--signal); vertical-align: middle; }
+.day-group td { padding-top: 12px; padding-bottom: 12px; }
+.tr-time { width: 140px; }
+td .ink { font-weight: 500; color: var(--text); }
+.section-h { font-size: var(--fs-section); line-height: 24px; font-weight: 600; }
+.section-h .meta { font-weight: 400; font-size: 14px; margin-left: 6px; }
+.tr-notes { margin: -8px 0 8px; color: var(--muted); max-width: 70ch; }
+.add-athlete .input { height: var(--control-height); width: auto; min-width: 220px; }
+.eval-cta { margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border); }
+.btn.big { height: 48px; padding: 0 20px; font-size: 15px; }
+
+/* allenamento nel tabellone: contorno tratteggiato, si distingue dalle prenotazioni */
+.slot.training { background: var(--surface); color: var(--muted); border: 1px dashed #8a94a8; }
+a.slot.training { display: block; transition: background-color var(--t-hover) ease; }
+a.slot.training:hover { background: var(--accent-soft); }
+.slot .who-line { display: block; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.legend i.k-training { background: var(--surface); border: 1px dashed #8a94a8; }
+
+/* la scheda di valutazione */
+.ev-help { max-width: 78ch; color: var(--muted); margin: -8px 0 20px; }
+.ev { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: var(--gap); align-items: start; }
+.ev-people { display: grid; gap: 4px; position: sticky; top: 24px; }
+.chip { display: grid; gap: 2px; padding: 8px 12px; border: 0; border-radius: 8px; background: transparent; text-align: left; cursor: pointer; transition: background-color var(--t-hover) ease; }
+.chip:hover { background: var(--raised); }
+.chip b { font-weight: 500; }
+.chip small { color: var(--muted); font-size: var(--fs-small); }
+.chip.on { background: var(--accent-soft); }
+.chip.on b { color: var(--accent-ink); }
+.ev-sheet { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); padding: 20px 24px 24px; scroll-margin-top: 64px; }
+.ev-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.ev-head h2 { font-size: 20px; line-height: 26px; font-weight: 600; }
+.ev-cols { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; padding: 8px 0; border-bottom: 1px solid var(--border); color: var(--muted); font-size: var(--fs-small); }
+.pass-key { margin-left: 8px; }
+.ev-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 24px; padding: 14px 0; border-bottom: 1px solid var(--rule); }
+.ev-label b { display: block; font-weight: 600; font-size: 15px; line-height: 20px; }
+.ev-label span { display: block; color: var(--muted); line-height: 18px; margin-top: 2px; }
+.scale { display: flex; gap: 4px; }
+.sc { width: 34px; height: 34px; border: 1px solid var(--control); border-radius: 6px; background: var(--surface); color: var(--text); font-weight: 500; cursor: pointer; font-variant-numeric: tabular-nums; transition: background-color var(--t-hover) ease, border-color var(--t-hover) ease, transform var(--t-press) var(--ease-out); }
+.sc:hover { background: var(--raised); }
+.sc:active { transform: translateY(1px); }
+.sc.pass { margin-left: 10px; }   /* lo stacco prima del 6: la sufficienza */
+.sc.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.sc.on.low { background: var(--pill-negative-bg); border-color: #f0b6b3; color: var(--pill-negative-ink); }
+.ev-note { margin-top: 20px; }
+
+/* scheda del corsista: medie per voce */
+.avg-list { display: grid; gap: 10px; }
+.avg-row { display: grid; grid-template-columns: 130px minmax(0, 1fr) 40px 110px; align-items: center; gap: 12px; }
+.bar { position: relative; height: 8px; border-radius: 4px; background: var(--raised); }
+.bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--accent); }
+.bar i.low { background: var(--negative); }
+.bar em { position: absolute; top: -3px; bottom: -3px; width: 1px; background: var(--text); opacity: .35; }
+.avg-val { text-align: right; font-weight: 600; }
+.avg-n { font-size: var(--fs-small); }
+.sub-h { margin: 24px 0 4px; font-size: 14px; font-weight: 600; }
+.ev-hist { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
+.ev-mini { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: var(--fs-small); color: var(--muted); }
+.ev-mini .low { color: var(--negative); }
+
 /* ---------- tablet e telefono: la barra laterale diventa un menu ---------- */
 @media (max-width: 900px) {
   .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; }
@@ -312,5 +395,21 @@ dialog[open] { animation: pop var(--t-ui) var(--ease-out); }
   table.stack td.act .link + .link { margin-left: 0; margin-top: 8px; display: block; }
   .court-row { grid-template-columns: minmax(0, 1fr) auto; }
   .court-row .pill { display: none; }
+  .ev { grid-template-columns: minmax(0, 1fr); }
+  .ev-people { position: static; display: flex; overflow-x: auto; gap: 6px; scrollbar-width: none; }
+  .chip { flex: none; background: var(--raised); }
+  .ev-sheet { padding: 16px; }
+  .ev-cols { display: none; }
+  .ev-row { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .scale { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) 10px repeat(5, minmax(0, 1fr)); gap: 4px; }
+  .sc { width: auto; height: 44px; }
+  .sc.pass { margin-left: 0; grid-column: 7; }
+  .avg-row { grid-template-columns: 96px minmax(0, 1fr) 36px; }
+  .avg-n { display: none; }
+  .add-athlete .input { min-width: 0; width: 100%; }
+  .tr-time { width: auto; }
+  .form-foot { flex-wrap: wrap; }
+  .form-foot .btn { flex: 1; }
+  .form-foot .left { flex-basis: 100%; order: 3; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: .01ms !important; animation: none !important; } }

@@ -112,5 +112,56 @@ await test('cancellazione: chi ha prenotato o lo staff', async () => {
   await assertSucceeds(del(ctx('seg')));
 });
 
+function training(db, { id, coachId = 'coach', start = '16:00', dur = 90, athleteIds = ['a1', 'a2'], by = 'seg', slots }) {
+  const half = []; const [h, m] = start.split(':').map(Number);
+  for (let x = h * 60 + m; x < h * 60 + m + dur; x += 30) half.push(String(Math.floor(x / 60)).padStart(2, '0') + ':' + String(x % 60).padStart(2, '0'));
+  const endM = h * 60 + m + dur; const end = String(Math.floor(endM / 60)).padStart(2, '0') + ':' + String(endM % 60).padStart(2, '0');
+  const b = writeBatch(db);
+  b.set(doc(db, 'trainings', id), { title: 'Under 12', courtId: 'c1', date: '2026-11-12', start, end, last: half[half.length - 1], dur,
+    coachId, coachName: 'Coach X', athleteIds, names: { a1: 'Anna', a2: 'Bea' }, series: '', notes: '', createdBy: by });
+  (slots || half).forEach(t => b.set(doc(db, 'slots', 'c1_2026-11-12_' + t.replace(':', '')), { courtId: 'c1', date: '2026-11-12', time: t, trainingId: id }));
+  return b.commit();
+}
+const evalDoc = (tid, aid, scores, by = 'coach') => ({ trainingId: tid, athleteId: aid, athleteName: 'Anna', date: '2026-11-12', title: 'Under 12', coachId: 'coach', scores, note: 'Buon dritto', by });
+
+await test('corsisti: solo staff', async () => {
+  const a = { first: 'Anna', last: 'Pala', birth: '2014-05-02', phone: '', email: '', parent: 'Mario Pala', notes: '',
+    certType: 'agonistico', certExpiry: '2027-01-10', fitpPaid: true, fitpYear: 2026, active: true };
+  await assertSucceeds(setDoc(doc(ctx('seg'), 'athletes/a1'), a));
+  await assertFails(setDoc(doc(ctx('coach'), 'athletes/a2'), a));
+  await assertFails(getDoc(doc(ctx('coach'), 'athletes/a1')));
+  await assertFails(getDoc(doc(ctx('anna'), 'athletes/a1')));
+  await assertFails(setDoc(doc(ctx('seg'), 'athletes/a3'), Object.assign({}, a, { certType: 'sì' })));
+});
+
+await test('allenamenti: lo staff li crea, occupano il campo, l\'allenatore vede i suoi', async () => {
+  await assertSucceeds(training(ctx('seg'), { id: 't1' }));
+  await assertFails(booking(ctx('anna'), { id: 'b1', uid: 'anna', start: '17:00', dur: 60 }));   // campo occupato dall'allenamento
+  await assertFails(training(ctx('coach'), { id: 't2', start: '10:00', by: 'coach' }));
+  await assertFails(training(ctx('seg'), { id: 't3', start: '11:00', slots: [] }));
+  await assertSucceeds(getDoc(doc(ctx('coach'), 'trainings/t1')));
+  await assertSucceeds(getDocs(query(collection(ctx('coach'), 'trainings'), where('coachId', '==', 'coach'))));
+  await assertFails(getDoc(doc(ctx('anna'), 'trainings/t1')));
+  await assertSucceeds(updateDoc(doc(ctx('seg'), 'trainings/t1'), { athleteIds: ['a1'], names: { a1: 'Anna' } }));
+  await assertFails(updateDoc(doc(ctx('seg'), 'trainings/t1'), { start: '17:00' }));
+  await assertFails(updateDoc(doc(ctx('coach'), 'trainings/t1'), { title: 'Altro' }));
+  const s = await getDoc(doc(anon(), 'slots/c1_2026-11-12_1600'));
+  assert.deepEqual(Object.keys(s.data()).sort(), ['courtId', 'date', 'time', 'trainingId']);
+  await assertFails(deleteDoc(doc(ctx('anna'), 'slots/c1_2026-11-12_1600')));
+});
+
+await test('valutazioni: l\'allenatore del suo allenamento, voti da 1 a 10', async () => {
+  await training(ctx('seg'), { id: 't1' });
+  await assertSucceeds(setDoc(doc(ctx('coach'), 'evals/t1_a1'), evalDoc('t1', 'a1', { tecnica: 7, consistenza: 5 })));
+  await assertFails(setDoc(doc(ctx('coach'), 'evals/t1_a1'), evalDoc('t1', 'a1', { tecnica: 11 })));
+  await assertFails(setDoc(doc(ctx('coach'), 'evals/t1_a1'), evalDoc('t1', 'a1', { tecnica: 6.5 })));
+  await assertFails(setDoc(doc(ctx('coach'), 'evals/t1_a1'), evalDoc('t1', 'a1', { velocita: 6 })));
+  await assertFails(setDoc(doc(ctx('coach'), 'evals/t1_a9'), Object.assign(evalDoc('t1', 'a9', { tecnica: 6 }))));   // non iscritto
+  await assertFails(setDoc(doc(ctx('anna'), 'evals/t1_a2'), evalDoc('t1', 'a2', { tecnica: 6 }, 'anna')));
+  await assertSucceeds(setDoc(doc(ctx('seg'), 'evals/t1_a2'), evalDoc('t1', 'a2', { tecnica: 6 }, 'seg')));
+  await assertSucceeds(getDocs(query(collection(ctx('coach'), 'evals'), where('trainingId', '==', 't1'), where('coachId', '==', 'coach'))));
+  await assertFails(getDoc(doc(ctx('anna'), 'evals/t1_a1')));
+});
+
 await env.cleanup();
 console.log(`ok, ${n} gruppi di prove sulle regole superati`);
