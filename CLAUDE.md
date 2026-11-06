@@ -22,7 +22,7 @@ allenamenti, allenatori, cassa. Regole decise dal titolare: valgono per ogni mod
 - La lista completa degli utenti la vedono solo admin e segreteria. Un elenco a scelta dentro un modulo va bene.
 - Le email non sono mai visibili agli altri utenti.
 - Prenotazioni: i nomi li vedono solo admin, segreteria e chi ha prenotato; tutti gli altri vedono solo libero/occupato
-  (collezione `slots` pubblica e senza nomi, `bookings` riservata).
+  (collezione `busy` pubblica e senza nomi, `bookings` riservata).
 
 ## Prenotazioni
 - Campi definiti dall'admin: nome, tipo (Tennis o Padel), orari di apertura.
@@ -52,12 +52,25 @@ allenamenti, allenatori, cassa. Regole decise dal titolare: valgono per ogni mod
 - Certificato medico agonistico o non agonistico, con avvisi a 30 e a 7 giorni dalla scadenza.
 
 ## Grafica
-- Colori dal logo: blu del cerchio come unico colore (pieno solo sui segni piccoli, tinte chiare sulle superfici),
-  rosso della croce solo come segnale (marchio, linea dell'ora attuale). Carattere DM Sans. Niente ombre a riposo,
-  niente gradienti. Deve restare diversa dalle altre app del titolare.
+- L'app deriva da Beach+ Arena (stessa grafica e stessi componenti): lo stile predefinito è il design **Quattro Mori**
+  (Oswald + Source Sans 3, foto della bandiera, bordi rossi). Ognuno può scegliere un altro design e una tavolozza
+  di colori in Impostazioni (scelta salvata solo su quel dispositivo, con il consenso alle preferenze).
+- Gli stili delle feste (Halloween, Natale, Capodanno, Befana) si accendono da soli nei loro periodi (`js/boot.js`).
+- Marchio: `img/mark.svg` (cerchio blu, croce rossa, quattro palline); icone PNG generate da quello.
+- Lingue: italiano (predefinita) e inglese (`js/i18n.js`). I testi legali sono solo in italiano (`js/legal.js`).
 
 ## Tecnica
-- JavaScript puro, nessun passaggio di compilazione. Firebase 10.12.2 in `vendor/firebase`.
+- JavaScript puro, nessun passaggio di compilazione. Firebase 10.12.2 in `vendor/firebase`; icone Tabler in `vendor/tabler`;
+  jsPDF (ricevute) e JSZip (Excel e ZIP) in `vendor/jspdf` e `vendor/jszip`, caricati solo quando servono.
+- File principali: `index.html`, `js/club.js` (dati dell'associazione: un solo posto), `js/app.js` (pagine e azioni),
+  `js/cloud.js` (database e login), `js/store.js` (stato), `js/i18n.js`, `js/legal.js`, `js/boot.js`, `css/style.css`,
+  `firestore.rules`.
 - Indirizzo pubblico: https://quattromoritennisteam.web.app (sito Hosting `quattromoritennisteam`).
-- Progetto Firebase `quattromoritennisteam-d3258`, database in `europe-west8`, piano Spark (niente Cloud Functions per ora).
-- Prove: `npm test` (calcoli) e `npm run test:rules` (regole, con l'emulatore). Girano anche su GitHub prima di pubblicare.
+- Progetto Firebase `quattromoritennisteam-d3258`, database in `europe-west8`, piano Spark (niente Cloud Functions per ora):
+  niente notifiche push; eliminando un utente l'account di accesso resta (si toglie dalla console); lo scalo automatico
+  dei pacchetti di allenamenti (`packuse`) è da rifare (TODO passo 2).
+- Ruoli oggi: admin generale (titolare, per impronta dell'email; altri nella raccolta `admins`), Admin Centro
+  (`roles/{uid}.center`), cassa (`roles/{uid}.cash`), coach (`coaches/{uid}`). La segreteria arriva nel passo 2.
+- Prove: `npm test` (calcoli), `npm run test:rules` (regole, con l'emulatore), `npm run check` (sintassi). Le prime due
+  girano anche su GitHub prima di pubblicare. In locale: `npm run emulatori`, `npm run dati-prova`, poi
+  `python3 -m http.server 5173` e http://localhost:5173/?emu=1.

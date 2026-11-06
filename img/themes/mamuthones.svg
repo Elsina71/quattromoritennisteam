@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1200 300" preserveAspectRatio="xMidYMid slice">
+  <!-- Ispirato ai Mamuthones di Mamoiada: maschera di legno scuro, fazzoletto, pelli di pecora nere e campanacci. Disegno originale. -->
+  <defs>
+    <pattern id="vello" width="22" height="18" patternUnits="userSpaceOnUse">
+      <path d="M2 12 q4 -9 9 0 q4 -9 9 0" fill="none" stroke="#2c241e" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M-9 3 q4 -8 9 0 q4 -8 9 0 q4 -8 9 0" fill="none" stroke="#231c17" stroke-width="2" stroke-linecap="round"/>
+    </pattern>
+    <radialGradient id="legno" cx=".45" cy=".35" r=".8">
+      <stop offset="0" stop-color="#5a4130"/><stop offset=".55" stop-color="#2e2018"/><stop offset="1" stop-color="#140d09"/>
+    </radialGradient>
+    <linearGradient id="bronzo" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#e2b55c"/><stop offset="1" stop-color="#8a5f1f"/>
+    </linearGradient>
+    <g id="campanaccio">
+      <path d="M-11 0 Q-12 -20 0 -21 Q12 -20 11 0 L15 9 L-15 9 Z" fill="url(#bronzo)"/>
+      <circle cx="0" cy="12" r="3.4" fill="#6b4716"/>
+    </g>
+    <g id="maschera">
+      <path d="M-78 -96 Q0 -140 78 -96 L104 120 L-104 120 Z" fill="#4a2f1c"/>
+      <path d="M-78 -96 Q0 -140 78 -96 L70 -80 Q0 -118 -70 -80 Z" fill="#5d3c24"/>
+      <path d="M-46 -72 Q0 -98 46 -72 Q62 -10 42 50 Q0 88 -42 50 Q-62 -10 -46 -72 Z" fill="url(#legno)"/>
+      <path d="M-40 -36 Q-22 -54 -4 -33" fill="none" stroke="#0e0906" stroke-width="9" stroke-linecap="round"/>
+      <path d="M40 -36 Q22 -54 4 -33" fill="none" stroke="#0e0906" stroke-width="9" stroke-linecap="round"/>
+      <ellipse cx="-21" cy="-24" rx="9" ry="5" fill="#000"/>
+      <ellipse cx="21" cy="-24" rx="9" ry="5" fill="#000"/>
+      <path d="M0 -32 L-11 12 Q0 19 11 12 Z" fill="#1a110c"/>
+      <path d="M-15 34 Q0 27 15 34 Q0 43 -15 34 Z" fill="#050302"/>
+      <path d="M-34 6 Q-28 26 -18 40 M34 6 Q28 26 18 40" fill="none" stroke="#120b07" stroke-width="3"/>
+      <path d="M-104 120 Q-60 100 0 108 Q60 100 104 120 L110 170 L-110 170 Z" fill="url(#vello)"/>
+      <use xlink:href="#campanaccio" x="-66" y="140"/><use xlink:href="#campanaccio" x="-33" y="148"/>
+      <use xlink:href="#campanaccio" x="0" y="151"/><use xlink:href="#campanaccio" x="33" y="148"/><use xlink:href="#campanaccio" x="66" y="140"/>
+    </g>
+  </defs>
+  <rect width="1200" height="300" fill="#16110d"/>
+  <rect width="1200" height="300" fill="url(#vello)" opacity=".9"/>
+  <use xlink:href="#maschera" transform="translate(300 150) scale(.82)"/>
+  <use xlink:href="#maschera" transform="translate(600 140) scale(.95)"/>
+  <use xlink:href="#maschera" transform="translate(900 150) scale(.82)"/>
+</svg>

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1200 300" preserveAspectRatio="xMidYMid slice">
+  <!-- Ispirato alla bandiera dei Quattro Mori: croce rossa in campo bianco, quattro teste con la benda sulla fronte. Disegno originale. -->
+  <defs>
+    <g id="moro">
+      <path d="M32 98 L32 80 C18 74 10 60 12 44 C14 22 32 6 54 6 C74 6 88 19 90 36 L95 47 C97 51 95 53 91 54 L93 61 C94 64 91 66 88 66 L89 71 C90 78 84 82 76 80 L68 79 L68 98 Z" fill="#111"/>
+      <path d="M12 38 C30 33 60 30 90 31 L91 41 C62 40 32 43 13 48 Z" fill="#fff"/>
+      <path d="M14 42 L2 50 L9 54 L4 62 L17 52 Z" fill="#fff"/>
+    </g>
+  </defs>
+  <rect width="1200" height="300" fill="#fff"/>
+  <rect x="0" y="128" width="1200" height="44" fill="#c8102e"/>
+  <rect x="878" y="0" width="44" height="300" fill="#c8102e"/>
+  <use xlink:href="#moro" transform="translate(775 34) scale(.9)"/>
+  <use xlink:href="#moro" transform="translate(995 34) scale(.9)"/>
+  <use xlink:href="#moro" transform="translate(775 178) scale(.9)"/>
+  <use xlink:href="#moro" transform="translate(995 178) scale(.9)"/>
+</svg>

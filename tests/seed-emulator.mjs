@@ -1,21 +1,29 @@
 // Dati di prova per l'emulatore (solo in locale, mai sul database vero).
-// Con gli emulatori accesi: node tests/seed-emulator.mjs
+// Con gli emulatori accesi (npm run emulatori): node tests/seed-emulator.mjs
 // Poi apri http://localhost:5173/?emu=1 — password di tutti gli account di prova: prova123
+//   admin.prova@esempio.it (admin), giulia.serra@esempio.it (cassa), marco.pinna@esempio.it (coach),
+//   andrea.melis@esempio.it, sara.murru@esempio.it, luca.porcu@esempio.it (utenti)
 const PROJECT = 'quattromoritennisteam-d3258';
 const FS = `http://127.0.0.1:8080/v1/projects/${PROJECT}/databases/(default)/documents`;
 const AUTH = 'http://127.0.0.1:9099';
 const H = { 'Content-Type': 'application/json', Authorization: 'Bearer owner' };   // "owner" salta le regole nell'emulatore
 
 const pad = n => String(n).padStart(2, '0');
-const d = new Date();
-const today = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const tomorrow = (() => { const x = new Date(d); x.setDate(x.getDate() + 1); return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`; })();
+const ymd = x => `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`;
+const now = new Date();
+const today = ymd(now);
+const plus = n => { const x = new Date(now); x.setDate(x.getDate() + n); return ymd(x); };
+const month = today.slice(0, 7);
+const dowOf = d => { const x = new Date(d + 'T12:00').getDay(); return x === 0 ? 7 : x; };
+const addMin = (hm, n) => { const [h, m] = hm.split(':').map(Number), x = h * 60 + m + n; return `${pad(Math.floor(x / 60))}:${pad(x % 60)}`; };
 
 function val(v) {
-  if (v === null) return { nullValue: null };
+  if (v === null || v === undefined) return { nullValue: null };
   if (typeof v === 'boolean') return { booleanValue: v };
   if (Number.isInteger(v)) return { integerValue: String(v) };
-  if (v instanceof Date) return { timestampValue: v.toISOString() };
+  if (typeof v === 'number') return { doubleValue: v };
+  if (Array.isArray(v)) return { arrayValue: { values: v.map(val) } };
+  if (typeof v === 'object') return { mapValue: { fields: Object.fromEntries(Object.entries(v).map(([k, x]) => [k, val(x)])) } };
   return { stringValue: String(v) };
 }
 const fields = o => ({ fields: Object.fromEntries(Object.entries(o).map(([k, v]) => [k, val(v)])) });
@@ -27,127 +35,65 @@ async function put(path, data) {
 await fetch(`http://127.0.0.1:8080/emulator/v1/projects/${PROJECT}/databases/(default)/documents`, { method: 'DELETE' });
 await fetch(`${AUTH}/emulator/v1/projects/${PROJECT}/accounts`, { method: 'DELETE' });
 
-const people = [
-  ['Giulia', 'Serra', 'segreteria', '+39 347 218 4401'],
-  ['Marco', 'Pinna', 'allenatore', '+39 340 991 2075'],
-  ['Elena', 'Cossu', 'allenatore', '+39 349 553 1180'],
-  ['Andrea', 'Melis', 'utente', '+39 333 610 7724'],
-  ['Francesca', 'Deiana', 'utente', ''],
-  ['Luca', 'Porcu', 'utente', '+39 328 404 9136'],
-  ['Sara', 'Murru', 'utente', '+39 345 772 0581'],
-  ['Davide', 'Sanna', 'utente', ''],
-  ['Chiara', 'Loi', 'utente', '+39 339 118 6629'],
-  ['Paolo', 'Atzeni', 'admin', '+39 335 240 8817']
-];
-const uids = {};
-for (const [first, last, role, phone] of people) {
-  const email = `${first}.${last}@esempio.it`.toLowerCase();
-  const r = await fetch(`${AUTH}/identitytoolkit.googleapis.com/v1/accounts:signUp?key=demo`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: 'prova123', displayName: `${first} ${last}` })
-  });
+// account (email già confermata)
+const people = [['Paolo', 'Atzeni', 'M', 'admin.prova'], ['Giulia', 'Serra', 'F'], ['Marco', 'Pinna', 'M'], ['Andrea', 'Melis', 'M'], ['Sara', 'Murru', 'F'], ['Luca', 'Porcu', 'M'], ['Chiara', 'Loi', 'F']];
+const uid = {};
+for (const [first, last, gender, user] of people) {
+  const email = `${user || `${first}.${last}`}@esempio.it`.toLowerCase();
+  const r = await fetch(`${AUTH}/identitytoolkit.googleapis.com/v1/accounts:signUp?key=demo`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: 'prova123' }) });
   const { localId } = await r.json();
-  uids[first] = localId;
-  const joined = new Date(2026, 8 + (first.length % 3), 3 + first.length * 2);
-  await put(`users/${localId}`, { first, last, phone, email, role, lang: 'it', createdAt: joined });
+  await fetch(`${AUTH}/identitytoolkit.googleapis.com/v1/projects/${PROJECT}/accounts:update`, { method: 'POST', headers: H, body: JSON.stringify({ localId, emailVerified: true }) });
+  uid[first] = localId;
+  await put(`members/${localId}`, { first, last, gender, created: Date.now(), privacyAt: Date.now(), privacyVer: '2026-11-06' });
+  await put(`accounts/${localId}`, { email, verified: true });
+}
+await put('dir/members', Object.fromEntries(people.map(([f, l, g]) => [uid[f], { f, l, g }])));
+await put(`admins/${uid.Paolo}`, { note: 'admin di prova' });
+await put(`roles/${uid.Giulia}`, { cash: true, name: 'Serra Giulia' });
+await put(`coaches/${uid.Marco}`, { all: false, name: 'Pinna Marco' });
+
+// impostazioni: campi, regole di prenotazione, listino, avviso
+const hours = (from, to) => Object.fromEntries([1, 2, 3, 4, 5, 6, 7].map(d => [d, { open: true, from, to }]));
+const courts = [{ id: 'centrale', name: 'Centrale', visible: true, hours: hours('08:00', '23:00') }, { id: 'campo2', name: 'Campo 2', visible: true, hours: hours('08:00', '23:00') },
+  { id: 'campo3', name: 'Campo 3', visible: true, hours: hours('08:00', '21:00') }, { id: 'padel1', name: 'Padel 1', visible: true, hours: hours('09:00', '23:00') }];
+const settings = { notice: 'Sabato il Campo 3 è chiuso per manutenzione fino alle 12.', noticeUntil: plus(10), nicks: {}, courts,
+  booking: { minHours: 1, maxHours: 2, maxPerDay: 1, daysAhead: 7 }, bookRewards: { star: 5, comet: 15, earth: 30 }, prices: { w1: 50, w2: 80, w3: 100, w4: 120, q1: 140, q2: 220, spot: 15 } };
+await put('data/settings', { json: JSON.stringify(settings), updated: Date.now(), minMinutes: 60 });
+
+// allenamento settimanale del giorno di oggi (17:00–18:30, Centrale) con il suo blocco ricorrente
+const tr = { name: 'Agonisti Under 14', dow: dowOf(today), from: '17:00', to: '18:30', level: 'inter', max: 6, coachUid: uid.Marco, courts: ['centrale'], reason: 'Allenamenti · Agonisti Under 14 · Pinna Marco', created: Date.now(), sizes: { [month]: 2 } };
+await put('trainings/t1', tr);
+await put('recurring/t_t1_centrale', { courtId: 'centrale', dow: tr.dow, from: tr.from, to: tr.to, reason: tr.reason, trid: 't1', created: Date.now() });
+for (let t = tr.from; t < tr.to; t = addMin(t, 30)) await put(`weekly/centrale_${tr.dow}_${t}`, { courtId: 'centrale', dow: tr.dow, start: t, from: tr.from, to: tr.to, rid: 't_t1_centrale' });
+await put(`groups/t1_${month}`, { tid: 't1', month, uids: [uid.Andrea, uid.Sara], names: { [uid.Andrea]: 'Melis Andrea', [uid.Sara]: 'Murru Sara' }, coachUid: uid.Marco, updated: Date.now() });
+for (const n of ['Andrea', 'Sara']) {
+  await put(`plans/${uid[n]}_${month}`, { uid: uid[n], month, tids: ['t1'], desc: ['Agonisti Under 14'], n: 1, price: 50, manual: false, updated: Date.now() });
+  await put(`athletes/${uid[n]}`, { first: n, last: n === 'Andrea' ? 'Melis' : 'Murru', birthPlace: 'Cagliari', birthDate: '2013-04-12', city: 'Cagliari', address: 'via Roma 1', cf: n === 'Andrea' ? 'MLSNDR13D12B354X' : 'MRRSRA13D52B354Y',
+    tess: { '2026/27': true }, certExp: n === 'Andrea' ? plus(20) : plus(200), created: Date.now() });
 }
 
-const courts = [
-  ['centrale', 'Centrale', 'tennis', '08:00', '23:00', 0],
-  ['campo2', 'Campo 2', 'tennis', '08:00', '23:00', 1],
-  ['campo3', 'Campo 3', 'tennis', '08:00', '21:00', 2],
-  ['padel1', 'Padel 1', 'padel', '09:00', '23:00', 3],
-  ['padel2', 'Padel 2', 'padel', '09:00', '23:00', 4]
-];
-for (const [id, name, type, from, to, order] of courts) await put(`courts/${id}`, { name, type, from, to, active: true, order });
+// prenotazioni: Luca domani 18:00–19:00 (Campo 2), Andrea dopodomani 10:00–11:30 (Padel 1); blocco dell'admin
+async function booking(gid, courtId, date, from, to, userId, blocked = '') {
+  for (let t = from; t < to; t = addMin(t, 30)) {
+    const id = `${date}_${courtId}_${t}`;
+    await put(`bookings/${id}`, { courtId, date, start: t, from, to, gid, userId, blocked, first: t === from });
+    await put(`busy/${id}`, { courtId, date, start: t, from, to, gid });
+  }
+}
+await booking('gluca1', 'campo2', plus(1), '18:00', '19:00', uid.Luca);
+await put('bkplayers/gluca1', { gid: 'gluca1', by: uid.Luca, ownerName: 'Porcu Luca', date: plus(1), from: '18:00', to: '19:00', courtId: 'campo2', courtName: 'Campo 2', uids: [uid.Chiara], guests: {}, names: { [uid.Chiara]: 'Loi Chiara' }, remind: 60, updated: Date.now() });
+await booking('gandrea1', 'padel1', plus(2), '10:00', '11:30', uid.Andrea);
+await booking('gblock1', 'campo3', plus(3), '08:00', '12:00', null, 'Manutenzione');
 
-const toMin = t => +t.slice(0, 2) * 60 + +t.slice(3, 5);
-const fromMin = n => pad(Math.floor(n / 60)) + ':' + pad(n % 60);
-let k = 0;
-async function book(date, courtId, start, dur, who) {
-  const id = 'bk' + (++k);
-  const p = people.find(x => x[0] === who);
-  const half = []; for (let m = toMin(start); m < toMin(start) + dur; m += 30) half.push(fromMin(m));
-  await put(`bookings/${id}`, {
-    courtId, date, start, end: fromMin(toMin(start) + dur), last: half[half.length - 1], dur,
-    uid: p ? uids[who] : null, name: p ? `${p[0]} ${p[1]}` : who, createdBy: uids.Giulia, createdAt: new Date()
-  });
-  for (const t of half) await put(`slots/${courtId}_${date}_${t.replace(':', '')}`, { courtId, date, time: t, bookingId: id });
-}
-for (const date of [today, tomorrow]) {
-  await book(date, 'centrale', '09:00', 90, 'Luca');
-  await book(date, 'centrale', '17:30', 90, 'Andrea');
-  await book(date, 'centrale', '19:00', 120, 'Sara');
-  await book(date, 'campo2', '10:00', 60, 'Chiara');
-  await book(date, 'campo2', '18:00', 120, 'Francesca');
-  await book(date, 'campo3', '16:00', 60, 'Roberto Usai');
-  await book(date, 'campo3', '18:30', 90, 'Davide');
-  await book(date, 'padel1', '18:00', 90, 'Luca');
-  await book(date, 'padel1', '20:00', 90, 'Simona Floris');
-  await book(date, 'padel2', '19:30', 120, 'Chiara');
-}
-// corsisti: certificati in tutte le situazioni (valido, in scadenza, scaduto, mancante)
-const plus = n => { const x = new Date(d); x.setDate(x.getDate() + n); return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`; };
-const kids = [
-  ['Alice', 'Mura', '2014-03-12', 'Roberta Mura', 'agonistico', plus(120), true],
-  ['Tommaso', 'Piras', '2013-07-30', 'Gianni Piras', 'agonistico', plus(5), true],
-  ['Giorgia', 'Lai', '2015-01-18', 'Marta Lai', 'non agonistico', plus(22), false],
-  ['Matteo', 'Fadda', '2012-11-02', 'Stefano Fadda', 'agonistico', plus(-3), true],
-  ['Sofia', 'Cocco', '2014-09-09', 'Laura Cocco', 'non agonistico', plus(200), true],
-  ['Riccardo', 'Orrù', '2013-04-25', 'Pietro Orrù', '', '', false],
-  ['Emma', 'Usai', '2015-06-14', 'Valeria Usai', 'non agonistico', plus(90), true],
-  ['Nicola', 'Serra', '2012-02-08', 'Franco Serra', 'agonistico', plus(310), true],
-  ['Martina', 'Pisano', '2014-12-01', 'Anna Pisano', 'agonistico', plus(28), true],
-  ['Gabriele', 'Contu', '2013-10-19', 'Ivo Contu', 'non agonistico', plus(160), false]
-];
-const ath = {};
-let ai = 0;
-for (const [first, last, birth, parent, certType, certExpiry, paid] of kids) {
-  const id = 'ath' + (++ai); ath[first] = id;
-  await put(`athletes/${id}`, { first, last, birth, phone: '+39 3' + (40 + ai) + ' ' + (100 + ai * 7) + ' ' + (2000 + ai * 31), email: '', parent, notes: '',
-    certType, certExpiry, fitpPaid: paid, fitpYear: paid ? d.getFullYear() : 0, active: true, createdAt: new Date() });
-}
+// cassa: un incasso con ricevuta
+await put(`counters/receipts-${today.slice(0, 4)}`, { last: 1, updated: Date.now() });
+await put('receipts/r1', { year: +today.slice(0, 4), n: 1, series: 'Q', issued: today, payDate: today, amount: 50, method: 'cash', kind: 'cassa', ref: 'i1', incasso: 'i1', uid: uid.Andrea,
+  person: { name: 'Andrea Melis', gender: 'M', birthPlace: 'Cagliari', birthDate: '2013-04-12', city: 'Cagliari', address: 'via Roma 1', cf: 'MLSNDR13D12B354X' }, causale: `Quota sociale allenamenti ${month}`,
+  lines: [{ cat: 'q_train', desc: 'Corso di allenamento', amount: 50 }], void: false, created: Date.now(), by: uid.Giulia });
+await put('incassi/i1', { date: today, method: 'cash', lines: [{ cat: 'q_train', series: 'Q', desc: 'Corso di allenamento', amount: 50 }], totQ: 50, totC: 0, total: 50,
+  receipts: { Q: { id: 'r1', rn: `1/Q/${today.slice(0, 4)}` } }, uid: uid.Andrea, name: 'Andrea Melis', void: false, at: Date.now(), by: uid.Giulia });
 
-// allenamenti di questa settimana (lunedì-domenica)
-const monday = (() => { const x = new Date(d); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; })();
-const dayOfWeek = i => { const x = new Date(monday); x.setDate(x.getDate() + i); return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`; };
-let ti = 0;
-async function training(date, courtId, start, dur, title, coach, kidsIn) {
-  const id = 'tr' + (++ti);
-  const half = []; for (let m = toMin(start); m < toMin(start) + dur; m += 30) half.push(fromMin(m));
-  const p = people.find(x => x[0] === coach);
-  await put(`trainings/${id}`, { title, courtId, date, start, end: fromMin(toMin(start) + dur), last: half[half.length - 1], dur,
-    coachId: uids[coach], coachName: `${p[0]} ${p[1]}`, series: 'serie-' + title, notes: '', createdBy: uids.Giulia, createdAt: new Date() });
-  // liste e mappe con la REST: scritte a parte
-  const r = await fetch(`${FS}/trainings/${id}?updateMask.fieldPaths=athleteIds&updateMask.fieldPaths=names`, { method: 'PATCH', headers: H, body: JSON.stringify({ fields: {
-    athleteIds: { arrayValue: { values: kidsIn.map(n => ({ stringValue: ath[n] })) } },
-    names: { mapValue: { fields: Object.fromEntries(kidsIn.map(n => [ath[n], { stringValue: n + ' ' + kids.find(x => x[0] === n)[1] }])) } }
-  } }) });
-  if (!r.ok) throw new Error(await r.text());
-  for (const t of half) await put(`slots/${courtId}_${date}_${t.replace(':', '')}`, { courtId, date, time: t, trainingId: id });
-  return id;
-}
-const u12 = ['Alice', 'Giorgia', 'Sofia', 'Emma', 'Martina'];
-const ago = ['Tommaso', 'Matteo', 'Nicola', 'Riccardo', 'Gabriele'];
-const trToday = [];
-for (const i of [0, 2, 4]) {
-  const id = await training(dayOfWeek(i), 'campo2', '15:00', 90, 'Under 12', 'Marco', u12);
-  if (dayOfWeek(i) === today) trToday.push(id);
-}
-for (const i of [1, 3, 4]) {
-  const id = await training(dayOfWeek(i), 'centrale', '14:00', 90, 'Agonisti', 'Elena', ago);
-  if (dayOfWeek(i) === today) trToday.push(id);
-}
-// valutazioni già date per il primo allenamento Under 12 della settimana
-async function evalOf(tid, kid, scores, note, coach) {
-  await fetch(`${FS}/evals/${tid}_${ath[kid]}`, { method: 'PATCH', headers: H, body: JSON.stringify({ fields: {
-    trainingId: { stringValue: tid }, athleteId: { stringValue: ath[kid] }, athleteName: { stringValue: kid + ' ' + kids.find(x => x[0] === kid)[1] },
-    date: { stringValue: dayOfWeek(0) }, title: { stringValue: 'Under 12' }, coachId: { stringValue: uids[coach] }, note: { stringValue: note },
-    by: { stringValue: uids[coach] }, updatedAt: { timestampValue: new Date().toISOString() },
-    scores: { mapValue: { fields: Object.fromEntries(Object.entries(scores).map(([k2, v]) => [k2, { integerValue: String(v) }])) } }
-  } }) });
-}
-await evalOf('tr1', 'Alice', { tecnica: 7, movimento: 6, consistenza: 7 }, 'Buon dritto in spinta / rovescio in ritardo sotto pressione', 'Marco');
-await evalOf('tr1', 'Giorgia', { tecnica: 5, scelte: 6, atteggiamento: 8 }, 'Ascolta molto / servizio da sistemare', 'Marco');
-await evalOf('tr1', 'Sofia', { movimento: 8, intensita: 7, consistenza: 5 }, 'Gambe sempre attive / troppi errori quando accelera', 'Marco');
+// un messaggio dell'admin a tutti
+await put('messages/m1', { title: 'Benvenuti', text: 'La nuova app del circolo è attiva: prenotate i campi da qui.', all: true, to: [], created: Date.now(), by: uid.Paolo });
 
-console.log('dati di prova pronti:', Object.keys(uids).length, 'utenti,', courts.length, 'campi,', k, 'prenotazioni,', kids.length, 'corsisti,', ti, 'allenamenti');
+console.log('Dati di prova pronti. Account (password prova123):', people.map(([f, l, , u]) => `${u || `${f}.${l}`}@esempio.it`.toLowerCase()).join(', '));

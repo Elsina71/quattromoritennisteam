@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" preserveAspectRatio="xMidYMid slice">
+  <!-- Ispirato ai Giganti di Mont'e Prama: pietra calcarea, occhi a cerchi concentrici, pugilatore con lo scudo sopra la testa. Disegno originale. -->
+  <defs>
+    <linearGradient id="calcare" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#efe6d4"/><stop offset="1" stop-color="#dccdb0"/>
+    </linearGradient>
+    <linearGradient id="statua" x1="0" x2="1">
+      <stop offset="0" stop-color="#d8c7a3"/><stop offset=".55" stop-color="#c8b48b"/><stop offset="1" stop-color="#ad9670"/>
+    </linearGradient>
+    <pattern id="grana" width="40" height="40" patternUnits="userSpaceOnUse">
+      <circle cx="6" cy="9" r="1.2" fill="#b9a784"/><circle cx="27" cy="21" r="1" fill="#c3b291"/>
+      <circle cx="15" cy="33" r="1.4" fill="#b3a07b"/><circle cx="35" cy="5" r=".9" fill="#a99670"/>
+    </pattern>
+    <g id="occhio" fill="none" stroke="#7d6a4b">
+      <circle r="20" stroke-width="5"/><circle r="10" stroke-width="5"/><circle r="2.5" fill="#7d6a4b" stroke="none"/>
+    </g>
+  </defs>
+  <rect width="1200" height="300" fill="url(#calcare)"/>
+  <rect width="1200" height="300" fill="url(#grana)"/>
+  <g opacity=".22" transform="translate(300 150)">
+    <use href="#occhio" x="-70" transform="scale(2.4)"/><use href="#occhio" x="0" transform="scale(2.4)"/>
+  </g>
+  <g transform="translate(860 0)">
+    <path d="M-120 72 Q0 4 120 72 L118 96 Q0 34 -118 96 Z" fill="url(#statua)" stroke="#9c8661" stroke-width="2"/>
+    <path d="M-104 96 L-82 92 L-70 150 L-90 156 Z M104 96 L82 92 L70 150 L90 156 Z" fill="url(#statua)"/>
+    <rect x="-42" y="96" width="84" height="96" rx="34" fill="url(#statua)" stroke="#9c8661" stroke-width="2"/>
+    <path d="M-34 124 H34 M0 124 V160" stroke="#8f7a56" stroke-width="7" stroke-linecap="round"/>
+    <g transform="translate(-19 140)"><circle r="12" fill="none" stroke="#7d6a4b" stroke-width="4"/><circle r="5" fill="none" stroke="#7d6a4b" stroke-width="3"/></g>
+    <g transform="translate(19 140)"><circle r="12" fill="none" stroke="#7d6a4b" stroke-width="4"/><circle r="5" fill="none" stroke="#7d6a4b" stroke-width="3"/></g>
+    <path d="M-14 174 Q0 180 14 174" fill="none" stroke="#8f7a56" stroke-width="3"/>
+    <path d="M-70 196 L70 196 L60 300 L-60 300 Z" fill="url(#statua)" stroke="#9c8661" stroke-width="2"/>
+    <path d="M-66 236 H66 M-63 246 H63" stroke="#9c8661" stroke-width="3"/>
+    <path d="M-88 150 L-66 200 L-52 200 L-70 150 Z M88 150 L66 200 L52 200 L70 150 Z" fill="#bfa982"/>
+  </g>
+</svg>
