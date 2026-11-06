@@ -55,5 +55,13 @@ jobs:
           if [ -z "$CHIAVE" ]; then echo "::error::Manca il secret FIREBASE_SA_QUATTROMORI (vedi istruzioni in cima a questo file)"; exit 1; fi
           printf '%s' "$CHIAVE" > "$RUNNER_TEMP/chiave.json"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/chiave.json"
-          npx --yes firebase-tools@13.29.1 deploy --only hosting,firestore:rules --project quattromoritennisteam-d3258 --non-interactive
+          # quale account di servizio usa la chiave (non è un segreto): deve avere i ruoli giusti in Google Cloud IAM
+          echo "Account di servizio: $(node -e "console.log(JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).client_email)" "$RUNNER_TEMP/chiave.json")"
+          FB="npx --yes firebase-tools@13.29.1"
+          # il sito quattromoritennisteam.web.app: se non esiste ancora nel progetto, lo crea
+          if ! $FB hosting:sites:get quattromoritennisteam --project quattromoritennisteam-d3258 > /dev/null 2>&1; then
+            echo "Creo il sito quattromoritennisteam"
+            $FB hosting:sites:create quattromoritennisteam --project quattromoritennisteam-d3258 --non-interactive
+          fi
+          $FB deploy --only hosting,firestore:rules --project quattromoritennisteam-d3258 --non-interactive
           rm -f "$RUNNER_TEMP/chiave.json"
