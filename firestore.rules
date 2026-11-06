@@ -110,26 +110,102 @@ service cloud.firestore {
       allow delete: if signedIn() && (isStaff() || resource.data.uid == request.auth.uid);
     }
 
-    // ---------- mezz'ore occupate ----------
-    function slotOk(sid, s, b) {
-      return s.keys().hasOnly(['courtId', 'date', 'time', 'bookingId'])
-        && b != null
+    // ---------- mezz'ore occupate (da una prenotazione o da un allenamento) ----------
+    function slotIn(sid, s, b) {
+      return b != null
         && b.data.courtId == s.courtId && b.data.date == s.date
         && isTime(s.time)
         && hhmm(s.time) >= hhmm(b.data.start) && hhmm(s.time) < hhmm(b.data.end)
-        && sid == s.courtId + '_' + s.date + '_' + s.time[0:2] + s.time[3:5]
-        && (isStaff() || b.data.uid == request.auth.uid);
+        && sid == s.courtId + '_' + s.date + '_' + s.time[0:2] + s.time[3:5];
+    }
+    function bookingSlotOk(sid, s) {
+      let b = getAfter(/databases/$(database)/documents/bookings/$(s.bookingId));
+      return s.keys().hasOnly(['courtId', 'date', 'time', 'bookingId']) && s.bookingId is string
+        && slotIn(sid, s, b) && (isStaff() || b.data.uid == request.auth.uid);
+    }
+    function trainingSlotOk(sid, s) {
+      return s.keys().hasOnly(['courtId', 'date', 'time', 'trainingId']) && s.trainingId is string && isStaff()
+        && slotIn(sid, s, getAfter(/databases/$(database)/documents/trainings/$(s.trainingId)));
     }
 
     match /slots/{sid} {
       allow read: if true;
       allow create: if signedIn()
-        && request.resource.data.bookingId is string
-        && slotOk(sid, request.resource.data,
-             getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)));
+        && (('bookingId' in request.resource.data && bookingSlotOk(sid, request.resource.data))
+          || ('trainingId' in request.resource.data && trainingSlotOk(sid, request.resource.data)));
       allow update: if false;
       allow delete: if signedIn()
-        && (isStaff() || get(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.uid == request.auth.uid);
+        && (isStaff() || ('bookingId' in resource.data
+          && get(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.uid == request.auth.uid));
+    }
+
+    // ---------- corsisti: schede con dati personali e certificato medico, solo staff ----------
+    function isDate(d) { return d is string && (d == '' || d.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')); }
+    match /athletes/{id} {
+      allow read, delete: if isStaff();
+      allow create, update: if isStaff()
+        && request.resource.data.keys().hasOnly(['first', 'last', 'birth', 'phone', 'email', 'parent', 'notes',
+             'certType', 'certExpiry', 'fitpPaid', 'fitpYear', 'active', 'createdAt'])
+        && filled(request.resource.data.first, 40) && str(request.resource.data.last, 40)
+        && isDate(request.resource.data.birth) && str(request.resource.data.phone, 30)
+        && str(request.resource.data.email, 120) && str(request.resource.data.parent, 80)
+        && str(request.resource.data.notes, 500)
+        && request.resource.data.certType in ['', 'agonistico', 'non agonistico']
+        && isDate(request.resource.data.certExpiry)
+        && request.resource.data.fitpPaid is bool && request.resource.data.fitpYear is int
+        && request.resource.data.active is bool;
+    }
+
+    // ---------- allenamenti: li crea lo staff, l'allenatore vede i suoi ----------
+    function isCoach(t) { return signedIn() && t.data.coachId == request.auth.uid; }
+    match /trainings/{id} {
+      allow read: if isStaff() || (signedIn() && resource.data.coachId == request.auth.uid);
+      allow create: if isStaff()
+        && request.resource.data.keys().hasOnly(['title', 'courtId', 'date', 'start', 'end', 'last', 'dur',
+             'coachId', 'coachName', 'athleteIds', 'names', 'series', 'notes', 'createdBy', 'createdAt'])
+        && filled(request.resource.data.title, 60)
+        && request.resource.data.date is string && request.resource.data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && isTime(request.resource.data.start) && isTime(request.resource.data.end)
+        && request.resource.data.dur in [60, 90, 120]
+        && hhmm(request.resource.data.end) == hhmm(request.resource.data.start) + request.resource.data.dur
+        && isTime(request.resource.data.last) && hhmm(request.resource.data.last) == hhmm(request.resource.data.end) - 30
+        && request.resource.data.coachId is string && str(request.resource.data.coachName, 80)
+        && request.resource.data.athleteIds is list && request.resource.data.athleteIds.size() <= 40
+        && request.resource.data.names is map && str(request.resource.data.notes, 500)
+        && request.resource.data.createdBy == request.auth.uid
+        && exists(/databases/$(database)/documents/courts/$(request.resource.data.courtId))
+        && existsAfter(slotPath(request.resource.data.courtId, request.resource.data.date, request.resource.data.start))
+        && existsAfter(slotPath(request.resource.data.courtId, request.resource.data.date, request.resource.data.last));
+      // si cambiano titolo, allenatore, corsisti e note; per spostare giorno, ora o campo si ricrea
+      allow update: if isStaff()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'coachId', 'coachName', 'athleteIds', 'names', 'notes'])
+        && filled(request.resource.data.title, 60) && request.resource.data.coachId is string
+        && request.resource.data.athleteIds is list && request.resource.data.athleteIds.size() <= 40
+        && request.resource.data.names is map && str(request.resource.data.notes, 500);
+      allow delete: if isStaff();
+    }
+
+    // ---------- valutazioni: id = allenamento_corsista ----------
+    function okScore(m, k) { return !(k in m) || (m[k] is int && m[k] >= 1 && m[k] <= 10); }
+    function okScores(m) {
+      return m is map
+        && m.keys().hasOnly(['tecnica', 'movimento', 'controllo', 'scelte', 'intensita', 'atteggiamento', 'consistenza'])
+        && okScore(m, 'tecnica') && okScore(m, 'movimento') && okScore(m, 'controllo') && okScore(m, 'scelte')
+        && okScore(m, 'intensita') && okScore(m, 'atteggiamento') && okScore(m, 'consistenza');
+    }
+    match /evals/{id} {
+      allow read: if isStaff() || (signedIn() && resource.data.coachId == request.auth.uid);
+      allow create, update: if signedIn()
+        && request.resource.data.keys().hasOnly(['trainingId', 'athleteId', 'athleteName', 'date', 'title', 'coachId', 'scores', 'note', 'by', 'updatedAt'])
+        && id == request.resource.data.trainingId + '_' + request.resource.data.athleteId
+        && okScores(request.resource.data.scores) && str(request.resource.data.note, 300)
+        && str(request.resource.data.athleteName, 80) && str(request.resource.data.title, 60)
+        && request.resource.data.by == request.auth.uid
+        && (isStaff() || isCoach(get(/databases/$(database)/documents/trainings/$(request.resource.data.trainingId))))
+        && request.resource.data.athleteId in get(/databases/$(database)/documents/trainings/$(request.resource.data.trainingId)).data.athleteIds
+        && request.resource.data.coachId == get(/databases/$(database)/documents/trainings/$(request.resource.data.trainingId)).data.coachId
+        && request.resource.data.date == get(/databases/$(database)/documents/trainings/$(request.resource.data.trainingId)).data.date;
+      allow delete: if isStaff() || (signedIn() && resource.data.coachId == request.auth.uid);
     }
   }
 }

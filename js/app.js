@@ -3,7 +3,8 @@ import * as D from './db.js';
 import { t, getLang, setLang, errText, fmtDay, fmtShort, fmtDate } from './i18n.js';
 import {
   times, covered, endOf, durationsAt, isoDate, addDays, dateOf, isPast, nextFree, freeCount, span,
-  toMin, ROLES, COURT_TYPES, HOUR_OPTIONS, fullName, isStaffRole
+  toMin, ROLES, COURT_TYPES, HOUR_OPTIONS, fullName, isStaffRole,
+  EVAL_AREAS, PASS, certStatus, weekStart, weekDays, weeklyDates, age, averages, fromMin
 } from './logic.js';
 
 const S = D.S;
@@ -23,7 +24,10 @@ const P = {
   left: '<path d="M15 6l-6 6 6 6"/>',
   right: '<path d="M9 6l6 6-6 6"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
-  search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>'
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>',
+  ball: '<circle cx="12" cy="12" r="8.5"/><path d="M5.5 6.5a9 9 0 0 1 0 11M18.5 6.5a9 9 0 0 0 0 11"/>',
+  card: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>',
+  back: '<path d="M10 6l-6 6 6 6M4 12h16"/>'
 };
 const ic = name => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${P[name]}</svg>`;
 // Il marchio del circolo, ridisegnato dal logo: cerchio blu, croce rossa, quattro palline nere
@@ -31,12 +35,18 @@ const MARK = `<svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><circle c
 const GOOGLE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M22.5 12.3c0-.8-.1-1.5-.2-2.3H12v4.3h5.9a5 5 0 0 1-2.2 3.3v2.7h3.6c2-1.9 3.2-4.7 3.2-8z"/><path fill="#34A853" d="M12 23c3 0 5.5-1 7.3-2.7l-3.6-2.7c-1 .7-2.2 1.1-3.7 1.1-2.9 0-5.3-1.9-6.2-4.5H2.1v2.8A11 11 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.8 14.2a6.6 6.6 0 0 1 0-4.3V7.1H2.1a11 11 0 0 0 0 9.9z"/><path fill="#EA4335" d="M12 5.4c1.6 0 3.1.6 4.2 1.7l3.2-3.2A11 11 0 0 0 2.1 7.1l3.7 2.8C6.7 7.3 9.1 5.4 12 5.4z"/></svg>';
 
 // ---------- stato della pagina ----------
-const ui = { tab: 'all', mineTab: 'up', usersTab: 'all', q: '', authTab: 'login', menu: false };
+const ui = { tab: 'all', mineTab: 'up', usersTab: 'all', q: '', authTab: 'login', menu: false, week: weekStart(isoDate()), athTab: 'all', aq: '' };
 
+const ROUTES = ['book', 'mine', 'users', 'courts', 'account', 'trainings', 'training', 'athletes', 'athlete'];
+function parts() { return location.hash.replace(/^#\/?/, '').split('?')[0].split('/'); }
 function route() {
-  const r = (location.hash.replace(/^#\/?/, '').split('?')[0] || 'book');
-  return ['book', 'mine', 'users', 'courts', 'account'].includes(r) ? r : 'book';
+  const r = parts()[0] || 'book';
+  return ROUTES.includes(r) ? r : 'book';
 }
+const routeId = () => decodeURIComponent(parts()[1] || '');
+const routeSub = () => parts()[2] || '';
+// voce di menu da evidenziare: le pagine di dettaglio stanno sotto la loro lista
+const navOf = r => ({ training: 'trainings', athlete: 'athletes' }[r] || r);
 
 const durLabel = d => t(d === 60 ? 'h1' : d === 90 ? 'h1h30' : 'h2');
 const roleLabel = r => t('role_' + r);
@@ -45,7 +55,7 @@ const courtById = id => S.courts.find(c => c.id === id);
 
 // ---------- guscio ----------
 function navItem(r, icon, label) {
-  return `<a class="nav-item" href="#/${r}" ${route() === r ? 'aria-current="page"' : ''}>${ic(icon)}<span>${esc(label)}</span></a>`;
+  return `<a class="nav-item" href="#/${r}" ${navOf(route()) === r ? 'aria-current="page"' : ''}>${ic(icon)}<span>${esc(label)}</span></a>`;
 }
 
 function sidebar() {
@@ -58,7 +68,8 @@ function sidebar() {
     <a class="brand" href="#/book">${MARK}<span><b>${esc(t('club'))}</b><small>${esc(t('clubScope'))}</small></span></a>
     ${navItem('book', 'grid', t('navBook'))}
     ${signed ? navItem('mine', 'ticket', t('navMine')) : ''}
-    ${staff ? `<p class="group-label">${esc(t('groupClub'))}</p>${navItem('users', 'users', t('navUsers'))}${admin ? navItem('courts', 'court', t('navCourts')) : ''}` : ''}
+    ${D.seesTrainings() ? `<p class="group-label">${esc(t('groupClub'))}</p>${navItem('trainings', 'ball', t('navTrainings'))}` : ''}
+    ${staff ? `${navItem('athletes', 'card', t('navAthletes'))}${navItem('users', 'users', t('navUsers'))}${admin ? navItem('courts', 'court', t('navCourts')) : ''}` : ''}
     <div class="bottom">
       ${signed
         ? `<a class="who" href="#/account" ${route() === 'account' ? 'aria-current="page"' : ''}><span class="initial">${esc(initials(p))}</span><span><b>${esc(fullName(p) || S.user.email)}</b><small>${esc(roleLabel(D.role()))}</small></span></a>`
@@ -71,7 +82,8 @@ function sidebar() {
   </aside>`;
 }
 
-const PAGE_TITLE = { book: 'bookTitle', mine: 'mineTitle', users: 'usersTitle', courts: 'courtsTitle', account: 'accountTitle' };
+const PAGE_TITLE = { book: 'bookTitle', mine: 'mineTitle', users: 'usersTitle', courts: 'courtsTitle', account: 'accountTitle',
+  trainings: 'trainingsTitle', training: 'trainingsTitle', athletes: 'athletesTitle', athlete: 'athletesTitle' };
 
 function shell(content) {
   return `
@@ -90,8 +102,8 @@ function dayData(courts) {
   const takenBy = {}, blocks = {};
   for (const s of S.slots) {
     (takenBy[s.courtId] = takenBy[s.courtId] || new Set()).add(s.time);
-    const k = s.courtId + '|' + s.bookingId;
-    const b = blocks[k] || (blocks[k] = { courtId: s.courtId, bookingId: s.bookingId, times: [] });
+    const k = s.courtId + '|' + (s.bookingId || 'tr:' + s.trainingId);
+    const b = blocks[k] || (blocks[k] = { courtId: s.courtId, bookingId: s.bookingId || null, trainingId: s.trainingId || null, times: [] });
     b.times.push(s.time);
   }
   Object.values(blocks).forEach(b => b.times.sort());
@@ -139,7 +151,7 @@ function pageBook() {
     `<button role="tab" data-action="tab" data-tab="${k}" aria-selected="${ui.tab === k}">${esc(t(k))}<span class="n num">${k === 'all' ? active.length : active.filter(c => c.type === k).length}</span></button>`).join('')}</div>` : '<span></span>';
   const legend = `<div class="legend" aria-label="${esc(t('legend'))}">
     <span><i></i>${esc(t('free'))}</span><span><i class="k-busy"></i>${esc(t('busy'))}</span>
-    ${S.user ? `<span><i class="k-mine"></i>${esc(t('yours'))}</span>` : ''}<span><i class="k-closed"></i>${esc(t('closed'))}</span></div>`;
+    ${S.user ? `<span><i class="k-mine"></i>${esc(t('yours'))}</span>` : ''}${S.slots.some(x => x.trainingId) ? `<span><i class="k-training"></i>${esc(t('training'))}</span>` : ''}<span><i class="k-closed"></i>${esc(t('closed'))}</span></div>`;
 
   if (S.slotsError) {
     return head + `<div class="board-head">${tabs}${legend}</div><div class="empty"><p>${esc(t('loadError'))}</p><button class="btn" data-action="retry">${esc(t('retry'))}</button></div>`;
@@ -177,14 +189,21 @@ function pageBook() {
       const prev = runs[runs.length - 1];
       if (toMin(b.times[i]) - toMin(prev[prev.length - 1]) === 30) prev.push(b.times[i]); else runs.push([b.times[i]]);
     }
-    const bk = D.bookingOf({ bookingId: b.bookingId });
-    const mine = mineIds.has(b.bookingId);
+    const bk = b.bookingId ? D.bookingOf({ bookingId: b.bookingId }) : null;
+    const tr = b.trainingId ? D.trainingOf(b.trainingId) : null;
+    const mine = !!b.bookingId && mineIds.has(b.bookingId);
     for (const run of runs) {
       if (!rowsT.includes(run[0])) continue;
       const end = endOf(run[run.length - 1], 30);
       const range = `<span class="num">${run[0]}–${end}</span>`;
-      const label = mine ? `<b>${esc(t('yours'))}</b>${range}` : staff && bk ? `<b>${esc(bk.name)}</b>${range}` : `<b>${esc(t('busy'))}</b>${range}`;
       const style = `style="grid-column:${col};grid-row:${rowOf(run[0])} / span ${run.length}"`;
+      if (b.trainingId) {
+        // allenamento: chi lo vede per intero (staff, il suo allenatore) apre la sua pagina
+        const label = tr ? `<b>${esc(tr.title)}</b>${range}<span class="who-line">${esc(tr.coachName)}</span>` : `<b>${esc(t('training'))}</b>${range}`;
+        cells += tr ? `<a class="slot training" ${style} href="#/training/${encodeURIComponent(b.trainingId)}">${label}</a>` : `<div class="slot training" ${style}>${label}</div>`;
+        continue;
+      }
+      const label = mine ? `<b>${esc(t('yours'))}</b>${range}` : staff && bk ? `<b>${esc(bk.name)}</b>${range}` : `<b>${esc(t('busy'))}</b>${range}`;
       cells += (mine || (staff && bk))
         ? `<button class="slot${mine ? ' mine' : ''}" ${style} data-action="open-booking" data-id="${esc(b.bookingId)}">${label}</button>`
         : `<div class="slot" ${style}>${label}</div>`;
@@ -383,6 +402,350 @@ function pageAccount() {
   </div>`;
 }
 
+// ---------- pezzo 2: allenamenti ----------
+const coaches = () => S.users.filter(u => u.role === 'allenatore' || u.role === 'admin');
+const athleteById = id => S.athletes.find(a => a.id === id);
+const certPill = a => {
+  const st = certStatus(a.certExpiry);
+  const date = a.certExpiry ? fmtDate(dateOf(a.certExpiry)) : '';
+  const txt = st.state === 'd7' ? (st.days === 0 ? t('cert_d7_0') : st.days === 1 ? t('cert_d7_1') : t('cert_d7', { n: st.days }))
+    : t('cert_' + st.state, { n: st.days, date });
+  const cls = { ok: '', d30: ' warn', d7: ' neg', expired: ' neg', missing: ' warn' }[st.state];
+  return `<span class="pill${cls}">${esc(txt)}</span>`;
+};
+const fitpPill = a => (a.fitpPaid && a.fitpYear === new Date().getFullYear())
+  ? `<span class="pill pos">${esc(t('fitpPaidYear', { y: a.fitpYear }))}</span>`
+  : `<span class="pill">${esc(t('fitpUnpaid'))}</span>`;
+const trWhen = tr => `${fmtDay(dateOf(tr.date)).replace(/^./, c => c.toUpperCase())} · ${tr.start}–${tr.end}`;
+
+function weekTrainings() {
+  const days = weekDays(ui.week);
+  if (D.isStaff()) {
+    if (ui.weekListened !== ui.week) { ui.weekListened = ui.week; D.listenWeek(days[0], days[6]); }
+    return S.weekTrainings || null;
+  }
+  return S.myTrainingsReady ? S.myTrainings.filter(x => x.date >= days[0] && x.date <= days[6]) : null;
+}
+
+function pageTrainings() {
+  if (!S.user) return signInFirst();
+  if (!D.seesTrainings()) return `<div class="empty">${esc(t('staffOrCoach'))}</div>`;
+  const days = weekDays(ui.week);
+  const list = weekTrainings();
+  const fmtD = d => new Intl.DateTimeFormat(getLang() === 'en' ? 'en-GB' : 'it-IT', { day: 'numeric', month: 'short' }).format(dateOf(d));
+  const n = list ? list.length : 0;
+  const pres = list ? list.reduce((a, x) => a + x.athleteIds.length, 0) : 0;
+  const head = `
+  <div class="title-row">
+    <div><h1>${esc(t('trainingsTitle'))}</h1>
+      <p class="sub num">${esc(t('weekOf', { from: fmtD(days[0]), to: fmtD(days[6]) }))}${list ? ` · ${esc(n === 1 ? t('trCount1') : t('trCount', { n }))} · ${esc(t('presences', { n: pres }))}` : ''}</p></div>
+    <div class="actions">
+      <div class="daybar">
+        <button class="btn icon" data-action="week" data-d="-7" aria-label="${esc(t('prevWeek'))}">${ic('left')}</button>
+        <button class="btn" data-action="week" data-d="0" ${ui.week === weekStart(isoDate()) ? 'disabled' : ''}>${esc(t('thisWeek'))}</button>
+        <button class="btn icon" data-action="week" data-d="7" aria-label="${esc(t('nextWeek'))}">${ic('right')}</button>
+      </div>
+      ${D.isStaff() ? `<a class="btn primary" href="#/training/new">${ic('plus')}${esc(t('newTraining'))}</a>` : ''}
+    </div>
+  </div>`;
+  if (!list) return head + `<div class="empty">${esc(t('loading'))}</div>`;
+  if (!list.length) return head + `<div class="empty"><p>${esc(t('noTrainingsWeek'))}</p></div>`;
+  const today = isoDate();
+  const groups = days.map(d => [d, list.filter(x => x.date === d).sort((a, b) => a.start.localeCompare(b.start))]).filter(g => g[1].length);
+  return head + groups.map(([d, items]) => `
+    <section class="day-group${d === today ? ' today' : ''}">
+      <h2>${esc(fmtDay(dateOf(d)).replace(/^./, c => c.toUpperCase()))}</h2>
+      <div class="table-wrap"><table class="stack">
+        <thead class="sr"><tr><th>${esc(t('time'))}</th><th>${esc(t('trTitle'))}</th><th>${esc(t('coach'))}</th><th>${esc(t('athletesIn'))}</th><th></th></tr></thead>
+        <tbody>${items.map(x => {
+          const c = courtById(x.courtId);
+          const k = x.athleteIds.length;
+          return `<tr>
+            <td class="main tr-time num"><b>${x.start}–${x.end}</b><span class="sub">${esc(c ? c.name : '—')}</span></td>
+            <td class="extra"><b class="ink">${esc(x.title)}</b></td>
+            <td class="extra">${esc(x.coachName || '—')}</td>
+            <td class="extra num">${esc(k === 1 ? t('athletesCount1') : t('athletesCount', { n: k }))}</td>
+            <td class="act"><a class="link" href="#/training/${encodeURIComponent(x.id)}">${esc(t('open'))}</a></td>
+          </tr>`;
+        }).join('')}</tbody></table></div>
+    </section>`).join('');
+}
+
+// nuovo allenamento (staff)
+function pageTrainingNew() {
+  if (!S.user) return signInFirst();
+  if (!D.isStaff()) return `<div class="empty">${esc(t('staffOnly'))}</div>`;
+  const courts = S.courts.filter(c => c.active);
+  const f = ui.nt || (ui.nt = { title: '', courtId: (courts[0] || {}).id || '', date: S.date < isoDate() ? isoDate() : S.date, start: '17:00', dur: 90, coachId: '', athleteIds: [], repeat: false, until: addDays(S.date < isoDate() ? isoDate() : S.date, 7 * 12), notes: '', q: '' });
+  const court = courtById(f.courtId) || courts[0];
+  const starts = court ? times(court.from, court.to).filter(x => toMin(x) + 60 <= toMin(court.to)) : [];
+  if (court && !starts.includes(f.start)) f.start = starts[0];
+  const maxDur = court && f.start ? toMin(court.to) - toMin(f.start) : 120;
+  if (f.dur > maxDur) f.dur = maxDur >= 120 ? 120 : maxDur >= 90 ? 90 : 60;
+  const dates = f.repeat ? weeklyDates(f.date, f.until || f.date) : [f.date];
+  const q = f.q.trim().toLowerCase();
+  const active = S.athletes.filter(a => a.active !== false);
+  const shown = active.filter(a => !q || fullName(a).toLowerCase().includes(q) || f.athleteIds.includes(a.id));
+  const cs = coaches();
+  return `
+  <div class="title-row"><div><a class="back" href="#/trainings">${ic('back')}${esc(t('trainingsTitle'))}</a><h1>${esc(t('newTraining'))}</h1></div></div>
+  <form class="settings" id="trForm" novalidate>
+    <section class="set-row">
+      <div><h2>${esc(t('trWhen'))}</h2><p class="help">${esc(t('trWhenHelp'))}</p></div>
+      <div class="set-panel fields">
+        <label class="field"><span>${esc(t('trTitle'))}</span><input class="input" name="title" data-nt="title" value="${esc(f.title)}" placeholder="${esc(t('trTitlePh'))}" maxlength="60" required></label>
+        <div class="fields two">
+          <label class="field"><span>${esc(t('court'))}</span><select class="input" data-nt="courtId">${courts.map(c => `<option value="${esc(c.id)}" ${c.id === f.courtId ? 'selected' : ''}>${esc(c.name)} · ${esc(t(c.type))}</option>`).join('')}</select></label>
+          <label class="field"><span>${esc(t('date'))}</span><input class="input num" type="date" data-nt="date" value="${f.date}" min="${isoDate()}"></label>
+        </div>
+        <div class="fields two">
+          <label class="field"><span>${esc(t('start'))}</span><select class="input num" data-nt="start">${starts.map(x => `<option ${x === f.start ? 'selected' : ''}>${x}</option>`).join('')}</select></label>
+          <div class="field"><span>${esc(t('duration'))}</span><div class="segmented" role="group" aria-label="${esc(t('duration'))}">
+            ${[60, 90, 120].map(d => `<button type="button" data-action="nt-dur" data-dur="${d}" aria-pressed="${d === f.dur}" ${d <= maxDur ? '' : 'disabled'}>${esc(durLabel(d))}</button>`).join('')}</div></div>
+        </div>
+        <label class="field check"><input class="switch" type="checkbox" data-nt="repeat" ${f.repeat ? 'checked' : ''}><span>${esc(t('repeatWeekly'))}</span></label>
+        ${f.repeat ? `<label class="field"><span>${esc(t('until'))}</span><input class="input num" type="date" data-nt="until" value="${f.until}" min="${f.date}"><small class="hint num">${esc(dates.length === 1 ? t('trCount1') : t('trCount', { n: dates.length }))}${dates.length >= 52 ? ' (max 52)' : ''}</small></label>` : ''}
+      </div>
+    </section>
+    <section class="set-row">
+      <div><h2>${esc(t('trWho'))}</h2><p class="help">${esc(t('trWhoHelp'))}</p></div>
+      <div class="set-panel fields">
+        <label class="field"><span>${esc(t('coach'))}</span>
+          <select class="input" data-nt="coachId" ${cs.length ? '' : 'disabled aria-describedby="noCoach"'}><option value="">${esc(t('chooseCoach'))}</option>${cs.map(u => `<option value="${esc(u.id)}" ${u.id === f.coachId ? 'selected' : ''}>${esc(fullName(u))}</option>`).join('')}</select>
+          ${cs.length ? '' : `<small class="hint" id="noCoach">${esc(t('noCoaches'))}</small>`}</label>
+        <div class="field"><span>${esc(t('athletesIn'))} <span class="meta num">· ${f.athleteIds.length}</span></span>
+          ${active.length ? `<label class="search wide">${ic('search')}<span class="sr">${esc(t('searchAthletes'))}</span><input class="input" id="ntq" type="search" placeholder="${esc(t('searchAthletes'))}" value="${esc(f.q)}" autocomplete="off"></label>
+          <div class="pick-list">${shown.map(a => `<label class="pick"><input type="checkbox" data-nt-athlete="${esc(a.id)}" ${f.athleteIds.includes(a.id) ? 'checked' : ''}><span>${esc(fullName(a))}</span><small class="num">${a.birth ? esc(t('yearsOld', { n: age(a.birth) })) : ''}</small></label>`).join('')}</div>`
+          : `<div class="empty"><p>${esc(t('noAthletesYet'))}</p><a class="btn" href="#/athlete/new">${ic('plus')}${esc(t('addAthletesFirst'))}</a></div>`}
+        </div>
+        <label class="field"><span>${esc(t('notes'))}</span><input class="input" data-nt="notes" value="${esc(f.notes)}" maxlength="500"></label>
+      </div>
+    </section>
+    <p class="form-msg" id="trMsg" role="status"></p>
+    <div class="form-foot"><a class="btn" href="#/trainings">${esc(t('cancel'))}</a><button class="btn primary" type="submit">${esc(dates.length > 1 ? t('createTrN', { n: dates.length }) : t('createTr'))}</button></div>
+  </form>`;
+}
+
+// il dettaglio di un allenamento
+function loadTraining(id) {
+  if (ui.trId === id) return;
+  ui.trId = id; ui.tr = undefined; ui.trEvals = null;
+  D.listenTraining(id, tr => { ui.tr = tr; });
+  D.listenEvals({ trainingId: id }, list => { ui.trEvals = list; });
+}
+
+function pageTraining() {
+  if (!S.user) return signInFirst();
+  if (!D.seesTrainings()) return `<div class="empty">${esc(t('staffOrCoach'))}</div>`;
+  const id = routeId();
+  if (id === 'new') return pageTrainingNew();
+  loadTraining(id);
+  const tr = ui.tr;
+  if (tr === undefined) return `<div class="empty">${esc(t('loading'))}</div>`;
+  if (!tr) return `<div class="empty"><p>${esc(t('trNotFound'))}</p><a class="btn" href="#/trainings">${esc(t('trainingsTitle'))}</a></div>`;
+  if (routeSub() === 'eval') return pageEval(tr);
+  const staff = D.isStaff();
+  const c = courtById(tr.courtId);
+  const evals = Object.fromEntries((ui.trEvals || []).map(e => [e.athleteId, e]));
+  const others = staff ? S.athletes.filter(a => a.active !== false && !tr.athleteIds.includes(a.id)) : [];
+  const rowsHtml = tr.athleteIds.map(aid => {
+    const a = staff ? athleteById(aid) : null;
+    const e = evals[aid];
+    const given = e ? Object.keys(e.scores || {}).length : 0;
+    return `<tr>
+      <td class="main"><div class="name-cell"><span class="initial">${esc(initials({ first: (tr.names[aid] || '?'), last: (tr.names[aid] || '').split(' ')[1] || '' }))}</span><span><b>${esc(tr.names[aid] || '—')}</b>${a && a.birth ? `<span class="sub num">${esc(t('yearsOld', { n: age(a.birth) }))}</span>` : ''}</span></div></td>
+      ${staff ? `<td class="extra">${a ? certPill(a) : ''}</td>` : ''}
+      <td class="extra">${e ? `<span class="pill accent">${esc(t('evaluated'))} · ${esc(t('givenScores', { n: given }))}</span>` : `<span class="meta">${esc(t('notEvaluated'))}</span>`}</td>
+      <td class="act">${staff ? `${a ? `<a class="link" href="#/athlete/${encodeURIComponent(aid)}">${esc(t('open'))}</a>` : ''}<button class="link danger" data-action="tr-remove" data-id="${esc(aid)}">${esc(t('remove'))}</button>` : ''}</td>
+    </tr>`;
+  }).join('');
+  const k = tr.athleteIds.length;
+  return `
+  <div class="title-row">
+    <div><a class="back" href="#/trainings">${ic('back')}${esc(t('trainingsTitle'))}</a><h1>${esc(tr.title)}</h1>
+      <p class="sub num">${esc(trWhen(tr))} · ${esc(c ? c.name : '—')} · ${esc(tr.coachName || '—')}</p></div>
+    ${staff ? `<div class="actions"><button class="btn" data-action="tr-edit">${esc(t('edit'))}</button><button class="btn danger" data-action="tr-delete">${esc(t('delete'))}</button></div>` : ''}
+  </div>
+  ${tr.notes ? `<p class="tr-notes">${esc(tr.notes)}</p>` : ''}
+  <div class="toolbar">
+    <h2 class="section-h">${esc(t('athletesIn'))} <span class="meta num">${esc(k === 1 ? t('athletesCount1') : t('athletesCount', { n: k }))}</span></h2>
+    ${staff && others.length ? `<label class="add-athlete"><span class="sr">${esc(t('addAthlete'))}</span><select class="input" id="trAdd"><option value="">+ ${esc(t('addAthlete'))}</option>${others.map(a => `<option value="${esc(a.id)}">${esc(fullName(a))}</option>`).join('')}</select></label>` : ''}
+  </div>
+  ${k ? `<div class="table-wrap"><table class="stack"><thead class="sr"><tr><th>${esc(t('name'))}</th>${staff ? `<th>${esc(t('cert'))}</th>` : ''}<th>${esc(t('evalsTitle'))}</th><th></th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`
+    : `<div class="empty">${esc(t('noAthletesInTr'))}</div>`}
+  ${k ? `<div class="eval-cta"><a class="btn primary big" href="#/training/${encodeURIComponent(tr.id)}/eval">${ic('card')}${esc(t('evalButton'))}</a></div>` : ''}`;
+}
+
+// la scheda di valutazione: 7 voci da 1 a 10 per ogni corsista
+function pageEval(tr) {
+  const d = ui.draft && ui.draft.trainingId === tr.id ? ui.draft : (ui.draft = { trainingId: tr.id, cur: tr.athleteIds[0], data: {}, dirty: new Set(), seeded: false });
+  if (!d.seeded && ui.trEvals !== null) {
+    for (const e of ui.trEvals) if (!d.data[e.athleteId]) d.data[e.athleteId] = { scores: Object.assign({}, e.scores), note: e.note || '' };
+    d.seeded = true;
+  }
+  if (!tr.athleteIds.includes(d.cur)) d.cur = tr.athleteIds[0];
+  const cur = d.cur;
+  const entry = d.data[cur] || (d.data[cur] = { scores: {}, note: '' });
+  const chips = tr.athleteIds.map(aid => {
+    const n = Object.keys((d.data[aid] || {}).scores || {}).length;
+    return `<button type="button" role="tab" class="chip${aid === cur ? ' on' : ''}" data-action="ev-athlete" data-id="${esc(aid)}" aria-selected="${aid === cur}">
+      <b>${esc(tr.names[aid] || '—')}</b><small class="num">${n ? esc(t('givenScores', { n })) : esc(t('noScores'))}</small></button>`;
+  }).join('');
+  const rowsHtml = EVAL_AREAS.map(k => {
+    const v = entry.scores[k];
+    return `<div class="ev-row">
+      <div class="ev-label"><b>${esc(t('area_' + k))}</b><span>${esc(t('look_' + k))}</span></div>
+      <div class="scale" role="radiogroup" aria-label="${esc(t('area_' + k))}">
+        ${Array.from({ length: 10 }, (_, i) => i + 1).map(n => `<button type="button" role="radio" class="sc${n === PASS ? ' pass' : ''}${v === n ? (n < PASS ? ' on low' : ' on') : ''}" data-action="ev-score" data-k="${k}" data-n="${n}" aria-checked="${v === n}" aria-label="${esc(t('scoreOf', { area: t('area_' + k), n }))}">${n}</button>`).join('')}
+      </div>
+    </div>`;
+  }).join('');
+  const idx = tr.athleteIds.indexOf(cur);
+  const dirty = d.dirty.size;
+  return `
+  <div class="title-row">
+    <div><a class="back" href="#/training/${encodeURIComponent(tr.id)}">${ic('back')}${esc(tr.title)}</a><h1>${esc(t('evalTitle'))}</h1>
+      <p class="sub num">${esc(trWhen(tr))} · ${esc(tr.coachName || '—')}</p></div>
+  </div>
+  <p class="ev-help">${esc(t('evalHelp'))}</p>
+  <div class="ev">
+    <div class="ev-people" role="tablist" aria-label="${esc(t('athletesIn'))}">${chips}</div>
+    <section class="ev-sheet" aria-label="${esc(tr.names[cur] || '')}">
+      <header class="ev-head"><h2>${esc(tr.names[cur] || '—')}</h2><span class="meta num">${idx + 1} / ${tr.athleteIds.length}</span></header>
+      <div class="ev-cols" aria-hidden="true"><span>${esc(t('area'))} · ${esc(t('look'))}</span><span>${esc(t('score'))} <span class="pass-key">6 = ${esc(t('pass'))}</span></span></div>
+      ${rowsHtml}
+      <label class="field ev-note"><span>${esc(t('noteDay'))}</span><input class="input" id="evNote" maxlength="300" value="${esc(entry.note)}" placeholder="${esc(t('noteDayPh'))}" aria-describedby="evNoteHint"><small class="hint" id="evNoteHint">${esc(t('noteDayHint'))}</small></label>
+      <div class="form-foot">
+        ${idx < tr.athleteIds.length - 1 ? `<button type="button" class="btn" data-action="ev-next">${esc(t('nextAthlete'))}${ic('right')}</button>` : ''}
+        <button type="button" class="btn primary" data-action="ev-save" ${dirty ? '' : 'disabled'}>${esc(dirty > 1 ? t('saveEvalN', { n: dirty }) : t('saveEval'))}</button>
+      </div>
+      <p class="form-msg" id="evMsg" role="status"></p>
+    </section>
+  </div>`;
+}
+
+// ---------- corsisti (staff) ----------
+function pageAthletes() {
+  if (!S.user) return signInFirst();
+  if (!D.isStaff()) return `<div class="empty">${esc(t('staffOnly'))}</div>`;
+  const all = S.athletes;
+  const year = new Date().getFullYear();
+  const st = a => certStatus(a.certExpiry).state;
+  const bad7 = all.filter(a => a.active !== false && ['expired', 'd7'].includes(st(a))).length;
+  const bad30 = all.filter(a => a.active !== false && st(a) === 'd30').length;
+  const filters = {
+    all: a => a.active !== false,
+    cert: a => a.active !== false && st(a) !== 'ok',
+    fitp: a => a.active !== false && !(a.fitpPaid && a.fitpYear === year),
+    inactive: a => a.active === false
+  };
+  const tab = ui.athTab || 'all';
+  const q = (ui.aq || '').trim().toLowerCase();
+  const list = all.filter(filters[tab]).filter(a => !q || [fullName(a), a.parent, a.phone, a.email].join(' ').toLowerCase().includes(q));
+  const count = k => all.filter(filters[k]).length;
+  const nAct = count('all');
+  return `
+  <div class="title-row">
+    <div><h1>${esc(t('athletesTitle'))}</h1><p class="sub num">${S.athletesReady ? esc(nAct === 1 ? '1 ' + t('navAthletes').toLowerCase() : t('athletesCount', { n: nAct })) : '<span class="skeleton"></span>'}</p></div>
+    <a class="btn primary" href="#/athlete/new">${ic('plus')}${esc(t('newAthlete'))}</a>
+  </div>
+  ${S.athletesReady && (bad7 || bad30) ? `<p class="notice${bad7 ? ' strong' : ''}">${esc(t('certAlert', { n7: bad7, n30: bad30 }))} <button class="link" data-action="ath-tab" data-tab="cert">${esc(t('tabCert'))}</button></p>` : ''}
+  <div class="tabs" role="tablist">${['all', 'cert', 'fitp', 'inactive'].map(k => `<button role="tab" data-action="ath-tab" data-tab="${k}" aria-selected="${tab === k}">${esc(t({ all: 'tabAll', cert: 'tabCert', fitp: 'tabFitp', inactive: 'tabInactive' }[k]))}<span class="n num">${S.athletesReady ? count(k) : ''}</span></button>`).join('')}</div>
+  <div class="toolbar">
+    <label class="search">${ic('search')}<span class="sr">${esc(t('search'))}</span><input class="input" id="aq" type="search" placeholder="${esc(t('search'))}" value="${esc(ui.aq || '')}" autocomplete="off"></label>
+    <span class="meta num">${esc(list.length === 1 ? t('athletesCount1') : t('athletesCount', { n: list.length }))}</span>
+  </div>
+  ${!S.athletesReady ? `<div class="empty">${esc(t('loading'))}</div>` : list.length ? `<div class="table-wrap"><table class="stack athletes">
+    <thead><tr><th>${esc(t('name'))}</th><th>${esc(t('cert'))}</th><th>${esc(t('fitp'))}</th><th>${esc(t('parent'))}</th><th><span class="sr">${esc(t('open'))}</span></th></tr></thead>
+    <tbody>${list.map(a => `<tr>
+      <td class="main"><div class="name-cell"><span class="initial">${esc(initials(a))}</span><span><b>${esc(fullName(a))}</b><span class="sub num">${a.birth ? esc(t('yearsOld', { n: age(a.birth) })) : '—'}${a.certType ? ' · ' + esc(a.certType === 'agonistico' ? t('certAgon') : t('certNonAgon')) : ''}</span></span></div></td>
+      <td class="extra">${certPill(a)}</td>
+      <td class="extra">${fitpPill(a)}</td>
+      <td class="extra">${esc(a.parent || '—')}${a.phone ? `<span class="sub num">${esc(a.phone)}</span>` : ''}</td>
+      <td class="act"><a class="link" href="#/athlete/${encodeURIComponent(a.id)}">${esc(t('open'))}</a></td>
+    </tr>`).join('')}</tbody></table></div>` : `<div class="empty">${esc(t('noAthletes'))}</div>`}`;
+}
+
+function pageAthlete() {
+  if (!S.user) return signInFirst();
+  if (!D.isStaff()) return `<div class="empty">${esc(t('staffOnly'))}</div>`;
+  const id = routeId();
+  const isNew = id === 'new';
+  if (!isNew && !S.athletesReady) return `<div class="empty">${esc(t('loading'))}</div>`;
+  const a = isNew ? { first: '', last: '', birth: '', phone: '', email: '', parent: '', notes: '', certType: '', certExpiry: '', fitpPaid: false, fitpYear: 0, active: true } : athleteById(id);
+  if (!a) return `<div class="empty"><p>${esc(t('athleteNotFound'))}</p><a class="btn" href="#/athletes">${esc(t('athletesTitle'))}</a></div>`;
+  if (!isNew && ui.evAthlete !== id) { ui.evAthlete = id; ui.athEvals = null; D.listenEvals({ athleteId: id }, list => { ui.athEvals = list; }); }
+  const year = new Date().getFullYear();
+  const certType = ui.certTypeFor === id ? ui.certType : (ui.certTypeFor = id, ui.certType = a.certType || '');
+  const evals = (ui.athEvals || []).slice().sort((x, y) => y.date.localeCompare(x.date));
+  const av = averages(evals);
+  const evalBlock = isNew ? '' : `
+    <section class="set-row">
+      <div><h2>${esc(t('evalsTitle'))}</h2><p class="help">${esc(t('evalsHelp'))}</p></div>
+      <div class="set-panel">
+        ${ui.athEvals === null ? esc(t('loading')) : !evals.length ? `<p class="meta">${esc(t('noEvals'))}</p>` : `
+        <div class="avg-list">${EVAL_AREAS.map(k => {
+          const x = av[k];
+          const w = x.avg == null ? 0 : x.avg * 10;
+          return `<div class="avg-row"><span class="avg-name">${esc(t('area_' + k))}</span>
+            <span class="bar" aria-hidden="true"><i class="${x.avg != null && x.avg < PASS ? 'low' : ''}" style="width:${w}%"></i><em style="left:${PASS * 10}%"></em></span>
+            <span class="avg-val num">${x.avg == null ? '<span class="meta">—</span>' : x.avg.toFixed(1).replace('.', getLang() === 'it' ? ',' : '.')}</span>
+            <span class="meta num avg-n">${x.n ? esc(x.n === 1 ? t('avgOn1') : t('avgOn', { n: x.n })) : ''}</span></div>`;
+        }).join('')}</div>
+        <h3 class="sub-h">${esc(t('lastEvals'))}</h3>
+        <div class="rows">${evals.slice(0, 6).map(e => `<div class="row ev-hist"><span><b>${esc(fmtShort(dateOf(e.date)))}</b> · ${esc(e.title)}</span><span class="meta">${esc(e.note || '')}</span>
+          <span class="num ev-mini">${EVAL_AREAS.filter(k => e.scores && e.scores[k]).map(k => `<span class="${e.scores[k] < PASS ? 'low' : ''}" >${esc(t('area_' + k))} ${e.scores[k]}</span>`).join('')}</span></div>`).join('')}</div>`}
+      </div>
+    </section>`;
+  return `
+  <div class="title-row">
+    <div><a class="back" href="#/athletes">${ic('back')}${esc(t('athletesTitle'))}</a><h1>${esc(isNew ? t('newAthlete') : fullName(a))}</h1>
+      ${isNew ? '' : `<p class="sub">${certPill(a)} ${fitpPill(a)}</p>`}</div>
+  </div>
+  <form class="settings" id="athForm" novalidate>
+    <section class="set-row">
+      <div><h2>${esc(t('athleteData'))}</h2><p class="help">${esc(t('athleteDataHelp'))}</p></div>
+      <div class="set-panel fields">
+        <div class="fields two">
+          <label class="field"><span>${esc(t('firstName'))}</span><input class="input" name="first" value="${esc(a.first)}" required maxlength="40"></label>
+          <label class="field"><span>${esc(t('lastName'))}</span><input class="input" name="last" value="${esc(a.last)}" maxlength="40"></label>
+        </div>
+        <div class="fields two">
+          <label class="field"><span>${esc(t('birth'))}</span><input class="input num" type="date" name="birth" value="${esc(a.birth)}"></label>
+          <label class="field"><span>${esc(t('parent'))}</span><input class="input" name="parent" value="${esc(a.parent)}" maxlength="80"></label>
+        </div>
+        <div class="fields two">
+          <label class="field"><span>${esc(t('phone'))}</span><input class="input" type="tel" name="phone" value="${esc(a.phone)}" maxlength="30"></label>
+          <label class="field"><span>${esc(t('email'))}</span><input class="input" type="email" name="email" value="${esc(a.email)}" maxlength="120"></label>
+        </div>
+        <label class="field check"><input class="switch" type="checkbox" name="active" ${a.active !== false ? 'checked' : ''}><span>${esc(t('athleteActive'))}</span></label>
+      </div>
+    </section>
+    <section class="set-row">
+      <div><h2>${esc(t('cert'))}</h2><p class="help">${esc(t('certHelp'))}</p></div>
+      <div class="set-panel fields">
+        <div class="field"><span>${esc(t('certType'))}</span><div class="segmented" role="group" aria-label="${esc(t('certType'))}">
+          ${[['agonistico', 'certAgon'], ['non agonistico', 'certNonAgon'], ['', 'certNone']].map(([v, k]) => `<button type="button" data-action="cert-type" data-v="${esc(v)}" aria-pressed="${certType === v}">${esc(t(k))}</button>`).join('')}</div></div>
+        <label class="field"><span>${esc(t('certExpiry'))}</span><input class="input num" type="date" name="certExpiry" value="${esc(a.certExpiry)}"></label>
+      </div>
+    </section>
+    <section class="set-row">
+      <div><h2>${esc(t('fitp'))}</h2><p class="help">${esc(t('fitpHelp'))}</p></div>
+      <div class="set-panel"><label class="field check"><input class="switch" type="checkbox" name="fitpPaid" ${a.fitpPaid && a.fitpYear === year ? 'checked' : ''}><span>${esc(t('fitpToggle', { y: year }))}</span></label></div>
+    </section>
+    <section class="set-row">
+      <div><h2>${esc(t('athleteNotes'))}</h2><p class="help">${esc(t('athleteNotesHelp'))}</p></div>
+      <div class="set-panel"><textarea class="input area" name="notes" maxlength="500" rows="3">${esc(a.notes)}</textarea></div>
+    </section>
+    <p class="form-msg" id="athMsg" role="status"></p>
+    <div class="form-foot">
+      ${isNew ? '' : `<button type="button" class="btn danger left" data-action="ath-delete">${esc(t('deleteAthlete'))}</button>`}
+      <a class="btn" href="#/athletes">${esc(t('cancel'))}</a><button class="btn primary" type="submit">${esc(t('save'))}</button>
+    </div>
+  </form>
+  <div class="settings">${evalBlock}</div>`;
+}
+
 // ---------- disegno ----------
 function render() {
   // la pagina si ridisegna a ogni cambio di dati: si conservano focus, testo e scorrimento
@@ -391,7 +754,8 @@ function render() {
   const frame = document.getElementById('boardFrame');
   const scroll = frame ? [frame.scrollLeft, frame.scrollTop] : null;
   const r = route();
-  const page = r === 'mine' ? pageMine() : r === 'users' ? pageUsers() : r === 'courts' ? pageCourts() : r === 'account' ? pageAccount() : pageBook();
+  const pages = { mine: pageMine, users: pageUsers, courts: pageCourts, account: pageAccount, trainings: pageTrainings, training: pageTraining, athletes: pageAthletes, athlete: pageAthlete };
+  const page = (pages[r] || pageBook)();
   root.innerHTML = shell(page);
   document.title = t(PAGE_TITLE[r]) + ' · Quattro Mori Tennis Team';
   if (keep) {
@@ -577,6 +941,41 @@ function editCourt(id) {
   }));
 }
 
+function editTraining(tr) {
+  const cs = coaches();
+  openDialog(`<form class="dlg">
+    <h2>${esc(t('editTraining'))}</h2>
+    <div class="fields">
+      <label class="field"><span>${esc(t('trTitle'))}</span><input class="input" name="title" value="${esc(tr.title)}" required maxlength="60"></label>
+      <label class="field"><span>${esc(t('coach'))}</span><select class="input" name="coachId">${cs.map(u => `<option value="${esc(u.id)}" ${u.id === tr.coachId ? 'selected' : ''}>${esc(fullName(u))}</option>`).join('')}${cs.some(u => u.id === tr.coachId) ? '' : `<option value="${esc(tr.coachId)}" selected>${esc(tr.coachName)}</option>`}</select></label>
+      <label class="field"><span>${esc(t('notes'))}</span><input class="input" name="notes" value="${esc(tr.notes || '')}" maxlength="500"></label>
+    </div>
+    <p class="form-msg" role="status"></p>
+    <div class="foot"><button type="button" class="btn" data-action="close">${esc(t('cancel'))}</button><button class="btn primary" type="submit">${esc(t('save'))}</button></div>
+  </form>`, async fd => {
+    const coach = S.users.find(u => u.id === fd.get('coachId'));
+    const d = { title: String(fd.get('title')).trim(), notes: String(fd.get('notes')).trim() };
+    if (!d.title) return;
+    if (coach) { d.coachId = coach.id; d.coachName = fullName(coach); }
+    await D.updateTraining(tr.id, d); closeDialog(); toast(t('saved'));
+  });
+}
+
+function deleteTrainingDlg(tr) {
+  const when = `${fmtShort(dateOf(tr.date))} ${tr.start}`;
+  const done = n => { closeDialog(); toast(n > 1 ? t('trDeletedN', { n }) : t('trDeleted')); location.hash = '#/trainings'; };
+  openDialog(`<div class="dlg"><div><h2>${esc(t('deleteTraining'))}</h2><p class="lead">${esc(t('confirmDeleteTr', { when }))}${tr.series ? ' ' + esc(t('confirmDeleteSeries')) : ''}</p></div>
+    <p class="form-msg" role="status"></p>
+    <div class="foot"><button class="btn left" data-action="close">${esc(t('cancel'))}</button>
+      ${tr.series ? `<button class="btn" data-del="series">${esc(t('thisAndNext'))}</button>` : ''}
+      <button class="btn primary" data-del="one">${esc(tr.series ? t('onlyThis') : t('delete'))}</button></div></div>`);
+  dlg.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
+    b.disabled = true;
+    try { done(b.dataset.del === 'series' ? await D.deleteSeriesFrom(tr) : (await D.deleteTraining(tr), 1)); }
+    catch (err) { dlg.querySelector('.form-msg').textContent = errText(err); b.disabled = false; }
+  }));
+}
+
 function confirmBox(text, label, run) {
   openDialog(`<div class="dlg"><p>${esc(text)}</p><p class="form-msg" role="status"></p>
     <div class="foot"><button class="btn" data-action="close">${esc(t('cancel'))}</button><button class="btn primary" data-action="confirm-yes">${esc(label)}</button></div></div>`);
@@ -623,6 +1022,44 @@ document.addEventListener('click', async e => {
     confirmBox(t('confirmDeleteCourt', { name: c.name }), t('delete'), () => D.deleteCourt(c.id).then(() => toast(t('courtDeleted'))));
     return;
   }
+  // allenamenti
+  if (a === 'week') { ui.week = +el.dataset.d === 0 ? weekStart(isoDate()) : addDays(ui.week, +el.dataset.d); render(); return; }
+  if (a === 'nt-dur') { ui.nt.dur = +el.dataset.dur; render(); return; }
+  if (a === 'tr-remove' && ui.tr) {
+    const tr = ui.tr; const ids = tr.athleteIds.filter(x => x !== el.dataset.id);
+    const names = Object.fromEntries(ids.map(x => [x, tr.names[x]]));
+    D.updateTraining(tr.id, { athleteIds: ids, names }).catch(err => toast(errText(err)));
+    return;
+  }
+  if (a === 'tr-edit' && ui.tr) { editTraining(ui.tr); return; }
+  if (a === 'tr-delete' && ui.tr) { deleteTrainingDlg(ui.tr); return; }
+  if (a === 'ev-athlete') { ui.draft.cur = el.dataset.id; render(); document.querySelector('.ev-sheet')?.scrollIntoView({ block: 'nearest' }); return; }
+  if (a === 'ev-next' && ui.tr) {
+    const ids = ui.tr.athleteIds; ui.draft.cur = ids[Math.min(ids.indexOf(ui.draft.cur) + 1, ids.length - 1)]; render();
+    document.querySelector('.ev-sheet')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); return;
+  }
+  if (a === 'ev-score') {
+    const d = ui.draft; const e = d.data[d.cur] || (d.data[d.cur] = { scores: {}, note: '' });
+    const n = +el.dataset.n, k = el.dataset.k;
+    if (e.scores[k] === n) delete e.scores[k]; else e.scores[k] = n;   // un secondo tocco toglie il voto
+    d.dirty.add(d.cur); render(); return;
+  }
+  if (a === 'ev-save' && ui.tr) {
+    const tr = ui.tr, d = ui.draft;
+    const list = [...d.dirty].filter(aid => tr.athleteIds.includes(aid)).map(aid => ({ athleteId: aid, athleteName: tr.names[aid] || '', scores: d.data[aid].scores, note: d.data[aid].note }));
+    el.disabled = true;
+    try { await D.saveEvals(tr, list); d.dirty.clear(); toast(t('evalSaved')); location.hash = '#/training/' + encodeURIComponent(tr.id); }
+    catch (err) { el.disabled = false; const m = document.getElementById('evMsg'); if (m) m.textContent = errText(err); }
+    return;
+  }
+  // corsisti
+  if (a === 'ath-tab') { ui.athTab = el.dataset.tab; render(); return; }
+  if (a === 'cert-type') { ui.certType = el.dataset.v; document.querySelectorAll('[data-action="cert-type"]').forEach(x => x.setAttribute('aria-pressed', String(x === el))); return; }
+  if (a === 'ath-delete') {
+    const at = athleteById(routeId()); if (!at) return;
+    confirmBox(t('confirmDeleteAthlete', { name: fullName(at) }), t('deleteAthlete'), () => D.deleteAthlete(at.id).then(() => { toast(t('athleteDeleted')); location.hash = '#/athletes'; }));
+    return;
+  }
   if (a === 'logout') { await D.logout(); location.hash = '#/book'; return; }
   if (a === 'google') {
     const msg = document.getElementById('authMsg');
@@ -639,10 +1076,26 @@ document.addEventListener('click', async e => {
 });
 
 document.addEventListener('input', e => {
-  if (e.target.id === 'q') { ui.q = e.target.value; render(); }
+  const el = e.target;
+  if (el.id === 'q') { ui.q = el.value; render(); }
+  if (el.id === 'aq') { ui.aq = el.value; render(); }
+  if (el.id === 'ntq') { ui.nt.q = el.value; render(); }
+  if (el.id === 'evNote' && ui.draft) { const d = ui.draft; (d.data[d.cur] || (d.data[d.cur] = { scores: {}, note: '' })).note = el.value; d.dirty.add(d.cur); const b = document.querySelector('[data-action="ev-save"]'); if (b) b.disabled = false; }
+  if (el.dataset.nt && el.type !== 'checkbox' && el.tagName === 'INPUT' && el.type !== 'date') ui.nt[el.dataset.nt] = el.value;
 });
 document.addEventListener('change', e => {
-  if (e.target.id === 'day' && e.target.value) { D.setDate(e.target.value); scrolledOnce = false; }
+  const el = e.target;
+  if (el.id === 'day' && el.value) { D.setDate(el.value); scrolledOnce = false; }
+  if (el.dataset.nt) { ui.nt[el.dataset.nt] = el.type === 'checkbox' ? el.checked : el.value; render(); }
+  if (el.dataset.ntAthlete) {
+    const ids = ui.nt.athleteIds, id = el.dataset.ntAthlete;
+    ui.nt.athleteIds = el.checked ? [...new Set([...ids, id])] : ids.filter(x => x !== id);
+    render();
+  }
+  if (el.id === 'trAdd' && el.value && ui.tr) {
+    const at = athleteById(el.value); const tr = ui.tr;
+    if (at) D.updateTraining(tr.id, { athleteIds: [...tr.athleteIds, at.id], names: Object.assign({}, tr.names, { [at.id]: fullName(at) }) }).catch(err => toast(errText(err)));
+  }
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && ui.menu) { ui.menu = false; render(); } });
 
@@ -661,6 +1114,40 @@ document.addEventListener('submit', async e => {
       location.hash = '#/book';
     } catch (err) { msg.textContent = errText(err); }
     finally { btn.disabled = false; }
+  }
+  if (f.id === 'trForm') {
+    e.preventDefault();
+    const nt = ui.nt, msg = document.getElementById('trMsg');
+    const coach = S.users.find(u => u.id === nt.coachId);
+    if (!nt.title.trim()) { msg.textContent = t('trTitle'); f.elements.title.focus(); return; }
+    if (!coach) { msg.textContent = t('chooseCoach'); return; }
+    const dates = nt.repeat ? weeklyDates(nt.date, nt.until || nt.date) : [nt.date];
+    const btn = f.querySelector('[type=submit]'); btn.disabled = true;
+    try {
+      const names = Object.fromEntries(nt.athleteIds.map(id => [id, fullName(athleteById(id) || {})]));
+      const res = await D.createTrainings(dates, { title: nt.title, courtId: nt.courtId, start: nt.start, dur: nt.dur, coachId: coach.id, coachName: fullName(coach), athleteIds: nt.athleteIds, names, notes: nt.notes });
+      const n = res.done.length;
+      if (res.skipped.length) {
+        openDialog(`<div class="dlg"><div><h2>${esc(n === 1 ? t('trCreated1') : t('trCreated', { n }))}</h2><p class="lead">${esc(t('trSkipped', { dates: res.skipped.map(d => fmtShort(dateOf(d))).join(', ') }))}</p></div><div class="foot"><button class="btn primary" data-action="close">OK</button></div></div>`);
+      } else toast(n === 1 ? t('trCreated1') : t('trCreated', { n }));
+      ui.week = weekStart(nt.date); ui.nt = null;
+      location.hash = '#/trainings';
+    } catch (err) { msg.textContent = errText(err); }
+    finally { btn.disabled = false; }
+  }
+  if (f.id === 'athForm') {
+    e.preventDefault();
+    const msg = document.getElementById('athMsg');
+    const d = Object.fromEntries(new FormData(f));
+    if (!String(d.first || '').trim()) { msg.textContent = t('firstName'); f.elements.first.focus(); return; }
+    const id = routeId() === 'new' ? null : routeId();
+    const paid = d.fitpPaid === 'on';
+    const prev = id ? athleteById(id) : null;
+    const year = new Date().getFullYear();
+    const data = Object.assign(d, { certType: ui.certType || '', active: d.active === 'on', fitpPaid: paid,
+      fitpYear: paid ? year : (prev && prev.fitpYear < year ? prev.fitpYear : 0) });
+    try { const nid = await D.saveAthlete(id, data); toast(t('athleteSaved')); if (!id) location.hash = '#/athlete/' + encodeURIComponent(nid); }
+    catch (err) { msg.textContent = errText(err); }
   }
   if (f.id === 'profileForm') {
     e.preventDefault();

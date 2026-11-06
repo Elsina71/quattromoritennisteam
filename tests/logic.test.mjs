@@ -2,7 +2,8 @@
 import assert from 'node:assert/strict';
 import {
   toMin, fromMin, times, covered, endOf, slotId, fits, durationsAt, isoDate, addDays,
-  isPast, nextFree, freeCount, span, isStaffRole, fullName
+  isPast, nextFree, freeCount, span, isStaffRole, fullName,
+  certStatus, weekStart, weekDays, weeklyDates, age, averages, validScore, daysBetween, EVAL_AREAS
 } from '../js/logic.js';
 
 let n = 0;
@@ -74,6 +75,40 @@ test('ruoli e nomi', () => {
   assert.equal(isStaffRole('segreteria'), true);
   assert.equal(isStaffRole('allenatore'), false);
   assert.equal(fullName({ first: 'Giulia', last: 'Serra' }), 'Giulia Serra');
+});
+
+test('certificato medico', () => {
+  const today = '2026-11-06';
+  assert.equal(certStatus('', today).state, 'missing');
+  assert.deepEqual(certStatus('2026-11-05', today), { state: 'expired', days: -1 });
+  assert.deepEqual(certStatus('2026-11-13', today), { state: 'd7', days: 7 });
+  assert.deepEqual(certStatus('2026-11-14', today), { state: 'd30', days: 8 });
+  assert.deepEqual(certStatus('2026-12-06', today), { state: 'd30', days: 30 });
+  assert.equal(certStatus('2026-12-07', today).state, 'ok');
+  assert.equal(daysBetween('2026-03-28', '2026-03-30'), 2);   // passaggio all'ora legale
+});
+
+test('settimane e serie', () => {
+  assert.equal(weekStart('2026-11-06'), '2026-11-02');   // venerdì → lunedì
+  assert.equal(weekStart('2026-11-08'), '2026-11-02');   // domenica → stesso lunedì
+  assert.equal(weekDays('2026-11-02')[6], '2026-11-08');
+  assert.deepEqual(weeklyDates('2026-11-03', '2026-11-24'), ['2026-11-03', '2026-11-10', '2026-11-17', '2026-11-24']);
+  assert.equal(weeklyDates('2026-01-01', '2028-01-01').length, 52);
+});
+
+test('età', () => {
+  assert.equal(age('2014-11-07', '2026-11-06'), 11);
+  assert.equal(age('2014-11-06', '2026-11-06'), 12);
+  assert.equal(age('', '2026-11-06'), null);
+});
+
+test('medie delle valutazioni', () => {
+  const a = averages([{ scores: { tecnica: 6, movimento: 8 } }, { scores: { tecnica: 7 } }, { scores: {} }]);
+  assert.deepEqual(a.tecnica, { avg: 6.5, n: 2 });
+  assert.deepEqual(a.movimento, { avg: 8, n: 1 });
+  assert.deepEqual(a.consistenza, { avg: null, n: 0 });
+  assert.equal(EVAL_AREAS.length, 7);
+  assert.equal(validScore(10), true); assert.equal(validScore(0), false); assert.equal(validScore(6.5), false);
 });
 
 console.log(`ok, ${n} prove superate`);

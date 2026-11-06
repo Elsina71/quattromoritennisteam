@@ -41,7 +41,10 @@ export const S = {
   slots: [], slotsReady: false, slotsError: null,
   dayBookings: [],      // staff: prenotazioni del giorno con i nomi
   myBookings: [],       // le mie prenotazioni
-  users: [], usersReady: false
+  users: [], usersReady: false,
+  dayTrainings: [],     // staff: allenamenti del giorno; allenatore: i suoi del giorno
+  athletes: [], athletesReady: false,   // corsisti (solo staff)
+  myTrainings: [], myTrainingsReady: false   // allenatore: i suoi allenamenti
 };
 
 const listeners = new Set();
@@ -55,6 +58,8 @@ function emit() {
 export const role = () => (S.owner ? 'admin' : (S.profile && S.profile.role) || (S.user ? 'utente' : ''));
 export const isStaff = () => isStaffRole(role());
 export const isAdmin = () => role() === 'admin';
+export const isCoach = () => role() === 'allenatore';
+export const seesTrainings = () => isStaff() || isCoach();
 
 // ---------- ascolti ----------
 const subs = {};
@@ -83,7 +88,8 @@ function listenDay() {
   }, err => { S.slotsReady = true; S.slotsError = err.code || 'error'; });
   if (isStaff()) {
     listen('day', query(collection(db, 'bookings'), where('date', '==', S.date)), snap => { S.dayBookings = rows(snap); });
-  } else { stop('day'); S.dayBookings = []; }
+    listen('dayTr', query(collection(db, 'trainings'), where('date', '==', S.date)), snap => { S.dayTrainings = rows(snap); });
+  } else { stop('day'); stop('dayTr'); S.dayBookings = []; S.dayTrainings = []; }
 }
 
 export function setDate(iso) {
@@ -101,6 +107,16 @@ function listenSignedIn() {
       S.usersReady = true;
     }, () => { S.usersReady = true; });
   } else { stop('users'); S.users = []; S.usersReady = false; }
+  if (isStaff()) {
+    listen('athletes', collection(db, 'athletes'), snap => {
+      S.athletes = rows(snap).sort((a, b) => fullName(a).localeCompare(fullName(b), 'it'));
+      S.athletesReady = true;
+    }, () => { S.athletesReady = true; });
+  } else { stop('athletes'); S.athletes = []; S.athletesReady = false; }
+  if (isCoach()) {
+    listen('myTr', query(collection(db, 'trainings'), where('coachId', '==', uid)), snap => { S.myTrainings = rows(snap); S.myTrainingsReady = true; },
+      () => { S.myTrainingsReady = true; });
+  } else { stop('myTr'); S.myTrainings = []; S.myTrainingsReady = false; }
   listenDay();
 }
 
@@ -108,8 +124,8 @@ function listenSignedIn() {
 let pendingProfile = null;
 
 onAuthStateChanged(auth, async u => {
-  ['me', 'mine', 'users', 'day'].forEach(stop);
-  S.user = u; S.profile = null; S.myBookings = []; S.users = []; S.dayBookings = [];
+  ['me', 'mine', 'users', 'day', 'dayTr', 'athletes', 'myTr', 'week', 'evals'].forEach(stop);
+  S.user = u; S.profile = null; S.myBookings = []; S.users = []; S.dayBookings = []; S.dayTrainings = []; S.athletes = []; S.myTrainings = [];
   S.owner = await isOwnerEmail(u);
   if (!u) { S.authReady = true; listenDay(); emit(); return; }
   const ref = doc(db, 'users', u.uid);
@@ -199,7 +215,97 @@ export async function cancelBooking(bk) {
   await b.commit();
 }
 
+// ---------- corsisti ----------
+export function saveAthlete(id, d) {
+  const data = {
+    first: d.first.trim().slice(0, 40), last: d.last.trim().slice(0, 40), birth: d.birth || '', phone: (d.phone || '').trim().slice(0, 30),
+    email: (d.email || '').trim().slice(0, 120), parent: (d.parent || '').trim().slice(0, 80), notes: (d.notes || '').trim().slice(0, 500),
+    certType: d.certType || '', certExpiry: d.certExpiry || '', fitpPaid: !!d.fitpPaid, fitpYear: d.fitpYear | 0, active: d.active !== false
+  };
+  if (id) return setDoc(doc(db, 'athletes', id), data, { merge: true }).then(() => id);
+  const ref = doc(collection(db, 'athletes'));
+  return setDoc(ref, Object.assign(data, { createdAt: serverTimestamp() })).then(() => ref.id);
+}
+export const deleteAthlete = id => deleteDoc(doc(db, 'athletes', id));
+
+// ---------- allenamenti ----------
+// Allenamenti di una settimana (staff) o tutti i miei (allenatore, già in ascolto)
+export function listenWeek(monday, sunday) {
+  if (!isStaff()) return;
+  S.weekTrainings = null;
+  listen('week', query(collection(db, 'trainings'), where('date', '>=', monday), where('date', '<=', sunday)), snap => { S.weekTrainings = rows(snap); },
+    () => { S.weekTrainings = []; });
+}
+export function stopWeek() { stop('week'); }
+
+// Crea un allenamento per ogni data; salta (e riporta) le date dove il campo è già occupato.
+export async function createTrainings(dates, t) {
+  const series = dates.length > 1 ? doc(collection(db, 'trainings')).id : '';
+  const half = covered(t.start, t.dur);
+  const done = [], skipped = [];
+  for (const date of dates) {
+    const ref = doc(collection(db, 'trainings'));
+    const b = writeBatch(db);
+    b.set(ref, {
+      title: t.title.trim().slice(0, 60), courtId: t.courtId, date, start: t.start, end: endOf(t.start, t.dur), last: half[half.length - 1], dur: t.dur,
+      coachId: t.coachId, coachName: t.coachName.slice(0, 80), athleteIds: t.athleteIds, names: t.names, series, notes: (t.notes || '').slice(0, 500),
+      createdBy: S.user.uid, createdAt: serverTimestamp()
+    });
+    half.forEach(tm => b.set(doc(db, 'slots', slotId(t.courtId, date, tm)), { courtId: t.courtId, date, time: tm, trainingId: ref.id }));
+    try { await b.commit(); done.push(date); } catch (e) { if (e.code !== 'permission-denied') throw e; skipped.push(date); }
+  }
+  return { done, skipped };
+}
+export const updateTraining = (id, d) => updateDoc(doc(db, 'trainings', id), d);
+export async function deleteTraining(tr) {
+  const b = writeBatch(db);
+  covered(tr.start, tr.dur).forEach(tm => b.delete(doc(db, 'slots', slotId(tr.courtId, tr.date, tm))));
+  b.delete(doc(db, 'trainings', tr.id));
+  await b.commit();
+}
+// Questo allenamento e i successivi della stessa serie
+export async function deleteSeriesFrom(tr) {
+  const snap = await getDocs(query(collection(db, 'trainings'), where('series', '==', tr.series)));
+  const list = rows(snap).filter(x => x.date >= tr.date);
+  for (const x of list) await deleteTraining(x);
+  return list.length;
+}
+export async function getTraining(id) {
+  const s = await getDoc(doc(db, 'trainings', id));
+  return s.exists() ? Object.assign({ id: s.id }, s.data()) : null;
+}
+export function listenTraining(id, fn) {
+  if (subs.tr) subs.tr();
+  subs.tr = onSnapshot(doc(db, 'trainings', id), s => { fn(s.exists() ? Object.assign({ id: s.id }, s.data()) : null); emit(); },
+    () => { fn(null); emit(); });
+}
+
+// ---------- valutazioni ----------
+export function listenEvals(by, fn) {
+  // by: { trainingId } oppure { athleteId } (staff); l'allenatore legge solo le sue
+  const parts = [collection(db, 'evals')];
+  if (by.trainingId) parts.push(where('trainingId', '==', by.trainingId));
+  if (by.athleteId) parts.push(where('athleteId', '==', by.athleteId));
+  if (!isStaff()) parts.push(where('coachId', '==', S.user.uid));
+  listen('evals', query(...parts), snap => fn(rows(snap)), () => fn([]));
+}
+export function stopEvals() { stop('evals'); }
+export async function saveEvals(tr, list) {
+  // list: [{ athleteId, athleteName, scores, note }]
+  const b = writeBatch(db);
+  for (const e of list) {
+    b.set(doc(db, 'evals', tr.id + '_' + e.athleteId), {
+      trainingId: tr.id, athleteId: e.athleteId, athleteName: e.athleteName.slice(0, 80), date: tr.date, title: tr.title.slice(0, 60),
+      coachId: tr.coachId, scores: e.scores, note: (e.note || '').trim().slice(0, 300), by: S.user.uid, updatedAt: serverTimestamp()
+    });
+  }
+  await b.commit();
+}
+
 // Prenotazione di una mezz'ora (staff: dal giorno; utente: le sue)
+export function trainingOf(id) {
+  return S.dayTrainings.find(t => t.id === id) || S.myTrainings.find(t => t.id === id) || null;
+}
 export function bookingOf(slot) {
   if (!slot) return null;
   return S.dayBookings.find(b => b.id === slot.bookingId) || S.myBookings.find(b => b.id === slot.bookingId) || null;

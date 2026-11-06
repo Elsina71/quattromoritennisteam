@@ -1,6 +1,6 @@
 # Quattro Mori Tennis Team
 
-App del circolo per prenotare i campi da tennis e padel. Indirizzo: https://quattromoritennisteam-d3258.web.app
+App del circolo per prenotare i campi da tennis e padel. Indirizzo: https://quattromoritennisteam.web.app
 
 ## Cosa c'è
 - **Prenota**: il tabellone del giorno, campi in colonna e mezz'ore in riga. Prenotazioni da 1 ora, 1 ora e 30 o 2 ore.

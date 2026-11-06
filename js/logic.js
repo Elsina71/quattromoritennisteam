@@ -100,3 +100,58 @@ export const HOUR_OPTIONS = Array.from({ length: 49 }, (_, i) => fromMin(i * 30)
 export function fullName(p) {
   return [p && p.first, p && p.last].filter(Boolean).join(' ').trim();
 }
+
+// ---------- pezzo 2: corsisti, allenamenti, valutazioni ----------
+
+// Le voci della scheda di valutazione (voto da 1 a 10, 6 è la sufficienza).
+export const EVAL_AREAS = ['tecnica', 'movimento', 'controllo', 'scelte', 'intensita', 'atteggiamento', 'consistenza'];
+export const PASS = 6;
+
+// Giorni fra due date 'AAAA-MM-GG' (b - a)
+export function daysBetween(a, b) {
+  return Math.round((dateOf(b) - dateOf(a)) / 86400000);
+}
+
+// Stato del certificato medico: mancante, scaduto, scade entro 7 o 30 giorni, valido.
+export function certStatus(expiry, today = isoDate()) {
+  if (!expiry) return { state: 'missing', days: null };
+  const days = daysBetween(today, expiry);
+  if (days < 0) return { state: 'expired', days };
+  if (days <= 7) return { state: 'd7', days };
+  if (days <= 30) return { state: 'd30', days };
+  return { state: 'ok', days };
+}
+
+// Lunedì della settimana di una data, e i sette giorni
+export function weekStart(iso) {
+  const wd = (dateOf(iso).getDay() + 6) % 7;   // lunedì = 0
+  return addDays(iso, -wd);
+}
+export const weekDays = monday => Array.from({ length: 7 }, (_, i) => addDays(monday, i));
+
+// Date di una serie settimanale, dalla prima fino a "until" compreso (al massimo 52)
+export function weeklyDates(first, until) {
+  const out = [];
+  for (let d = first; d <= until && out.length < 52; d = addDays(d, 7)) out.push(d);
+  return out;
+}
+
+export function age(birth, today = isoDate()) {
+  if (!birth) return null;
+  const [y, m, d] = birth.split('-').map(Number);
+  const [ty, tm, td] = today.split('-').map(Number);
+  return ty - y - (tm < m || (tm === m && td < d) ? 1 : 0);
+}
+
+// Media per voce su più schede (solo i voti dati), con il numero di voti
+export function averages(evals) {
+  const out = {};
+  for (const k of EVAL_AREAS) {
+    const v = evals.map(e => e.scores && e.scores[k]).filter(x => Number.isInteger(x));
+    out[k] = v.length ? { avg: Math.round(v.reduce((a, b) => a + b, 0) / v.length * 10) / 10, n: v.length } : { avg: null, n: 0 };
+  }
+  return out;
+}
+
+// Un voto è valido se è un intero da 1 a 10
+export const validScore = v => Number.isInteger(v) && v >= 1 && v <= 10;
