@@ -8,8 +8,7 @@ const config = {
   appId: '1:889001085879:web:191e1f1e60a9d47294f632'
 };
 
-// Sul sito pubblicato il login con Google passa dallo stesso indirizzo del sito
-// (Firebase Hosting serve /__/auth/ anche su web.app): niente finestre da un altro dominio.
-if (/\.(web\.app|firebaseapp\.com)$/.test(location.hostname)) config.authDomain = location.hostname;
+// Il login con Google passa dall'indirizzo di serie del progetto (authDomain qui sopra):
+// è già registrato presso Google, quindi funziona da qualunque indirizzo dell'app.
 
 export const firebaseConfig = config;
