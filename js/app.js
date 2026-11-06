@@ -515,7 +515,8 @@
   // PRENOTAZIONE DEI CAMPI, CONFERMA EMAIL, LISTA NERA
   // ====================================================================
   // Slot di mezz'ora: verde libero, rosso occupato, giallo selezione. Si prenota per multipli di 30 minuti.
-  const BOOK_DEFAULTS = { minHours: 0.5, maxHours: 2, maxPerDay: 1, daysAhead: 7 };
+  // di serie: da 1 ora a 2 ore (1 h, 1 h 30, 2 h), a mezz'ore
+  const BOOK_DEFAULTS = { minHours: 1, maxHours: 2, maxPerDay: 1, daysAhead: 7 };
   const bookCfg = () => Object.assign({}, BOOK_DEFAULTS, S().booking || {});
   // Durata minima di una prenotazione in minuti (l'admin non ha limiti).
   const minBook = () => (admin() ? 30 : Math.max(30, Math.round(Number(bookCfg().minHours) * 60) || 30));
@@ -536,6 +537,10 @@
   const courtName = id => { const c = courtById(id); return c ? c.name : t('bkCourtDeleted'); };
   const courtHours = (c, date) => { const o = c.hours[dow(date)]; return o && o.open && o.from < o.to ? o : null; };
   const bookableCourts = () => (S().courts || []).filter(c => c.visible || admin());
+  // tipo di campo: tennis o padel (badge nella pagina delle prenotazioni e filtro se ci sono entrambi)
+  const COURT_TYPES = ['tennis', 'padel'];
+  const courtType = c => (c && c.type === 'padel' ? 'padel' : 'tennis');
+  const typeBadge = c => `<span class="badge court-${courtType(c)}"><i class="ti ti-${courtType(c) === 'padel' ? 'ping-pong' : 'ball-tennis'}" aria-hidden="true"></i> ${esc(t('courtType_' + courtType(c)))}</span>`;
   // Blocchi ricorrenti di quel giorno della settimana (allenamenti fissi): sempre occupati.
   const weeklyOn = date => {
     const g = {}, wd = dow(date);
@@ -677,6 +682,13 @@
     render();
   }
 
+  // Durate ammesse (di serie 1 h, 1 h 30, 2 h): un tocco e la prenotazione dura così (se le mezz'ore sono libere).
+  function bkDurations(s) {
+    const cfg = bookCfg(), max = admin() ? Math.max(Number(cfg.maxHours) * 60, 240) : Number(cfg.maxHours) * 60, cur = toMin(s.to) - toMin(s.from), out = [];
+    for (let m = Math.max(60, minBook()); m <= max && out.length < 6; m += 30) out.push(m);
+    if (!out.length) return '';
+    return `<div class="segmented wrap bk-durs" role="group" aria-label="${esc(t('bkDuration'))}">${out.map(m => `<button type="button" data-action="bk-dur" data-m="${m}" aria-pressed="${m === cur}" ${selFree(s.courtId, s.date, s.from, addMin(s.from, m), s.editId) ? '' : 'disabled'}>${esc(durText('00:00', fromMin(m)))}</button>`).join('')}</div>`;
+  }
   function summaryPanel() {
     const s = ui.bkSel, uid = myUid();
     const legend = `<div class="legend"><span><i class="sw free"></i>${esc(t('bkFree'))}</span><span><i class="sw busy"></i>${esc(t('bkBusy'))}</span>
@@ -700,12 +712,13 @@
     return `<h3><i class="ti ti-${orig ? 'pencil' : 'calendar-plus'}" aria-hidden="true"></i> ${esc(t(orig ? 'bkEditTitle' : 'bkSummary'))}</h3><div class="summary-body"><div>
       ${orig ? `<p class="muted small">${esc(t('bkEditOf', { w: orig.blocked ? t('bkBlock') + ': ' + orig.blocked : bkWho(orig), b: bookingText(orig) }))}</p>` : ''}
       <dl class="summary">
-        <dt>${esc(t('bkCourt'))}</dt><dd>${esc(courtName(s.courtId))}</dd>
+        <dt>${esc(t('bkCourt'))}</dt><dd>${esc(courtName(s.courtId))} ${courtById(s.courtId) ? typeBadge(courtById(s.courtId)) : ''}</dd>
         <dt>${esc(t('bkDay'))}</dt><dd>${esc(longDate(s.date))}</dd>
         <dt>${esc(t('bkTime'))}</dt><dd><strong>${esc(s.from)} – ${esc(s.to)}</strong></dd>
         ${bkTimeSelects(s)}
         <dt>${esc(t('bkDuration'))}</dt><dd>${esc(durText(s.from, s.to))}</dd>
       </dl>
+      ${bkDurations(s)}
       <div class="btn-row">
         <button class="btn small" data-action="bk-shorter" ${toMin(s.to) - toMin(s.from) - 30 < minBook() ? 'disabled' : ''}>− 30 min</button>
         <button class="btn small" data-action="bk-longer" ${canLonger ? '' : 'disabled'}>+ 30 min</button>
@@ -728,7 +741,13 @@
     const d = ui.bookDate;
     if (admin() && d < today && window.Cloud && window.Cloud.loadBookingsDay) window.Cloud.loadBookingsDay(d);
     const max = addDays(today, Number(cfg.daysAhead) || 7);
-    const courts = bookableCourts();
+    const allCourts = bookableCourts();
+    // filtro Tutti / Tennis / Padel, solo se ci sono campi di entrambi i tipi
+    const types = COURT_TYPES.filter(k => allCourts.some(c => courtType(c) === k));
+    const ctype = types.length > 1 && types.includes(ui.bookType) ? ui.bookType : 'all';
+    const courts = ctype === 'all' ? allCourts : allCourts.filter(c => courtType(c) === ctype);
+    const typeTabs = types.length > 1 ? `<nav class="tabs court-tabs" aria-label="${esc(t('courtType'))}">${['all'].concat(types).map(k =>
+      `<a href="#/book" class="${ctype === k ? 'active' : ''}" data-action="bk-type" data-type="${k}">${k === 'all' ? '' : `<i class="ti ti-${k === 'padel' ? 'ping-pong' : 'ball-tennis'}" aria-hidden="true"></i> `}${esc(t(k === 'all' ? 'usersAll' : 'courtType_' + k))} <small>${k === 'all' ? allCourts.length : allCourts.filter(c => courtType(c) === k).length}</small></a>`).join('')}</nav>` : '';
     const open = courts.map(c => ({ c, h: courtHours(c, d) }));
     const opened = open.filter(x => x.h && x.c.visible);
     const starts = open.filter(x => x.h).map(x => x.h.from).sort(), ends = open.filter(x => x.h).map(x => x.h.to).sort();
@@ -751,7 +770,7 @@
     // Un riquadro per campo, con gli orari in orizzontale; stessa scala oraria per tutti i campi.
     const courtBox = c => {
       const h = courtHours(c, d);
-      const head = `<div class="court-head"><h3>${esc(c.name)}${!c.visible ? ` <span class="badge">${esc(t('bkHidden'))}</span>` : ''}</h3>
+      const head = `<div class="court-head"><h3>${esc(c.name)} ${typeBadge(c)}${!c.visible ? ` <span class="badge">${esc(t('bkHidden'))}</span>` : ''}</h3>
         <span class="muted small">${h ? `${esc(t('bkOpenHours', { a: h.from, b: h.to }))} · <strong>${esc(t('bkFreeHours', { n: String(freeHours(c)).replace('.', ',') }))}</strong>` : esc(t('bkClosedDay'))}</span></div>`;
       if (!h || !rows.some(x => x >= h.from && x < h.to)) return `<section class="card court-box closed">${head}${h ? `<p class="muted small">${esc(t(band !== 'all' ? 'bkNoneInBand' : 'bkOverToday'))}</p>` : ''}</section>`;
       const labels = rows.map((x, k) => (x.endsWith(':00') || k === 0 ? `<span class="tl" style="grid-column:${k + 1} / span ${x.endsWith(':00') && k + 1 < rows.length ? 2 : 1}">${x}</span>` : '')).join('');
@@ -809,6 +828,7 @@
         <button class="btn icon" data-action="bk-day" data-delta="1" aria-label="${esc(t('bkNextDay'))}" ${d >= max ? 'disabled' : ''}><i class="ti ti-chevron-right" aria-hidden="true"></i></button>
         <strong class="date-label">${esc(longDate(d))}</strong>
       </div>
+      ${typeTabs}
       ${bandsBar}
       <div class="book-layout">
         <div class="book-grid">
@@ -1031,6 +1051,7 @@
     const opt = v => HALF_HOURS.map(h => `<option ${h === v ? 'selected' : ''}>${h}</option>`).join('');
     return `<form data-form="court-save" class="card court-form"><input type="hidden" name="id" value="${esc(c.id)}">
       <div class="grid-form"><label>${esc(t('courtName'))}<input name="name" value="${esc(c.name)}" maxlength="40" required></label>
+        <label>${esc(t('courtType'))}<select name="type">${COURT_TYPES.map(k => `<option value="${k}" ${c.type === k ? 'selected' : ''}>${esc(t('courtType_' + k))}</option>`).join('')}</select></label>
         <label class="check"><input type="checkbox" name="visible" ${c.visible ? 'checked' : ''}> ${esc(t('courtVisible'))}</label></div>
       <div class="table-wrap"><table class="table hours"><thead><tr><th>${esc(t('bkDay'))}</th><th>${esc(t('courtOpen'))}</th><th>${esc(t('courtFrom'))}</th><th>${esc(t('courtTo'))}</th></tr></thead><tbody>
       ${[1, 2, 3, 4, 5, 6, 7].map(n => { const o = c.hours[n]; return `<tr><td>${esc(dayName(n))}</td>
@@ -3542,6 +3563,8 @@
     'verify-check': () => window.Cloud.checkVerified().then(ok => { if (ok) { ui.flash = { text: t('verifyOk') }; render(); } else warn('verifyNotYet'); }),
     'bk-day': el => { ui.bookDate = addDays(ui.bookDate || todayStr(), Number(el.dataset.delta)); render(); },
     'bk-band': el => { ui.bookBand = el.dataset.band; render(); },
+    'bk-type': el => { ui.bookType = el.dataset.type; render(); },
+    'bk-dur': el => { const x = ui.bkSel, m = Number(el.dataset.m); if (x && m >= minBook() && selFree(x.courtId, x.date, x.from, addMin(x.from, m), x.editId)) { x.to = addMin(x.from, m); render(); } },
     'bk-slot': el => {
       if (!(member() || admin())) { location.hash = '#/settings'; return warn('bkLoginFirst'); }
       slotClick(el.dataset.court, el.dataset.t);
@@ -3654,13 +3677,13 @@
         if (o.open && o.to <= o.from) return warn('courtHoursErr', { d: dayName(n) });
         hours[n] = o;
       }
-      Object.assign(c, { name: f.name.value.trim() || c.name, visible: f.visible.checked, hours });
+      Object.assign(c, { name: f.name.value.trim() || c.name, type: f.type.value === 'padel' ? 'padel' : 'tennis', visible: f.visible.checked, hours });
       commit(t('saved'));
     },
     'recurring-add': f => addRecurringForm(f),
     'booking-settings': f => {
       if (Number(f.minHours.value) > Number(f.maxHours.value)) return warn('bkMinMax');
-      S().booking = { minHours: Number(f.minHours.value) || 0.5, maxHours: Number(f.maxHours.value) || 2, maxPerDay: Math.max(1, parseInt(f.maxPerDay.value, 10) || 1), daysAhead: Math.max(1, parseInt(f.daysAhead.value, 10) || 7) };
+      S().booking = { minHours: Number(f.minHours.value) || 1, maxHours: Number(f.maxHours.value) || 2, maxPerDay: Math.max(1, parseInt(f.maxPerDay.value, 10) || 1), daysAhead: Math.max(1, parseInt(f.daysAhead.value, 10) || 7) };
       commit(t('saved'));
     },
     'book-rewards-save': f => {
@@ -3737,7 +3760,7 @@
   });
 
   // Azioni consentite a tutti; le altre solo agli amministratori (o al ruolo indicato).
-  const PUBLIC_ACTIONS = new Set(['set-lang', 'set-theme', 'set-design', 'logout', 'reset-password', 'close-dialog', 'bk-day', 'bk-band', 'bk-slot', 'bk-clear', 'bk-shorter', 'bk-longer']);
+  const PUBLIC_ACTIONS = new Set(['set-lang', 'set-theme', 'set-design', 'logout', 'reset-password', 'close-dialog', 'bk-day', 'bk-band', 'bk-type', 'bk-dur', 'bk-slot', 'bk-clear', 'bk-shorter', 'bk-longer']);
   // cassa: registra incassi, scarica ricevute e prospetto
   const CASH_ACTIONS = new Set(['ca-month', 'ca-addline', 'ca-xlsx', 'rc-pdf']);
   const CASH_FORMS = new Set(['ca-save']);

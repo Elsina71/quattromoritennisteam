@@ -11,14 +11,14 @@ const Store = (() => {
       roles: {}, incassi: [], bkpaid: {}, tesserati: [], occfree: {}, bkplayers: [], prices: null, bans: {}, notices: [] };
   }
 
-  // Campo: nome, visibile (prenotabile) e orari di apertura per giorno della settimana (1 = lunedì … 7 = domenica).
+  // Campo: nome, tipo (tennis o padel), visibile (prenotabile) e orari di apertura per giorno della settimana (1 = lunedì … 7 = domenica).
   function defaultHours() {
     return Object.fromEntries([1, 2, 3, 4, 5, 6, 7].map(d => [d, { open: true, from: '08:00', to: '23:00' }]));
   }
   function normCourt(c) {
     const hours = defaultHours();
     Object.keys(c.hours || {}).forEach(d => { hours[d] = Object.assign(hours[d], c.hours[d]); });
-    return { id: c.id, name: c.name || 'Campo', visible: c.visible !== false, hours };
+    return { id: c.id, name: c.name || 'Campo', type: c.type === 'padel' ? 'padel' : 'tennis', visible: c.visible !== false, hours };
   }
 
   let state = empty();

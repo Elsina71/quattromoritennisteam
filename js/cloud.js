@@ -1125,8 +1125,10 @@ function push(state) {
   const settings = JSON.stringify({ notice: state.notice || '', noticeUntil: state.noticeUntil || '', nicks: state.nicks || {}, courts: state.courts || [], booking: state.booking || null, bookRewards: state.bookRewards || null, prices: state.prices || null });
   if (settings === last.settings) return;
   last.settings = settings;
-  // minMinutes: durata minima di una prenotazione, letta dalle regole del database.
-  setDoc(doc(db, 'data', 'settings'), { json: settings, updated: Date.now(), minMinutes: Math.max(30, Math.round(Number((state.booking || {}).minHours || 0.5) * 60)) }).catch(onError);
+  // minMinutes e maxMinutes: durata minima e massima di una prenotazione (di serie 1 ora e 2 ore), lette dalle regole del database.
+  const bkc = state.booking || {};
+  const minMinutes = Math.max(30, Math.round(Number(bkc.minHours || 1) * 60)), maxMinutes = Math.max(minMinutes, Math.round(Number(bkc.maxHours || 2) * 60));
+  setDoc(doc(db, 'data', 'settings'), { json: settings, updated: Date.now(), minMinutes, maxMinutes }).catch(onError);
 }
 
 // L'utente si crea con un'app Firebase separata, così l'admin resta collegato.

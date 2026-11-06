@@ -1041,6 +1041,13 @@ dl.summary dd:first-letter { text-transform: uppercase; }
 .role-pick select { min-height: 40px; }
 .roles-list .badge.role-general, .roles-list .badge[class*="role-"] { font-size: .85rem; }
 .user-tabs a small { opacity: .7; font-weight: 600; margin-left: 2px; }
+.badge.court-tennis { background: #eef7d6; color: #4a6a00; border-color: transparent; }
+.badge.court-padel { background: #e3f1fb; color: #155a8a; border-color: transparent; }
+.court-head h3 .badge { font-size: .75rem; vertical-align: middle; }
+.court-tabs a small { opacity: .7; font-weight: 600; margin-left: 2px; }
+.bk-durs { margin: 8px 0 4px; }
+.bk-durs button { min-height: 44px; min-width: 64px; }
+.bk-durs button:disabled { opacity: .45; cursor: not-allowed; }
 li.is-void { opacity: .6; }
 /* grafici del profilo (una serie, colore primario) */
 .charts-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 18px; margin: 10px 0; }

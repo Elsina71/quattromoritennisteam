@@ -175,12 +175,13 @@ service cloud.firestore {
             && exists(/databases/$(database)/documents/occ/$(get(/databases/$(database)/documents/weekly/$(wid)).data.rid.split('_')[1] + '_' + d))
             && get(/databases/$(database)/documents/occ/$(get(/databases/$(database)/documents/weekly/$(wid)).data.rid.split('_')[1] + '_' + d)).data.get('cancelled', false) == true);
     }
-    // Durata minima decisa dall'admin (minuti, in data/settings); orari "HH:MM".
+    // Durata minima e massima decise dall'admin (minuti, in data/settings; di serie 60 e 120: 1 h, 1 h 30 o 2 h); orari "HH:MM".
     function mins(hm) { return int(hm.split(':')[0]) * 60 + int(hm.split(':')[1]); }
     // formati sicuri (i valori finiscono nelle pagine di tutti): orario HH:MM e codici dei documenti
     function hm(x) { return x is string && x.matches('[0-2][0-9]:[0-5][0-9]'); }
     function safeId(x) { return x is string && x.matches('[A-Za-z0-9_-]{1,100}'); }
-    function minBook() { return get(/databases/$(database)/documents/data/settings).data.get('minMinutes', 30); }
+    function minBook() { return get(/databases/$(database)/documents/data/settings).data.get('minMinutes', 60); }
+    function maxBook() { return get(/databases/$(database)/documents/data/settings).data.get('maxMinutes', 120); }
     function validSlot(id) {
       let x = request.resource.data;
       return x.keys().hasOnly(['courtId', 'date', 'start', 'from', 'to', 'gid', 'userId', 'blocked', 'first'])
@@ -189,6 +190,8 @@ service cloud.firestore {
         && hm(x.from) && hm(x.start) && hm(x.to) && safeId(x.gid) && safeId(x.courtId)
         && x.from <= x.start && x.start < x.to
         && mins(x.to) - mins(x.from) >= minBook()
+        && mins(x.to) - mins(x.from) <= maxBook()
+        && mins(x.from) % 30 == 0 && mins(x.to) % 30 == 0
         && x.userId == request.auth.uid && x.blocked == ''
         && weeklyFree(x.courtId, x.date, x.start)
         && existsAfter(bz(id));

@@ -2,6 +2,9 @@
 const I18n = (() => {
   const dict = {
     it: {
+      courtType: "Tipo di campo",
+      courtType_tennis: "Tennis",
+      courtType_padel: "Padel",
       role_admin: "Admin",
       role_seg: "Segreteria",
       role_user: "Utente",
@@ -163,7 +166,7 @@ const I18n = (() => {
       navBook: "Campi",
       bkTitle: "Prenota un campo",
       bkGo: "Prenota un campo",
-      bkIntro: "{c} campi · {o} aperti in questa giornata · slot da 30 minuti · prenotazione da minimo {m} a massimo {h} · prenotabili fino a {d} giorni prima.",
+      bkIntro: "{c} campi · {o} aperti in questa giornata · mezz'ore da 30 minuti · durata da {m} a {h} · prenotabili fino a {d} giorni prima.",
       bkPrevDay: "Giorno precedente",
       bkPastTitle: "Prenotazioni già passate ({n})",
       bkInfoBtn: "Giocatori e voti",
@@ -918,6 +921,9 @@ const I18n = (() => {
       phToGo: "mancano {n} prenotazioni"
     },
     en: {
+      courtType: "Court type",
+      courtType_tennis: "Tennis",
+      courtType_padel: "Padel",
       role_admin: "Admin",
       role_seg: "Office",
       role_user: "User",
@@ -1079,7 +1085,7 @@ const I18n = (() => {
       navBook: "Courts",
       bkTitle: "Book a court",
       bkGo: "Book a court",
-      bkIntro: "{c} courts · {o} open on this day · 30-minute slots · bookings from {m} up to {h} · bookable up to {d} days ahead.",
+      bkIntro: "{c} courts · {o} open on this day · 30-minute slots · duration from {m} to {h} · bookable up to {d} days ahead.",
       bkPrevDay: "Previous day",
       bkPastTitle: "Past bookings ({n})",
       bkInfoBtn: "Players and votes",
