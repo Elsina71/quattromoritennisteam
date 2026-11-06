@@ -471,7 +471,7 @@ const I18n = (() => {
       attIn: "presenza confermata",
       attOut: "assente",
       attNone: "in attesa di conferma",
-      attNoneAbsent: "no reply",
+      attNoneAbsent: "senza risposta",
       attPresent: "Presente",
       attAbsent: "Assente",
       attTodayTitle: "Conferma la tua presenza per l'allenamento di oggi",
