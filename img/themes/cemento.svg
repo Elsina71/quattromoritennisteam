@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" preserveAspectRatio="xMidYMid slice">
+<!-- Cemento: campo in cemento blu con bordo verde-azzurro, righe bianche e pallina in volo (disegno originale) -->
+<defs>
+<linearGradient id="o" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2f8a86"/><stop offset="1" stop-color="#226e70"/></linearGradient>
+<linearGradient id="i" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2d63bd"/><stop offset="1" stop-color="#1d4a99"/></linearGradient>
+<pattern id="t" width="10" height="10" patternUnits="userSpaceOnUse"><circle cx="2" cy="3" r=".7" fill="#fff" opacity=".07"/><circle cx="7" cy="8" r=".7" fill="#000" opacity=".08"/></pattern>
+<linearGradient id="f" x1="0" x2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#fff" stop-opacity=".6"/></linearGradient>
+</defs>
+<rect width="1200" height="300" fill="url(#o)"/>
+<g transform="translate(38 0) skewX(-14)">
+<rect x="120" y="22" width="960" height="256" fill="url(#i)"/>
+<g fill="none" stroke="#fff" stroke-width="6">
+<rect x="120" y="22" width="960" height="256"/>
+<path d="M120 54 H1080 M120 246 H1080"/>
+<path d="M350 54 V246 M850 54 V246"/>
+<path d="M350 150 H850"/>
+<path d="M120 150 h16 M1080 150 h-16"/>
+</g>
+<rect x="604" y="8" width="10" height="284" fill="#0b2557" opacity=".3"/>
+<rect x="596" y="8" width="8" height="284" fill="#f4f6fa"/>
+</g>
+<rect width="1200" height="300" fill="url(#t)"/>
+<path d="M600 222 L788 106" stroke="url(#f)" stroke-width="5" stroke-linecap="round" stroke-dasharray="2 12"/>
+<circle cx="806" cy="94" r="16" fill="#dcf03c"/>
+<path d="M794 86 q12 8 2 22 M818 82 q-12 8 -2 22" stroke="#fff" stroke-width="2.4" fill="none" opacity=".9"/>
+</svg>

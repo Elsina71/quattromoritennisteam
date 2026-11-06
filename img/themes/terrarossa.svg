@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" preserveAspectRatio="xMidYMid slice">
+<!-- Terra rossa: campo in terra battuta visto dall'alto, righe bianche, segno della pallina (disegno originale) -->
+<defs>
+<linearGradient id="c" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#d0653a"/><stop offset=".55" stop-color="#bf5229"/><stop offset="1" stop-color="#a5421e"/></linearGradient>
+<pattern id="g" width="16" height="16" patternUnits="userSpaceOnUse"><circle cx="3" cy="4" r="1" fill="#7a2b10" opacity=".22"/><circle cx="11" cy="11" r=".9" fill="#ffe9d6" opacity=".16"/><circle cx="12" cy="3" r=".7" fill="#7a2b10" opacity=".18"/><circle cx="5" cy="13" r=".6" fill="#ffe9d6" opacity=".12"/></pattern>
+<radialGradient id="l" cx=".25" cy="0" r=".9"><stop offset="0" stop-color="#fff3e6" stop-opacity=".22"/><stop offset="1" stop-color="#fff3e6" stop-opacity="0"/></radialGradient>
+<linearGradient id="m" x1="0" x2="1"><stop offset="0" stop-color="#e88a62" stop-opacity="0"/><stop offset="1" stop-color="#eda07c" stop-opacity=".9"/></linearGradient>
+</defs>
+<rect width="1200" height="300" fill="url(#c)"/>
+<rect width="1200" height="300" fill="url(#g)"/>
+<g transform="rotate(-8 600 150)">
+<g fill="none" stroke="#fbf3e8" stroke-width="7" opacity=".95">
+<path d="M120 -40 V340 M1080 -40 V340"/>
+<path d="M330 -14 V314 M870 -14 V314"/>
+<path d="M330 150 H870"/>
+<path d="M60 -14 H1140 M60 314 H1140"/>
+<path d="M120 150 h18 M1080 150 h-18"/>
+</g>
+<rect x="594" y="-60" width="14" height="420" fill="#3a1608" opacity=".25"/>
+<rect x="596" y="-60" width="7" height="420" fill="#fbf3e8"/>
+</g>
+<path d="M752 216 q62 -10 114 -5" stroke="url(#m)" stroke-width="16" stroke-linecap="round" fill="none"/>
+<circle cx="884" cy="208" r="15" fill="#dcef3e"/>
+<path d="M872 200 q12 8 2 22 M896 196 q-12 8 -2 22" stroke="#fff" stroke-width="2.4" fill="none" opacity=".9"/>
+<rect width="1200" height="300" fill="url(#l)"/>
+<rect y="286" width="1200" height="14" fill="#173f2f"/>
+<rect y="286" width="1200" height="2" fill="#fbf3e8" opacity=".8"/>
+</svg>
