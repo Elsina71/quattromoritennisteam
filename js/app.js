@@ -419,7 +419,7 @@
   // Riepilogo dei ruoli: admin generale (il titolare), Admin, segreteria, cassa, allenatori.
   function rolesCard() {
     const byRole = r => (S().members || []).filter(m => roleOf(m.uid) === r).map(personName).sort();
-    const general = [...new Set(((window.Cloud && window.Cloud.generalUids) || []).concat(window.Cloud && window.Cloud.general && myUid() ? [myUid()] : []))].map(u => (uidName(u) === '?' ? 'Admin' : uidName(u)));
+    const general = [...new Set(((window.Cloud && window.Cloud.generalUids) || []).concat(window.Cloud && window.Cloud.general && myUid() ? [myUid()] : [], (S().members || []).filter(m => roleOf(m.uid) === 'general').map(m => m.uid)))].map(u => (uidName(u) === '?' ? 'Admin' : uidName(u)));
     const row = (r, names) => `<li><span class="reg-names">${roleBadge(r)}<br><small class="muted">${esc(t('roleHelp_' + r))}</small><br>${names.length ? names.map(n => `<span class="badge">${esc(n)}</span>`).join(' ') : `<small class="muted">—</small>`}</span></li>`;
     return `<details class="card sub-form" id="roles" data-keep="roles" ${keepOpen('roles')}><summary><i class="ti ti-key" aria-hidden="true"></i> ${esc(t('rolesTitle'))}</summary>
       <p class="muted small">${esc(t('rolesHelp'))}</p>
@@ -1210,8 +1210,8 @@
   const isGeneralUser = uid => ((window.Cloud && window.Cloud.generalUids) || []).includes(uid);
   // ruolo di un utente: admin generale, Admin (roles.center), segreteria, cassa, allenatore, utente
   const roleOf = uid => {
-    if (isGeneralUser(uid) || (uid === myUid() && window.Cloud && window.Cloud.general)) return 'general';
     const r = (S().roles || {})[uid] || {};
+    if (r.general || isGeneralUser(uid) || (uid === myUid() && window.Cloud && window.Cloud.general)) return 'general';
     return r.center ? 'admin' : r.seg ? 'seg' : r.cash ? 'cash' : coachOf(uid) ? 'coach' : 'user';
   };
   // la segreteria modifica ed elimina solo utenti e allenatori; l'Admin non elimina un admin generale
@@ -1220,7 +1220,7 @@
   // ruoli che chi è collegato può dare: l'admin generale tutti; l'Admin tutti tranne Admin; la segreteria solo utente e allenatore
   const ROLES = ['user', 'coach', 'seg', 'cash', 'admin'];
   const grantable = () => (window.Cloud && window.Cloud.general ? ROLES : fullAdmin() ? ROLES.filter(r => r !== 'admin') : admin() ? ['user', 'coach'] : []);
-  const ROLE_ICON = { general: 'crown', admin: 'shield-star', seg: 'clipboard-list', cash: 'cash-register', coach: 'whistle', user: 'user' };
+  const ROLE_ICON = { general: 'crown', admin: 'shield-star', seg: 'clipboard-list', cash: 'cash-register', coach: 'school', user: 'user' };
   const roleBadge = r => `<span class="badge role-${r}"><i class="ti ti-${ROLE_ICON[r]}" aria-hidden="true"></i> ${esc(t('role_' + r))}</span>`;
   // Chi usa gli allenamenti in prima persona: l'utente registrato, oppure l'admin che ha anche la scheda da giocatore
   // (così un admin può essere corsista o coach).
@@ -1346,7 +1346,7 @@
       <div class="ch-head">${extraBadge(tr)}<span class="badge lvl-${tr.level}">${esc(t('fpLevel_' + tr.level))}</span> <span class="badge ${full ? 'st-full' : ''}">${uids.length}/${tr.max}</span></div>
       <h3>${esc(trTitle(tr))}</h3>
       <p class="muted cap"><i class="ti ti-${isExtraTr(tr) ? 'calendar-event' : 'calendar-repeat'}" aria-hidden="true"></i> ${esc(trLabel(tr))}</p>
-      <p class="muted small">${tr.coachUid ? `<i class="ti ti-whistle" aria-hidden="true"></i> ${esc(t('trCoach'))}: ${esc(coachName(tr.coachUid))}` : ''}
+      <p class="muted small">${tr.coachUid ? `<i class="ti ti-school" aria-hidden="true"></i> ${esc(t('trCoach'))}: ${esc(coachName(tr.coachUid))}` : ''}
         ${tr.coachUid && (tr.courts || []).length ? ' · ' : ''}${(tr.courts || []).length ? `<i class="ti ti-layout-grid" aria-hidden="true"></i> ${esc(tr.courts.map(courtName).join(', '))}` : ''}</p>
       <h4>${esc(t('grpTitle', { m: monthLabel(month) }))}</h4>
       ${od && uids.length ? `<p class="muted small"><i class="ti ti-calendar-check" aria-hidden="true"></i> ${esc(t(oc && oc.cancelled ? 'occCancelledOn' : 'attOfDay', { d: longDate(od) }))}</p>` : ''}
@@ -1410,7 +1410,7 @@
     const list = (S().coaches || []).slice().sort((a, b) => coachName(a.id).localeCompare(coachName(b.id)));
     const others = (S().members || []).filter(m => !coachOf(m.uid)).sort((a, b) => personName(a).localeCompare(personName(b)));
     return `<div class="card" id="coaches">
-      <h2><i class="ti ti-whistle" aria-hidden="true"></i> ${esc(t('coachTitle'))}</h2>
+      <h2><i class="ti ti-school" aria-hidden="true"></i> ${esc(t('coachTitle'))}</h2>
       <p class="muted small">${esc(t('coachHelp'))}</p>
       ${list.length ? `<ul class="reg-list coach-list">${list.map(c => `<li><span class="reg-names"><strong>${esc(coachName(c.id))}</strong></span>
         <select data-change="coach-all" data-uid="${esc(c.id)}" aria-label="${esc(t('coachSees'))}">
@@ -1794,7 +1794,7 @@
         <div class="ch-head"><span class="badge lvl-${tr.level}">${esc(t('fpLevel_' + tr.level))}</span> ${free > 0 ? freeBadge(tr, date) : ''}</div>
         <h3>${esc(trTitle(tr))}</h3>
         <p class="muted cap"><i class="ti ti-calendar" aria-hidden="true"></i> ${esc(longDate(date))} · ${esc(tr.from)}–${esc(tr.to)}</p>
-        ${tr.coachUid ? `<p class="muted small"><i class="ti ti-whistle" aria-hidden="true"></i> ${esc(coachName(tr.coachUid))}</p>` : ''}
+        ${tr.coachUid ? `<p class="muted small"><i class="ti ti-school" aria-hidden="true"></i> ${esc(coachName(tr.coachUid))}</p>` : ''}
         <p class="muted small">${esc(m && activePack(m.uid) ? t('spotPackInfo') : t('spotPriceInfo', { p: euro((S().prices || {}).spot) }))}</p>
         ${act}</div>`;
     };
@@ -1928,7 +1928,7 @@
     const byName = (a, b) => name(a).localeCompare(name(b));
     return `<div class="page-head">${back}
         <h1><i class="ti ti-clipboard-check" aria-hidden="true"></i> ${esc(t('evTitle'))}</h1>
-        <p class="muted cap">${esc(trTitle(tr))} · ${esc(longDate(date))} ${esc(tr.from)}–${esc(tr.to)}${tr.coachUid ? ` · <i class="ti ti-whistle" aria-hidden="true"></i> ${esc(coachName(tr.coachUid))}` : ''}</p></div>
+        <p class="muted cap">${esc(trTitle(tr))} · ${esc(longDate(date))} ${esc(tr.from)}–${esc(tr.to)}${tr.coachUid ? ` · <i class="ti ti-school" aria-hidden="true"></i> ${esc(coachName(tr.coachUid))}` : ''}</p></div>
       <div class="card ev-help">
         <p><strong><i class="ti ti-info-circle" aria-hidden="true"></i> ${esc(t('evScale'))}</strong></p>
         <p class="muted small">${esc(t('evTip'))}</p>
@@ -2907,7 +2907,7 @@
       ${rpTable(t('rpByTraining'), 'barbell', r.byTr, true)}
       ${ui.rpTid ? rpAthCard(r) : ''}
       ${rpTable(t('rpByLevel'), 'stairs', r.byLvl)}
-      ${rpTable(t('rpByCoach'), 'whistle', r.byCoach)}
+      ${rpTable(t('rpByCoach'), 'school', r.byCoach)}
       ${rpTable(t('rpByDay'), 'calendar-week', r.byDay)}`;
   }
 

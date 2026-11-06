@@ -143,6 +143,9 @@ onAuthStateChanged(auth, async u => {
       if (u.emailVerified && GENERAL_HASHES.includes(h)) isGeneral = true;
       else { try { isGeneral = (await getDoc(doc(db, 'admins', u.uid))).exists(); } catch (e) { isGeneral = false; } }
       if (!isGeneral) { try { roles = (await getDoc(doc(db, 'roles', u.uid))).data() || {}; } catch (e) { roles = {}; } }
+      // admin generale: lo si segna anche in roles (general) così la pagina Utenti lo mostra a tutto lo staff
+      // (la raccolta "admins" non si può elencare). Serve solo come etichetta: i permessi li decidono le regole.
+      else getDoc(doc(db, 'roles', u.uid)).then(r => { if (!(r.exists() && r.data().general)) return setDoc(doc(db, 'roles', u.uid), { general: true, updated: Date.now() }, { merge: true }); }).catch(() => {});
     }
     if (!isAdmin) { try { const r = await getDoc(doc(db, 'roles', u.uid)); roles = r.exists() ? r.data() : {}; } catch (e) { roles = {}; } }
     isSeg = !isAdmin && !!roles.seg;
