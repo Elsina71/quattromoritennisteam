@@ -28,6 +28,7 @@ allenamenti, allenatori, cassa. Regole decise dal titolare: valgono per ogni mod
 - Campi definiti dall'admin: nome, tipo (Tennis o Padel), orari di apertura.
 - Griglia a mezz'ore; durate di 1 ora, 1 ora e 30, 2 ore. Nessun prezzo mostrato.
 - Admin e segreteria possono prenotare anche per chi non è registrato (solo il nome).
+- La segreteria nel codice c'è (vedi Tecnica): non gestisce i campi né le regole di prenotazione.
 
 ## Corsisti e allenamenti
 - I corsisti sono schede gestite dalla segreteria (non account dell'app): dati, genitore/contatto, certificato medico
@@ -67,10 +68,31 @@ allenamenti, allenatori, cassa. Regole decise dal titolare: valgono per ogni mod
   `firestore.rules`.
 - Indirizzo pubblico: https://quattromoritennisteam.web.app (sito Hosting `quattromoritennisteam`).
 - Progetto Firebase `quattromoritennisteam-d3258`, database in `europe-west8`, piano Spark (niente Cloud Functions per ora):
-  niente notifiche push; eliminando un utente l'account di accesso resta (si toglie dalla console); lo scalo automatico
-  dei pacchetti di allenamenti (`packuse`) è da rifare (TODO passo 2).
-- Ruoli oggi: admin generale (titolare, per impronta dell'email; altri nella raccolta `admins`), Admin Centro
-  (`roles/{uid}.center`), cassa (`roles/{uid}.cash`), coach (`coaches/{uid}`). La segreteria arriva nel passo 2.
+  niente notifiche push; eliminando un utente l'account di accesso resta (si toglie dalla console); lo scalo dei
+  pacchetti (`packuse`) lo fa l'app di admin e segreteria (vedi sotto).
+- Ruoli nel codice e nelle regole: admin generale (titolare per impronta dell'email; altri nella raccolta `admins`,
+  segnati anche con `roles/{uid}.general` solo come etichetta), **Admin** (`roles/{uid}.center`, in pagina "Admin"),
+  **Segreteria** (`roles/{uid}.seg`), **Cassa** (`roles/{uid}.cash`), **Allenatore** (`coaches/{uid}`).
+  In `js/app.js`: `admin()` = admin o segreteria (staff), `fullAdmin()` = solo admin (campi, regole di prenotazione,
+  ruoli, listino, avvisi, articoli, messaggi), `segr()`, `coach()`, `cashier()`. In `firestore.rules`: `isAdmin()`,
+  `isSeg()`, `isStaff()`, `isCash()`, `coachOfTr(tid)`; la segreteria modifica/elimina solo utenti e allenatori (`plainUser`).
+- Pagina Utenti: «Crea utente» (seconda istanza Auth, funziona su Spark) con il ruolo nel modulo (la segreteria crea solo
+  Utente e Allenatore); badge del ruolo e menu per cambiarlo (solo admin; un Admin lo nomina solo l'admin generale).
+- Campi: tipo `tennis`/`padel` (badge e filtro in Prenota). Prenotazioni da 1 h a 2 h a mezz'ore: le regole controllano
+  `minMinutes` (di serie 60) e `maxMinutes` (di serie 120) in `data/settings`.
+- Scheda di valutazione: pagina `#/eval/{tid}/{data}`, raccolta `evals/{tid_data_uid}` (voti interi 1-10 sulle voci
+  tec, mov, ctl, sce, int, att, con; nota ≤ 160 caratteri). Scrivono l'allenatore di quell'allenamento, admin e segreteria;
+  leggono admin, segreteria e l'allenatore. Medie e ultime schede nella scheda del corsista (`#/athletes`).
+- Certificato: `certType` (agon/nonagon) e `certExp`; avvisi entro 30 giorni (arancio) e 7 giorni o scaduto (rosso).
+- Quote: mensile, trimestrale, corso intero (listino `c1`/`c2`, `courseFrom`/`courseTo`: copre tutti i mesi del corso),
+  singolo allenamento (spot), pacchetto di lezioni; tesseramento FITP a parte (`athletes.fitp[stagione]`, categoria di cassa
+  `q_fitp`). Modalità: contanti, POS, bonifico.
+- Pacchetti senza Cloud Functions: lo scalo (`packuse` + `packs.used` nella stessa transazione) lo fa l'app di admin e
+  segreteria: subito quando segnano una presenza, da sola per le presenze date dal corsista o dall'allenatore (che non vede
+  i pacchetti), con «Conferma la giornata» e con «Ricalcola pacchetti» in Corsisti.
+- Login con Google: «Continua con Google» (`signInWithPopup`, `authDomain` di serie); al primo accesso si completa il profilo
+  (nome e cognome da Google, sesso, informativa). CSP in `firebase.json` con apis.google.com e accounts.google.com.
 - Prove: `npm test` (calcoli), `npm run test:rules` (regole, con l'emulatore), `npm run check` (sintassi). Le prime due
   girano anche su GitHub prima di pubblicare. In locale: `npm run emulatori`, `npm run dati-prova`, poi
-  `python3 -m http.server 5173` e http://localhost:5173/?emu=1.
+  `python3 -m http.server 5173` e http://localhost:5173/?emu=1 (porte diverse: `EMU_FS=8180 EMU_AU=9199` per i dati di prova
+  e `?emu=1&fs=8180&au=9199` nell'app).
