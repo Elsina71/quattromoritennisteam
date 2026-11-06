@@ -293,19 +293,28 @@ service cloud.firestore {
       allow read: if isCenter() || (request.auth != null && resource.data.uid == request.auth.uid);
       allow write: if isCenter();
     }
-    // packs/{id}: pacchetto di allenamenti (numero, prezzo, usati): admin e interessato (in lettura).
+    // packs/{id}: pacchetto di lezioni (numero, prezzo, usati): admin, segreteria e interessato (in lettura).
+    // L'allenatore non lo legge (ci sono prezzo e pagamento).
     match /packs/{id} {
       allow read: if isCenter() || (request.auth != null && resource.data.uid == request.auth.uid);
-      allow write: if isStaff();
-      // annullando un allenamento, gli spot pagati con un pacchetto tornano nel pacchetto
-      allow update: if isCenter() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['used']);
+      // admin e segreteria; "used" non supera mai il numero di allenamenti del pacchetto
+      allow create, update: if isStaff() && request.resource.data.get('used', 0) is int
+        && request.resource.data.get('used', 0) >= 0 && request.resource.data.get('used', 0) <= request.resource.data.n;
+      allow delete: if isStaff();
     }
-    // packuse/{id presenza}: allenamento scalato dal pacchetto per una presenza (scritto solo dalle Cloud Functions)
-    // packuse/{id presenza}: allenamento scalato dal pacchetto per una presenza. Nell'app di origine lo scrivevano
-    // solo le Cloud Functions, che sul piano Spark non ci sono. TODO passo 2: rifare lo scalo dei pacchetti.
+    // packuse/{tid_data_uid}: allenamento scalato dal pacchetto per una presenza. Sul piano Spark non ci sono le
+    // Cloud Functions: lo scrive l'app di admin e segreteria, nella stessa transazione che cambia "used" del pacchetto.
     match /packuse/{id} {
       allow read: if (request.auth != null && resource.data.uid == request.auth.uid) || isStaff();
-      allow write: if false;
+      allow create, update: if isStaff()
+        && request.resource.data.keys().hasOnly(['pack', 'uid', 'tid', 'date', 'at', 'by'])
+        && id == request.resource.data.tid + '_' + request.resource.data.date + '_' + request.resource.data.uid
+        && request.resource.data.by == request.auth.uid
+        && exists(/databases/$(database)/documents/packs/$(request.resource.data.pack))
+        && getAfter(/databases/$(database)/documents/packs/$(request.resource.data.pack)).data.uid == request.resource.data.uid
+        && getAfter(/databases/$(database)/documents/packs/$(request.resource.data.pack)).data.get('used', 0)
+           <= getAfter(/databases/$(database)/documents/packs/$(request.resource.data.pack)).data.n;
+      allow delete: if isStaff();
     }
 
     // ---------- presenze e spot ----------

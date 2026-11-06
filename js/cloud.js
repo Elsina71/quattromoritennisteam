@@ -60,7 +60,7 @@ const isCenter = () => !isAdmin && !!roles.center;
 // non cambia i ruoli e non gestisce i campi né le regole di prenotazione (solo l'admin).
 const staff = () => isAdmin || isSeg;
 
-const refresh = () => window.App && window.App.refresh();
+const refresh = () => { if (window.App) window.App.refresh(); if (staff()) schedulePackSync(); };
 
 // L'app è pronta appena arrivano le impostazioni (campi, orari, listino).
 function markLoaded() {
@@ -1093,6 +1093,104 @@ function clearPaid(batch, kind, ref) {
   if (kind === 'fitp') { const [uid, s] = String(ref).split('|'); batch.update(doc(db, 'athletes', uid), { [`fitp.${s}`]: deleteField(), [`tess.${s}`]: false }); }
   else batch.update(doc(db, payCol(kind), ref), { paid: deleteField() });
 }
+// ---------- pacchetti: ogni presenza scala un allenamento dal pacchetto (senza Cloud Functions) ----------
+// Sul piano Spark non c'è il motore che lo faceva nell'app di origine: lo scalo lo fa l'app di admin e segreteria,
+// in una transazione (tutto o niente), con le stesse regole di prima:
+// - vale per le presenze ("presente") dal giorno di inizio del pacchetto (from, altrimenti il giorno di registrazione);
+// - non si scala se l'allenamento è annullato o se il mese è coperto dal piano pagato (mensile, trimestrale, corso intero);
+// - packuse/{id della presenza} ricorda quale pacchetto è stato usato: presenza tolta, allenamento annullato o
+//   pacchetto spostato più avanti → l'allenamento torna nel pacchetto.
+// Quando admin o segreteria segnano una presenza lo scalo è immediato; le presenze date dal corsista o segnate
+// dall'allenatore (che non vede i pacchetti) si allineano da sole appena admin o segreteria aprono l'app, e con "Ricalcola".
+const packStart = k => k.from || new Date(k.created || 0).toLocaleDateString('sv');
+function syncPackUse(tid, date, uid) {
+  if (!staff()) return Promise.resolve('none');
+  const attId = `${tid}_${date}_${uid}`, m = date.slice(0, 7);
+  const ids = new Set((Store.state.packs || []).filter(k => k.uid === uid).map(k => k.id));
+  const used = (Store.state.packuse || []).find(u => u.id === attId);
+  if (used && used.pack) ids.add(used.pack);
+  return runTransaction(db, async tx => {
+    const refs = { a: doc(db, 'att', attId), u: doc(db, 'packuse', attId), o: doc(db, 'occ', `${tid}_${date}`), p: doc(db, 'plans', `${uid}_${m}`), ath: doc(db, 'athletes', uid), tr: doc(db, 'trainings', tid) };
+    const keys = Object.keys(refs), snaps = await Promise.all(keys.map(k => tx.get(refs[k])));
+    const g = Object.fromEntries(keys.map((k, i) => [k, snaps[i].exists() ? snaps[i].data() : null]));
+    const ks = (await Promise.all([...ids].map(id => tx.get(doc(db, 'packs', id))))).filter(x => x.exists()).map(x => Object.assign({ id: x.id }, x.data()));
+    const a = g.a, has = g.u;
+    let want = !!(a && a.status === 'in');
+    if (want && g.o && g.o.cancelled) want = false;
+    if (want) {
+      const pre = g.ath && (g.ath.prepaid || {})[m], extra = !!(g.tr && g.tr.date);
+      if (g.p && (extra || (g.p.tids || []).includes(tid)) && (g.p.paid || pre)) want = false;
+    }
+    const cur = has ? ks.find(k => k.id === has.pack) : null;
+    if (has && want && cur && packStart(cur) <= date) return 'kept';
+    if (!has && !want) return 'none';
+    const delta = {};
+    if (has && cur) delta[cur.id] = -1;
+    let pick = null;
+    if (want) {
+      pick = ks.filter(k => packStart(k) <= date && (k.n || 0) - (k.used || 0) + (has && cur && cur.id === k.id ? 1 : 0) > 0)
+        .sort((x, y) => packStart(x).localeCompare(packStart(y)) || (x.created || 0) - (y.created || 0))[0] || null;
+      if (pick) delta[pick.id] = (delta[pick.id] || 0) + 1;
+    }
+    Object.entries(delta).forEach(([id, d]) => { if (d) { const k = ks.find(x => x.id === id); tx.update(doc(db, 'packs', id), { used: Math.max(0, (k.used || 0) + d) }); } });
+    if (pick) tx.set(refs.u, { pack: pick.id, uid, tid, date, at: Date.now(), by: user.uid });
+    else if (has) tx.delete(refs.u);
+    return pick ? 'used' : has ? 'released' : 'nopack';
+  });
+}
+// Ricalcola: tutte le presenze (anche vecchie) dei corsisti indicati, o di tutti quelli con un pacchetto.
+async function recalcPacks(uids) {
+  if (!staff()) return 0;
+  const list = uids || [...new Set((Store.state.packs || []).map(k => k.uid).filter(Boolean))];
+  let n = 0;
+  for (const uid of list) {
+    const [att, pu] = await Promise.all([getDocs(query(collection(db, 'att'), where('uid', '==', uid))), getDocs(query(collection(db, 'packuse'), where('uid', '==', uid)))]);
+    const all = new Map();
+    att.docs.forEach(d => all.set(d.id, d.data()));
+    pu.docs.forEach(d => { if (!all.has(d.id)) all.set(d.id, d.data()); });
+    const items = [...all.values()].filter(x => x.tid && x.date).sort((x, y) => x.date.localeCompare(y.date));
+    for (const x of items) { const r = await syncPackUse(x.tid, x.date, uid); if (r === 'used' || r === 'released') n++; }
+  }
+  return n;
+}
+// Allineamento automatico (admin e segreteria): presenze dell'ultimo mese che non corrispondono a packuse.
+let packTimer = null, packBusy = false;
+const packTried = new Map();
+function packWantLocal(a) {
+  const s = Store.state, m = a.date.slice(0, 7);
+  if (a.status !== 'in') return false;
+  const o = (s.occ || []).find(x => x.tid === a.tid && x.date === a.date);
+  if (o && o.cancelled) return false;
+  const p = (s.plans || []).find(x => x.uid === a.uid && x.month === m), ath = (s.athletes || []).find(x => x.id === a.uid);
+  const tr = (s.trainings || []).find(x => x.id === a.tid), pre = ath && (ath.prepaid || {})[m];
+  if (p && ((tr && tr.date) || (p.tids || []).includes(a.tid)) && (p.paid || pre)) return false;
+  return (s.packs || []).some(k => k.uid === a.uid && packStart(k) <= a.date && ((k.n || 0) - (k.used || 0) > 0 || (s.packuse || []).some(u => u.pack === k.id && u.id === `${a.tid}_${a.date}_${a.uid}`)));
+}
+function schedulePackSync() {
+  if (packTimer || packBusy) return;
+  packTimer = setTimeout(async () => {
+    packTimer = null;
+    const s = Store.state;
+    if (!staff() || !(s.packs || []).length) return;
+    const withPack = new Set((s.packs || []).map(k => k.uid));
+    const used = new Map((s.packuse || []).map(u => [u.id, u]));
+    const todo = [];
+    (s.att || []).filter(a => withPack.has(a.uid) && a.tid && a.date).forEach(a => {
+      const id = `${a.tid}_${a.date}_${a.uid}`, want = packWantLocal(a), has = used.has(id);
+      if (want !== has) todo.push({ id, tid: a.tid, date: a.date, uid: a.uid, sig: `${want}|${has}|${a.status}` });
+    });
+    // packuse senza presenza (presenza tolta) dell'ultimo mese
+    const attIds = new Set((s.att || []).map(a => `${a.tid}_${a.date}_${a.uid}`));
+    const since = new Date(); since.setDate(since.getDate() - 31);
+    (s.packuse || []).filter(u => !attIds.has(u.id) && u.date >= since.toLocaleDateString('sv')).forEach(u => todo.push({ id: u.id, tid: u.tid, date: u.date, uid: u.uid, sig: 'orphan' }));
+    const go = todo.filter(x => packTried.get(x.id) !== x.sig).slice(0, 20);
+    if (!go.length) return;
+    packBusy = true;
+    try {
+      for (const x of go) { packTried.set(x.id, x.sig); await syncPackUse(x.tid, x.date, x.uid).catch(e => console.warn('pacchetti', e)); }
+    } finally { packBusy = false; }
+  }, 3000);
+}
 // Pacchetti (admin): crea, modifica numero/prezzo, elimina (solo se non usato e non pagato).
 function savePack(id, data) { return id ? updateDoc(doc(db, 'packs', id), data) : addDoc(collection(db, 'packs'), Object.assign({ used: 0, created: Date.now(), by: user.uid }, data)); }
 function deletePack(id) { return deleteDoc(doc(db, 'packs', id)); }
@@ -1203,6 +1301,8 @@ window.Cloud = {
   savePlan,
   setAttendance,
   saveEvals,
+  syncPackUse,
+  recalcPacks,
   applySpot,
   withdrawSpot,
   seeSpot,

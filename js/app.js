@@ -1438,8 +1438,7 @@
     const warnN = (S().athletes || []).filter(certDue).length;
     return `
       <div class="page-head row"><h1><i class="ti ti-id-badge-2" aria-hidden="true"></i> ${esc(t('athTitle'))}</h1>
-        <span class="btn-row">${/* TODO passo 2: pacchetti. Nell'app di origine le presenze scalate dai pacchetti (packuse) e il pulsante
-          "Ricalcola" li scriveva solo il motore (Cloud Functions), che sul piano Spark non c'è: da rifare nell'app. */ ''}
+        <span class="btn-row"><button class="btn small" data-action="pack-sync" ${ui.packSyncing ? 'disabled' : ''} title="${esc(t('packSyncHelp'))}"><i class="ti ti-refresh" aria-hidden="true"></i> ${esc(t(ui.packSyncing ? 'packSyncing' : 'packSync'))}</button>
         <a class="btn small" href="#/train"><i class="ti ti-barbell" aria-hidden="true"></i> ${esc(t('navTrain'))} →</a></span></div>
       ${certOnly ? `<div class="note warn cert-only"><span><i class="ti ti-heart-exclamation" aria-hidden="true"></i> <strong>${esc(t('certOnlyTitle', { n: list.length }))}</strong></span> <a class="btn small" href="#/athletes">${esc(t('certShowAll'))}</a></div>`
         : warnN ? certSummary('note') : ''}
@@ -2023,6 +2022,8 @@
       ${centerAdm() ? `<div class="btn-row">${o.cancelled ? `<button class="btn small" data-action="occ-restore" data-tid="${esc(tr.id)}" data-date="${date}">${esc(t('occRestore'))}</button>`
         : `<button class="btn small danger" data-action="occ-cancel" data-tid="${esc(tr.id)}" data-date="${date}"><i class="ti ti-calendar-off" aria-hidden="true"></i> ${esc(t('occCancel'))}</button>
           <button class="btn small danger" data-action="occ-remove" data-tid="${esc(tr.id)}" data-date="${date}"><i class="ti ti-calendar-x" aria-hidden="true"></i> ${esc(t('occRemove'))}</button>`}</div>` : ''}
+      ${admin() && !o.cancelled && date <= todayStr() && uids.length && uids.some(u => packsOf(u).length) ? `<div class="btn-row occ-confirm-row"><button class="btn small" data-action="occ-confirm" data-tid="${esc(tr.id)}" data-date="${date}"><i class="ti ti-ticket" aria-hidden="true"></i> ${esc(t('occConfirm'))}</button>
+        <small class="muted">${esc(t('occConfirmHelp'))}</small></div>` : ''}
       ${evalCta(tr, date, o, uids)}
     </div>`;
   }
@@ -2098,8 +2099,12 @@
     'att-force': el => {
       const tr = trainingById(el.dataset.tid);
       if (!tr || !canMark(tr)) return;
-      // data-st vuoto: torna "senza risposta" (si toglie la risposta e i contatori si aggiornano)
-      window.Cloud.setAttendance(tr.id, el.dataset.date, el.dataset.uid, el.dataset.st || null, { coachUid: tr.coachUid || '', forced: true }).then(() => render()).catch(trErr);
+      // data-st vuoto: torna "senza risposta" (si toglie la risposta e i contatori si aggiornano).
+      // Admin e segreteria: il pacchetto del corsista si scala (o si restituisce) subito.
+      const date = el.dataset.date, uid = el.dataset.uid;
+      window.Cloud.setAttendance(tr.id, date, uid, el.dataset.st || null, { coachUid: tr.coachUid || '', forced: true })
+        .then(() => (admin() ? window.Cloud.syncPackUse(tr.id, date, uid) : null))
+        .then(r => { if (r === 'used' || r === 'released') ui.flash = { text: t(r === 'used' ? 'packScaledOne' : 'packBackOne', { n: coachName(uid) }) }; render(); }).catch(trErr);
     },
     'spot-apply': el => {
       const tr = trainingById(el.dataset.tid), date = el.dataset.date, m = self();
@@ -2149,6 +2154,22 @@
         .then(() => (taken.length ? null : window.Cloud.extraTrainingBlocks(tr, false))).then(() => render()).catch(trErr);
     },
     'rec-open': el => { ui.recFor = el.dataset.key; render(); },
+    // conferma della giornata (admin e segreteria): le presenze scalano i pacchetti dei corsisti
+    'occ-confirm': el => {
+      const tr = trainingById(el.dataset.tid), date = el.dataset.date;
+      if (!tr || !admin()) return;
+      const o = occOf(tr.id, date) || {}, g = groupOf(tr.id, date.slice(0, 7));
+      const uids = extraDay(date, tr) ? (o.members || []) : ((g && g.uids) || []);
+      el.disabled = true;
+      (async () => { let n = 0, b = 0; for (const u of uids) { const r = await window.Cloud.syncPackUse(tr.id, date, u); if (r === 'used') n++; if (r === 'released') b++; } return [n, b]; })()
+        .then(([n, b]) => { ui.flash = { text: t('occConfirmed', { n, b }) }; render(); }).catch(e => { el.disabled = false; trErr(e); });
+    },
+    'pack-sync': () => {
+      if (ui.packSyncing) return;
+      ui.packSyncing = true; render();
+      window.Cloud.recalcPacks().then(n => { ui.packSyncing = false; ui.flash = { text: t('packSyncDone', { n }) }; render(); })
+        .catch(e => { ui.packSyncing = false; trErr(e); });
+    },
     'rec-close': () => { ui.recFor = null; render(); }
   };
   // spot confermati di un allenamento del giorno scalati da un pacchetto (tornano nel pacchetto se si annulla)
@@ -2255,8 +2276,7 @@
   const activePack = uid => packsOf(uid).find(k => packLeft(k) > 0) || null;
   // giorno da cui il pacchetto scala le presenze (scelto alla creazione, altrimenti il giorno in cui è stato registrato)
   const packFrom = k => k.from || new Date(k.created || 0).toLocaleDateString('sv');
-  // allenamenti scalati da un pacchetto: presenze (packuse) e spot confermati dal pacchetto.
-  // TODO passo 2: packuse lo scriveva solo il motore dell'app di origine (Cloud Functions, non disponibili sul piano Spark): per ora resta vuoto.
+  // allenamenti scalati da un pacchetto: presenze (packuse, scritti dall'app di admin e segreteria) e spot confermati dal pacchetto.
   const packUses = k => (S().packuse || []).filter(u => u.pack === k.id).map(u => ({ date: u.date, tid: u.tid, kind: 'att' }))
     .concat((S().spots || []).filter(sp => sp.pack === k.id && sp.status === 'ok' && !sp.packBack).map(sp => ({ date: sp.date, tid: sp.tid, kind: 'spot' })))
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -2507,14 +2527,16 @@
     'pack-from': f => {
       const k = packById(f.dataset.id), from = f.from.value;
       if (!k || !/^\d{4}-\d{2}-\d{2}$/.test(from)) return;
-      window.Cloud.savePack(k.id, { from }).then(() => { ui.flash = { text: t('packFromSaved', { d: fmtDate(from) }) }; render(); }).catch(trErr);
+      window.Cloud.savePack(k.id, { from }).then(() => window.Cloud.recalcPacks([k.uid])).then(() => { ui.flash = { text: t('packFromSaved', { d: fmtDate(from) }) }; render(); }).catch(trErr);
     },
     'pack-new': f => {
       const n = parseInt(f.n.value, 10), price = Math.round(Number(f.price.value || 0) * 100) / 100;
       if (!(n >= 1)) return;
       const m = memberByUid(f.dataset.uid);
       const from = /^\d{4}-\d{2}-\d{2}$/.test(f.from.value) ? f.from.value : todayStr();
-      window.Cloud.savePack(null, { uid: f.dataset.uid, name: m ? personName(m) : '', n, price, from }).then(() => { ui.flash = { text: t('packCreated', { n }) }; render(); }).catch(trErr);
+      // nuovo pacchetto: si contano anche le presenze già registrate dal giorno di inizio
+      window.Cloud.savePack(null, { uid: f.dataset.uid, name: m ? personName(m) : '', n, price, from }).then(() => new Promise(r => setTimeout(r, 600)))
+        .then(() => window.Cloud.recalcPacks([f.dataset.uid])).then(() => { ui.flash = { text: t('packCreated', { n }) }; render(); }).catch(trErr);
     },
     'pay-save': f => {
       const kind = f.dataset.kind, ref = f.dataset.ref, uid = f.dataset.uid;
