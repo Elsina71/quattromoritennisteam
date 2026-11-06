@@ -1,0 +1,57 @@
+# Pubblicazione automatica di Quattro Mori Tennis Team su Firebase Hosting (sito + regole del database).
+# Parte da sola quando cambia "main" (cioè quando si unisce una PR); si può anche lanciare a mano:
+# scheda Actions → "Pubblica" → Run workflow.
+# Prima di pubblicare prova i calcoli e le regole del database: se una prova fallisce, non pubblica nulla.
+# Serve un secret del repository (Settings → Secrets and variables → Actions):
+#   FIREBASE_SA_QUATTROMORI   chiave JSON dell'account di servizio del progetto quattromoritennisteam-d3258
+name: Pubblica
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: pubblica-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm install --no-audit --no-fund
+      - name: Prove dei calcoli
+        run: npm test
+      - name: Prove delle regole del database (emulatore)
+        run: npm run test:rules
+
+  pubblica:
+    needs: prove
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Pubblica sito e regole
+        env:
+          CHIAVE: ${{ secrets.FIREBASE_SA_QUATTROMORI }}
+        run: |
+          if [ -z "$CHIAVE" ]; then echo "::error::Manca il secret FIREBASE_SA_QUATTROMORI (vedi istruzioni in cima a questo file)"; exit 1; fi
+          printf '%s' "$CHIAVE" > "$RUNNER_TEMP/chiave.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/chiave.json"
+          npx --yes firebase-tools@13.29.1 deploy --only hosting,firestore:rules --project quattromoritennisteam-d3258 --non-interactive
+          rm -f "$RUNNER_TEMP/chiave.json"
