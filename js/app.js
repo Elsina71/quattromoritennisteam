@@ -1935,10 +1935,10 @@
         <p class="muted small">${esc(t('evTapAgain'))}</p>
       </div>
       ${o.cancelled ? `<p class="note warn">${esc(t('occCancelled'))}</p>` : ''}
-      ${present.length ? present.slice().sort(byName).map(u => evCard(tr, date, u, name(u), 'in')).join('') : `<p class="note">${esc(t('evNoPresent'))}</p>`}
+      ${!uids.length ? `<div class="empty"><i class="ti ti-users" aria-hidden="true"></i> ${esc(t('evNoTrainees'))}</div>` : present.length ? present.slice().sort(byName).map(u => evCard(tr, date, u, name(u), 'in')).join('') : `<p class="note">${esc(t('evNoPresent'))}</p>`}
       ${others.length ? `<details class="card sub-form ev-others" data-keep="ev-others" ${present.length ? keepOpen('ev-others') : 'open'}><summary><i class="ti ti-users" aria-hidden="true"></i> ${esc(t('evOthers', { n: others.length }))}</summary>
         ${others.slice().sort(byName).map(u => evCard(tr, date, u, name(u), (attOf(tr.id, date, u) || {}).status || '')).join('')}</details>` : ''}
-      <div class="ev-savebar"><button type="button" class="btn primary" data-action="ev-save-all" data-tid="${esc(tr.id)}" data-date="${date}"><i class="ti ti-device-floppy" aria-hidden="true"></i> ${esc(t('evSaveAll'))}</button></div>`;
+      <div class="ev-savebar"${uids.length ? '' : ' hidden'}><button type="button" class="btn primary" data-action="ev-save-all" data-tid="${esc(tr.id)}" data-date="${date}"><i class="ti ti-device-floppy" aria-hidden="true"></i> ${esc(t('evSaveAll'))}</button></div>`;
   }
   // salva le schede (una o tutte quelle modificate) leggendo anche la nota scritta nel campo
   function evSave(tid, date, onlyUid) {
