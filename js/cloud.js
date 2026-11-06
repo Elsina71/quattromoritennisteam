@@ -778,12 +778,15 @@ function listenOccFree() {
 }
 function listenAttendance() {
   ocUnsubs.forEach(f => f()); ocUnsubs = [];
-  Store.applyRemote('att', []); Store.applyRemote('spots', []);
+  Store.applyRemote('att', []); Store.applyRemote('spots', []); Store.applyRemote('evals', []);
   if (!user || !(staff() || member)) return;
   const on = (src, kind) => ocUnsubs.push(onSnapshot(src, snap => {
     Store.applyRemote(kind, snap.docs.map(d => Object.assign({ id: d.id }, d.data())));
     refresh();
   }, onError));
+  // schede di valutazione: admin e segreteria tutte, l'allenatore quelle dei suoi allenamenti (il corsista nessuna)
+  if (staff()) on(collection(db, 'evals'), 'evals');
+  else if (coach) on(query(collection(db, 'evals'), where('coachUid', '==', user.uid)), 'evals');
   ['att', 'spots'].forEach(k => {
     if (staff()) return on(query(collection(db, k), where('date', '>=', monthAgo())), k);
     if (coach || isCenter()) {
@@ -832,6 +835,16 @@ function setAttendanceTx(tid, date, uid, status, extra) {
     if (status) tr.set(aref, Object.assign({ tid, date, uid, status, at: Date.now(), coachUid: (extra && extra.coachUid) || '' }, extra && extra.forced ? { forced: true, by: user.uid } : {}));
     else tr.delete(aref);
   });
+}
+// Scheda di valutazione: list = [{ tid, date, uid, coachUid, v: { tec: 7, … }, note }]; senza voti né nota si elimina.
+function saveEvals(list) {
+  const batch = writeBatch(db);
+  list.forEach(e => {
+    const ref = doc(db, 'evals', `${e.tid}_${e.date}_${e.uid}`);
+    if (!Object.keys(e.v || {}).length && !e.note) batch.delete(ref);
+    else batch.set(ref, { tid: e.tid, date: e.date, uid: e.uid, coachUid: e.coachUid || '', by: user.uid, v: e.v, note: e.note || '', at: Date.now() });
+  });
+  return batch.commit();
 }
 // Candidatura a un posto spot (utente registrato).
 function applySpot(d) { return withFreshToken(() => applySpotNow(d)); }
@@ -1179,6 +1192,7 @@ window.Cloud = {
   saveAthlete,
   savePlan,
   setAttendance,
+  saveEvals,
   applySpot,
   withdrawSpot,
   seeSpot,

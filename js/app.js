@@ -75,6 +75,7 @@
     else if (r[0] === 'wrapped') { nav = 'me'; html = viewWrapped(r[1]); }
     else if (r[0] === 'book') { nav = 'book'; html = viewBook(); }
     else if (r[0] === 'train') { nav = 'train'; html = viewTraining(); }
+    else if (r[0] === 'eval') { nav = 'train'; html = viewEval(r[1], r[2]); }
     else if (r[0] === 'privacy' || r[0] === 'cookie' || r[0] === 'termini') { nav = 'settings'; html = viewLegal(r[0]); }
     else if (r[0] === 'athletes' && admin()) { nav = 'train'; html = viewAthletes(r[1] === 'cert'); }
     else if (r[0] === 'payments' && admin()) { nav = 'settings'; html = viewPayments(); }
@@ -1495,7 +1496,29 @@
           <button class="btn primary">${esc(t('save'))}</button></div>
       </form>${payBox('month', p, a.id, p.price)}` : `<p class="muted small">${esc(t('planHint'))}</p>`}
       ${packCard(a.id)}
+      ${evalSummary(a.id)}
     </div>`;
+  }
+  // Valutazioni del corsista (admin e segreteria): media per voce (6 = sufficienza) e ultime schede con la nota.
+  function evalSummary(uid) {
+    const list = (S().evals || []).filter(e => e.uid === uid).sort((x, y) => y.date.localeCompare(x.date) || (y.at || 0) - (x.at || 0));
+    const head = `<h3><i class="ti ti-clipboard-check" aria-hidden="true"></i> ${esc(t('evSumTitle'))}</h3>`;
+    if (!list.length) return `<div class="ev-sum">${head}<p class="muted small">${esc(t('evSumNone'))}</p></div>`;
+    const fmt = v => v.toLocaleString(I18n.locale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    const rows = EV_KEYS.map(k => {
+      const vs = list.map(e => (e.v || {})[k]).filter(x => x != null);
+      const a = vs.length ? vs.reduce((x, y) => x + y, 0) / vs.length : null;
+      return `<li class="ev-avg ${a == null ? 'is-empty' : ''}"><span class="ev-avg-l">${esc(t('ev_' + k))}</span>
+        <span class="ev-bar" aria-hidden="true"><i style="width:${a == null ? 0 : a * 10}%" class="${evClass(a == null ? null : Math.round(a * 10) / 10 < 6 ? 5 : 7)}"></i><b></b></span>
+        <span class="ev-avg-v">${a == null ? '–' : `<strong class="${a < 6 ? 'low' : ''}">${esc(fmt(a))}</strong>`} <small class="muted">${esc(t('evSumN', { n: vs.length }))}</small></span></li>`;
+    }).join('');
+    const last = list.slice(0, 5).map(e => { const tr = trainingById(e.tid);
+      return `<li><span class="reg-names"><strong>${esc(fmtDate(e.date))}</strong>${tr ? ` · ${esc(trTitle(tr))}` : ''}<br>
+        ${EV_KEYS.filter(k => (e.v || {})[k] != null).map(k => `<span class="badge ev-mini ${evClass(e.v[k])}">${esc(t('evShort_' + k))} ${e.v[k]}</span>`).join(' ') || `<small class="muted">${esc(t('evNoVotes'))}</small>`}
+        ${e.note ? `<br><small class="ev-note-txt">“${esc(e.note)}”</small>` : ''}</span></li>`; }).join('');
+    return `<div class="ev-sum">${head}<p class="muted small">${esc(t('evSumHelp', { n: list.length }))}</p>
+      <ul class="ev-avgs">${rows}</ul>
+      <h4>${esc(t('evSumLast'))}</h4><ul class="reg-list">${last}</ul></div>`;
   }
   // Pacchetti del corsista (admin): elenco con allenamenti usati/rimasti e pagamento; nuovo pacchetto.
   function packCard(uid) {
@@ -1846,6 +1869,99 @@
   }
 
 
+  // ---------- scheda di valutazione dell'allenamento (decisa dal titolare) ----------
+  // Per ogni corsista 7 voci con voto da 1 a 10 (6 = sufficienza), tutte facoltative, e la nota del giorno.
+  // La compilano l'allenatore di quell'allenamento, l'admin e la segreteria; il corsista non la vede.
+  const EV_KEYS = ['tec', 'mov', 'ctl', 'sce', 'int', 'att', 'con'];
+  const evalOf = (tid, date, uid) => (S().evals || []).find(e => e.tid === tid && e.date === date && e.uid === uid);
+  // l'allenatore di quell'allenamento segna le presenze e compila la scheda; admin e segreteria sempre
+  const canMark = tr => centerAdm() || !!(tr && coach() && tr.coachUid === myUid());
+  const canEval = tr => admin() || !!(tr && coach() && tr.coachUid === myUid());
+  // bottone in fondo alla giornata di allenamento
+  function evalCta(tr, date, o, uids) {
+    if (!canEval(tr) || o.cancelled || date > todayStr() || !uids.length) return '';
+    const done = uids.filter(u => evalOf(tr.id, date, u)).length;
+    return `<div class="ev-cta"><a class="btn primary ev-btn" href="#/eval/${encodeURIComponent(tr.id)}/${date}"><i class="ti ti-clipboard-check" aria-hidden="true"></i> ${esc(t('evOpen'))}</a>
+      <small class="muted">${esc(done ? t('evDoneN', { n: done, m: uids.length }) : t('evNoneYet'))}</small></div>`;
+  }
+  const evClass = v => (v == null ? '' : v < 6 ? 'low' : v === 6 ? 'pass' : 'good');
+  function evRow(uid, k, cur) {
+    return `<div class="ev-row" data-uid="${uid}" data-k="${k}">
+      <div class="ev-label"><strong>${esc(t('ev_' + k))}</strong><small>${esc(t('evHint_' + k))}</small></div>
+      <div class="ev-votes" role="group" aria-label="${esc(t('ev_' + k))}">${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n =>
+        `<button type="button" class="ev-v ${n < 6 ? 'is-low' : n === 6 ? 'is-pass' : ''}" data-action="ev-vote" data-uid="${uid}" data-k="${k}" data-n="${n}" aria-pressed="${cur === n}">${n}</button>`).join('')}</div>
+      <span class="ev-val ${evClass(cur)}" aria-live="polite">${cur != null ? cur : '–'}</span></div>`;
+  }
+  function evCard(tr, date, uid, name, st) {
+    const d = evDraft(tr.id, date, uid);
+    return `<section class="card ev-card" id="ev-${uid}" data-uid="${uid}">
+      <div class="ev-head"><h3>${esc(name)}</h3>${st ? attChip(st, date) : ''}<span class="badge ev-count" data-ev-count="${uid}">${esc(t('evCount', { n: Object.keys(d.v).length }))}</span></div>
+      ${EV_KEYS.map(k => evRow(uid, k, d.v[k])).join('')}
+      <label class="ev-note">${esc(t('evNote'))}<input name="note" data-uid="${uid}" maxlength="160" value="${esc(d.note || '')}" placeholder="${esc(t('evNotePh'))}" autocomplete="off"></label>
+      <div class="btn-row"><button type="button" class="btn primary" data-action="ev-save" data-uid="${uid}"><i class="ti ti-device-floppy" aria-hidden="true"></i> ${esc(t('evSaveOne', { n: name.split(' ').slice(-1)[0] }))}</button></div>
+    </section>`;
+  }
+  // bozza della scheda (finché non si salva): parte da quella già salvata
+  function evDraft(tid, date, uid) {
+    ui.ev = ui.ev && ui.ev.key === `${tid}_${date}` ? ui.ev : { key: `${tid}_${date}`, d: {} };
+    if (!ui.ev.d[uid]) { const e = evalOf(tid, date, uid); ui.ev.d[uid] = { v: Object.assign({}, (e && e.v) || {}), note: (e && e.note) || '', dirty: false }; }
+    return ui.ev.d[uid];
+  }
+  function viewEval(tid, date) {
+    const tr = trainingById(tid);
+    const back = `<a class="back" href="#/train">← ${esc(t('navTrain'))}</a>`;
+    // tornando ad Allenamenti si riapre la stessa giornata
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date || '')) Object.assign(ui, { trDay: date, trView: 'day', trTab: 'day' });
+    if (!tr || !/^\d{4}-\d{2}-\d{2}$/.test(date || '') || !canEval(tr)) return `<div class="page-head">${back}</div><div class="empty"><i class="ti ti-lock" aria-hidden="true"></i> ${esc(t('evNoAccess'))}</div>`;
+    const o = occOf(tr.id, date) || {}, g = groupOf(tr.id, date.slice(0, 7)), names = (g && g.names) || {};
+    const uids = extraDay(date, tr) ? (o.members || []) : ((g && g.uids) || []);
+    const name = uid => names[uid] || coachName(uid);
+    const present = uids.filter(u => (attOf(tr.id, date, u) || {}).status === 'in'), others = uids.filter(u => !present.includes(u));
+    const byName = (a, b) => name(a).localeCompare(name(b));
+    return `<div class="page-head">${back}
+        <h1><i class="ti ti-clipboard-check" aria-hidden="true"></i> ${esc(t('evTitle'))}</h1>
+        <p class="muted cap">${esc(trTitle(tr))} · ${esc(longDate(date))} ${esc(tr.from)}–${esc(tr.to)}${tr.coachUid ? ` · <i class="ti ti-whistle" aria-hidden="true"></i> ${esc(coachName(tr.coachUid))}` : ''}</p></div>
+      <div class="card ev-help">
+        <p><strong><i class="ti ti-info-circle" aria-hidden="true"></i> ${esc(t('evScale'))}</strong></p>
+        <p class="muted small">${esc(t('evTip'))}</p>
+        <p class="muted small">${esc(t('evTapAgain'))}</p>
+      </div>
+      ${o.cancelled ? `<p class="note warn">${esc(t('occCancelled'))}</p>` : ''}
+      ${present.length ? present.slice().sort(byName).map(u => evCard(tr, date, u, name(u), 'in')).join('') : `<p class="note">${esc(t('evNoPresent'))}</p>`}
+      ${others.length ? `<details class="card sub-form ev-others" data-keep="ev-others" ${present.length ? keepOpen('ev-others') : 'open'}><summary><i class="ti ti-users" aria-hidden="true"></i> ${esc(t('evOthers', { n: others.length }))}</summary>
+        ${others.slice().sort(byName).map(u => evCard(tr, date, u, name(u), (attOf(tr.id, date, u) || {}).status || '')).join('')}</details>` : ''}
+      <div class="ev-savebar"><button type="button" class="btn primary" data-action="ev-save-all" data-tid="${esc(tr.id)}" data-date="${date}"><i class="ti ti-device-floppy" aria-hidden="true"></i> ${esc(t('evSaveAll'))}</button></div>`;
+  }
+  // salva le schede (una o tutte quelle modificate) leggendo anche la nota scritta nel campo
+  function evSave(tid, date, onlyUid) {
+    const tr = trainingById(tid);
+    if (!tr || !canEval(tr) || !ui.ev || ui.ev.key !== `${tid}_${date}`) return;
+    document.querySelectorAll('.ev-note input[data-uid]').forEach(i => { const d = ui.ev.d[i.dataset.uid]; if (d && d.note !== i.value.trim()) { d.note = i.value.trim().slice(0, 160); d.dirty = true; } });
+    const list = Object.entries(ui.ev.d).filter(([uid, d]) => (onlyUid ? uid === onlyUid : d.dirty) && (d.dirty || onlyUid))
+      .map(([uid, d]) => ({ tid, date, uid, coachUid: tr.coachUid || '', v: d.v, note: d.note }));
+    if (!list.length) return warn('evNothing');
+    window.Cloud.saveEvals(list).then(() => {
+      list.forEach(e => { ui.ev.d[e.uid].dirty = false; });
+      ui.flash = { text: t('evSaved', { n: list.length }) }; render();
+    }).catch(trErr);
+  }
+  const evActions = {
+    // tocco su un voto: si segna (o si toglie con un secondo tocco) senza ridisegnare la pagina
+    'ev-vote': el => {
+      const m = route(), tid = m[1], date = m[2], uid = el.dataset.uid, k = el.dataset.k, n = Number(el.dataset.n);
+      if (m[0] !== 'eval' || !EV_KEYS.includes(k) || !(n >= 1 && n <= 10) || !canEval(trainingById(tid))) return;
+      const d = evDraft(tid, date, uid);
+      if (d.v[k] === n) delete d.v[k]; else d.v[k] = n;
+      d.dirty = true;
+      const row = el.closest('.ev-row');
+      row.querySelectorAll('.ev-v').forEach(b => b.setAttribute('aria-pressed', String(Number(b.dataset.n) === d.v[k])));
+      const val = row.querySelector('.ev-val'); val.textContent = d.v[k] != null ? d.v[k] : '–'; val.className = 'ev-val ' + evClass(d.v[k]);
+      const c = document.querySelector(`[data-ev-count="${uid}"]`); if (c) c.textContent = t('evCount', { n: Object.keys(d.v).length });
+    },
+    'ev-save': el => { const m = route(); if (m[0] === 'eval') evSave(m[1], m[2], el.dataset.uid); },
+    'ev-save-all': el => evSave(el.dataset.tid, el.dataset.date, null)
+  };
+
   // data e ora brevi (es. 5 nov, 18:30)
   const whenShort = ms => (ms ? new Date(ms).toLocaleString(I18n.locale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—');
   function occCard(tr, date) {
@@ -1858,9 +1974,9 @@
       const absent = st === 'out' || (!st && late);
       const rec = (S().spots || []).find(sp => sp.uid === uid && sp.recovery && sp.recovery.tid === tr.id && sp.recovery.date === date);
       return `<li><span class="reg-names"><strong>${esc(names[uid] || coachName(uid))}</strong><br>${attChip(st, date)}${a && a.forced ? ` <small class="muted">${esc(t('attForced'))}</small>` : ''}
-          ${/* TODO passo 2: qui la scheda di valutazione del corsista (voti 1-10). Al suo posto, nell'app di origine, c'era il voto del coach per il gioco a punti. */ ''}
+          ${canEval(tr) && evalOf(tr.id, date, uid) ? ` <span class="badge ev-chip" title="${esc(t('evTitle'))}"><i class="ti ti-clipboard-check" aria-hidden="true"></i> ${esc(t('evChip', { n: Object.keys(evalOf(tr.id, date, uid).v || {}).length }))}</span>` : ''}
           ${rec ? ` <span class="badge">${esc(t('recoveryGiven', { d: fmtDate(rec.date) }))}</span>` : ''}</span>
-        ${centerAdm() && !o.cancelled ? `<span class="btn-row">
+        ${canMark(tr) && !o.cancelled ? `<span class="btn-row">
           ${st !== 'in' ? `<button class="btn small" data-action="att-force" data-tid="${esc(tr.id)}" data-date="${date}" data-uid="${uid}" data-st="in">${esc(t('attPresent'))}</button>` : ''}
           ${st !== 'out' ? `<button class="btn small" data-action="att-force" data-tid="${esc(tr.id)}" data-date="${date}" data-uid="${uid}" data-st="out">${esc(t('attAbsent'))}</button>` : ''}
           ${st ? `<button class="btn small" data-action="att-force" data-tid="${esc(tr.id)}" data-date="${date}" data-uid="${uid}" data-st=""><i class="ti ti-arrow-back-up" aria-hidden="true"></i> ${esc(t('attNoReply'))}</button>` : ''}
@@ -1898,6 +2014,7 @@
       ${centerAdm() ? `<div class="btn-row">${o.cancelled ? `<button class="btn small" data-action="occ-restore" data-tid="${esc(tr.id)}" data-date="${date}">${esc(t('occRestore'))}</button>`
         : `<button class="btn small danger" data-action="occ-cancel" data-tid="${esc(tr.id)}" data-date="${date}"><i class="ti ti-calendar-off" aria-hidden="true"></i> ${esc(t('occCancel'))}</button>
           <button class="btn small danger" data-action="occ-remove" data-tid="${esc(tr.id)}" data-date="${date}"><i class="ti ti-calendar-x" aria-hidden="true"></i> ${esc(t('occRemove'))}</button>`}</div>` : ''}
+      ${evalCta(tr, date, o, uids)}
     </div>`;
   }
 
@@ -1971,7 +2088,7 @@
     },
     'att-force': el => {
       const tr = trainingById(el.dataset.tid);
-      if (!tr) return;
+      if (!tr || !canMark(tr)) return;
       // data-st vuoto: torna "senza risposta" (si toglie la risposta e i contatori si aggiornano)
       window.Cloud.setAttendance(tr.id, el.dataset.date, el.dataset.uid, el.dataset.st || null, { coachUid: tr.coachUid || '', forced: true }).then(() => render()).catch(trErr);
     },
@@ -3537,7 +3654,7 @@
   // ---------- azioni ----------
   const confirmed = (key, p) => confirm(t(key, p));
 
-  const actions = Object.assign({}, trActions, occActions, payActions, statActions, privacyActions, reportActions, cassaActions, {
+  const actions = Object.assign({}, trActions, occActions, evActions, payActions, statActions, privacyActions, reportActions, cassaActions, {
     'user-reset': el => {
       const m = memberByUid(el.dataset.uid), email = (S().accounts || {})[el.dataset.uid];
       if (!canEditUser(el.dataset.uid)) return;
@@ -3790,6 +3907,8 @@
   const ADMIN_ACTIONS = new Set(['court-add', 'court-delete', 'recurring-delete', 'court-copy', 'msg-delete', 'msg-target', 'editorial-edit', 'editorial-clear', 'notice-edit', 'notice-clear']);
   const MEMBER_ACTIONS = new Set(['wr-go', 'wr-share', 'tr-past', 'tr-view', 'tr-dmonth', 'notice-read-all', 'profile-edit', 'profile-cancel', 'msg-read', 'verify-resend', 'verify-check', 'booking-open', 'booking-confirm', 'booking-delete', 'notice-dismiss', 'tr-month', 'tr-day', 'tr-tab', 'att-set', 'spot-apply', 'spot-withdraw', 'spot-seen', 'rc-pdf', 'st-period', 'st-ref', 'privacy-accept', 'my-data', 'delete-request']);
   const MEMBER_FORMS = new Set(['profile-save']);
+  // allenatore: presenze e scheda di valutazione dei propri allenamenti (controllo anche nell'azione e nelle regole)
+  const COACH_ACTIONS = new Set(['att-force', 'ev-vote', 'ev-save', 'ev-save-all', 'occ-confirm']);
   let submitMode = 'save';
 
   // reminder delle prenotazioni: la prima pagina si aggiorna ogni minuto (compaiono e spariscono da soli)
@@ -3831,7 +3950,7 @@
     if (!fn) return;
     e.preventDefault();
     if (ADMIN_ACTIONS.has(el.dataset.action) && !fullAdmin()) return;
-    if (!admin() && !PUBLIC_ACTIONS.has(el.dataset.action) && !(cashier() && CASH_ACTIONS.has(el.dataset.action)) && !(centerAdm() && CENTER_ACTIONS.has(el.dataset.action)) && !(member() && MEMBER_ACTIONS.has(el.dataset.action))) return;
+    if (!admin() && !PUBLIC_ACTIONS.has(el.dataset.action) && !(cashier() && CASH_ACTIONS.has(el.dataset.action)) && !(centerAdm() && CENTER_ACTIONS.has(el.dataset.action)) && !(member() && MEMBER_ACTIONS.has(el.dataset.action)) && !(coach() && COACH_ACTIONS.has(el.dataset.action))) return;
     fn(el);
   });
 

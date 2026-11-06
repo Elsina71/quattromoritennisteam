@@ -354,13 +354,37 @@ service cloud.firestore {
       allow update: if coachOfTr(resource.data.tid)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['p', 'a']);
     }
+    // ---------- scheda di valutazione ----------
+    // evals/{tid_data_uidCorsista}: voti da 1 a 10 (6 = sufficienza) sulle 7 voci, tutti facoltativi, e la nota del giorno.
+    // La scrivono l'allenatore di quell'allenamento, l'admin e la segreteria, solo per i corsisti del gruppo;
+    // la leggono admin, segreteria e l'allenatore (chi l'ha scritta o l'allenatore di quell'allenamento).
+    // Il corsista e gli altri utenti non la leggono.
+    function evVote(v, k) { return !(k in v) || (v[k] is int && v[k] >= 1 && v[k] <= 10); }
+    function evOk(id, d) {
+      return d.keys().hasOnly(['tid', 'date', 'uid', 'coachUid', 'by', 'v', 'note', 'at'])
+        && d.tid is string && d.uid is string && d.date is string && d.date.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && id == d.tid + '_' + d.date + '_' + d.uid
+        && d.by == request.auth.uid && d.coachUid == trCoach(d.tid)
+        && d.v is map && d.v.keys().hasOnly(['tec', 'mov', 'ctl', 'sce', 'int', 'att', 'con'])
+        && evVote(d.v, 'tec') && evVote(d.v, 'mov') && evVote(d.v, 'ctl') && evVote(d.v, 'sce')
+        && evVote(d.v, 'int') && evVote(d.v, 'att') && evVote(d.v, 'con')
+        && d.note is string && d.note.size() <= 160
+        && (inGroup(d.tid, d.date, d.uid)
+            || (exists(occP(d.tid + '_' + d.date)) && d.uid in get(occP(d.tid + '_' + d.date)).data.get('members', [])));
+    }
+    match /evals/{id} {
+      allow read: if isStaff() || (request.auth != null && (resource.data.by == request.auth.uid || resource.data.coachUid == request.auth.uid));
+      allow create, update: if (isStaff() || coachOfTr(request.resource.data.tid)) && evOk(id, request.resource.data);
+      allow delete: if isStaff() || coachOfTr(resource.data.tid);
+    }
     // occfree/{tid_data}: posti spot liberi decisi dall'admin (il numero lo vede solo l'admin; in occ resta "open").
     match /occfree/{id} {
       allow read, write: if isStaff();
     }
     match /att/{id} {
       // la propria anche prima che esista (l'id finisce con il proprio uid); l'admin centro tutte (anche non ancora create)
-      allow get: if isCenter() || (request.auth != null && id.matches('.*_' + request.auth.uid)) || (resource != null && seesTraining(resource.data));
+      allow get: if isCenter() || (request.auth != null && id.matches('.*_' + request.auth.uid)) || (resource != null && seesTraining(resource.data))
+        || (resource == null && coachOfTr(id.split('_')[0]));   // l'allenatore, prima di segnare una presenza nuova
       allow list: if isStaff() || seesTraining(resource.data);
       allow write: if isCenter();   // presenze segnate da admin e segreteria
       // presenze segnate dall'allenatore di quell'allenamento, solo per i corsisti del gruppo del mese
