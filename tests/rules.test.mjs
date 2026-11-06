@@ -11,9 +11,11 @@ const OWNER_HASH = 'a2de6b81796442dad657da768dcb08f740fe60afdbdb368e2f9a16042389
 const rulesText = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
 if (!rulesText.includes(OWNER_HASH)) throw new Error("manca l'impronta del titolare nelle regole");
 const testHash = createHash('sha256').update('titolare@prova.it').digest('hex');
+// indirizzo dell'emulatore: quello dato da "firebase emulators:exec" (FIRESTORE_EMULATOR_HOST), altrimenti 127.0.0.1:8080
+const [emuHost, emuPort] = (process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080').split(':');
 const env = await initializeTestEnvironment({
   projectId: 'demo-quattromori',
-  firestore: { rules: rulesText.split(OWNER_HASH).join(testHash), host: '127.0.0.1', port: 8080 }
+  firestore: { rules: rulesText.split(OWNER_HASH).join(testHash), host: emuHost, port: Number(emuPort) }
 });
 
 let n = 0;

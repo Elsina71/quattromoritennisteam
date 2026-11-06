@@ -9,11 +9,16 @@
   const $dialog = document.getElementById('matchDialog');
 
   const ui = { flash: null, busy: false };
-  const admin = () => !!(window.Cloud && window.Cloud.isAdmin);
-  // cassa (o admin): incassi e ricevute
+  // STAFF (admin e segreteria): vedono e gestiscono utenti, prenotazioni di tutti, corsisti, allenamenti, pagamenti.
+  const admin = () => !!(window.Cloud && window.Cloud.staff);
+  // solo ADMIN (admin generale e Admin): campi e regole di prenotazione, ruoli, listino, avvisi, articoli, messaggi
+  const fullAdmin = () => !!(window.Cloud && window.Cloud.isAdmin);
+  // SEGRETERIA
+  const segr = () => !!(window.Cloud && window.Cloud.seg);
+  // cassa (o admin e segreteria): incassi e ricevute
   const cashier = () => !!(window.Cloud && window.Cloud.cashier);
   // avviso della prima pagina: admin
-  const canNotice = () => admin();
+  const canNotice = () => fullAdmin();
   let pendingRender = false;
 
   // ---------- helper ----------
@@ -62,6 +67,8 @@
     const r = route();
     const adminOnly = r[0] === 'messages' || r[0] === 'users' || r[0] === 'courts' || r[0] === 'athletes' || r[0] === 'payments' || r[0] === 'report';
     if (adminOnly && !admin()) { location.hash = '#/'; return; }
+    // campi e messaggi: solo l'admin (la segreteria no)
+    if ((r[0] === 'courts' || r[0] === 'messages') && !fullAdmin()) { location.hash = '#/'; return; }
     let nav = 'home', html;
     if (r[0] === 'settings') { nav = 'settings'; html = viewSettings(); }
     else if (r[0] === 'me') { nav = 'me'; html = viewProfile(); }
@@ -93,7 +100,7 @@
     document.querySelectorAll('.langs [data-lang]').forEach(b => b.setAttribute('aria-pressed', b.dataset.lang === I18n.lang));
     document.querySelectorAll('[data-admin-only]').forEach(el => { el.hidden = !admin(); });
     document.querySelectorAll('[data-cash-only]').forEach(el => { el.hidden = !cashier(); });
-    document.querySelectorAll('[data-staff-badge]').forEach(el => { el.hidden = !(admin() || cashier()); const l = el.querySelector('.lbl'); if (l) l.textContent = ' ' + (admin() ? 'Admin' : t('roleCashShort')); });
+    document.querySelectorAll('[data-staff-badge]').forEach(el => { el.hidden = !(admin() || cashier()); const l = el.querySelector('.lbl'); if (l) l.textContent = ' ' + (fullAdmin() ? 'Admin' : segr() ? t('role_seg') : t('roleCashShort')); });
     document.querySelectorAll('[data-guest-only]').forEach(el => { el.hidden = admin() || !!member(); });
     document.querySelectorAll('[data-member-only]').forEach(el => { el.hidden = !(member() || (admin() && window.Cloud && window.Cloud.adminMember)); });
     document.querySelectorAll('[data-train-only]').forEach(el => { el.hidden = !(admin() || coach() || centerAdm()); });
@@ -232,9 +239,9 @@
   // e compare "Visualizza l'articolo" (pagina autonoma #/a/1 o #/a/2).
   function editorialCard(i, a) {
     a = a || {};
-    if (admin() && ui.editEditorial === i) return editorialForm(i, a);
+    if (fullAdmin() && ui.editEditorial === i) return editorialForm(i, a);
     if (edEmpty(a)) {
-      return admin() ? `<button class="editorial-add" data-action="editorial-edit" data-idx="${i}"><i class="ti ti-article" aria-hidden="true"></i> ${esc(t('edAdd', { n: i + 1 }))}</button>` : '';
+      return fullAdmin() ? `<button class="editorial-add" data-action="editorial-edit" data-idx="${i}"><i class="ti ti-article" aria-hidden="true"></i> ${esc(t('edAdd', { n: i + 1 }))}</button>` : '';
     }
     const photo = safePhoto(a.photo);
     return `<article class="card editorial-card">
@@ -245,7 +252,7 @@
         <div class="ed-foot">
           <a class="ed-more" href="#/a/${i + 1}" hidden>${esc(t('edReadMore'))} →</a>
           ${edLinkHtml(a)}
-          ${admin() ? `<button class="btn small" data-action="editorial-edit" data-idx="${i}"><i class="ti ti-pencil" aria-hidden="true"></i> ${esc(t('edit'))}</button>` : ''}
+          ${fullAdmin() ? `<button class="btn small" data-action="editorial-edit" data-idx="${i}"><i class="ti ti-pencil" aria-hidden="true"></i> ${esc(t('edit'))}</button>` : ''}
         </div>
       </div>
     </article>`;
@@ -265,7 +272,7 @@
   function viewArticle(i) {
     const a = (S().editorial || [])[i];
     const back = `<a class="back" href="#/">← ${esc(t('navHome'))}</a>`;
-    if (admin() && ui.editEditorial === i) return `<div class="page-head">${back}</div>${editorialForm(i, a || {})}`;
+    if (fullAdmin() && ui.editEditorial === i) return `<div class="page-head">${back}</div>${editorialForm(i, a || {})}`;
     if (edEmpty(a)) return `<div class="page-head">${back}</div><div class="empty">${esc(t('edNotFound'))}</div>`;
     const photo = safePhoto(a.photo);
     return `<article class="article-page">
@@ -275,7 +282,7 @@
         ${a.title ? `<h1>${esc(a.title)}</h1>` : ''}
         <div class="article-text">${richText(a.text || '')}</div>
         ${edLinkHtml(a, 'primary')}
-        ${admin() ? `<div class="btn-row"><button class="btn small" data-action="editorial-edit" data-idx="${i}"><i class="ti ti-pencil" aria-hidden="true"></i> ${esc(t('edit'))}</button></div>` : ''}
+        ${fullAdmin() ? `<div class="btn-row"><button class="btn small" data-action="editorial-edit" data-idx="${i}"><i class="ti ti-pencil" aria-hidden="true"></i> ${esc(t('edit'))}</button></div>` : ''}
       </div>
     </article>`;
   }
@@ -286,7 +293,8 @@
     const links = [['#/book', 'calendar-time', 'navBook'], ['#/train', 'barbell', 'navTrain']];
     if (member() || (admin() && window.Cloud && window.Cloud.adminMember)) links.push(['#/me', 'user', 'profile']);
     if (cashier()) links.push(['#/cassa', 'cash-register', 'navCassa']);
-    if (admin()) links.push(['#/users', 'users', 'usersTitle'], ['#/courts', 'layout-grid', 'courtsManage']);
+    if (admin()) links.push(['#/users', 'users', 'usersTitle'], ['#/athletes', 'id-badge-2', 'athTitle']);
+    if (fullAdmin()) links.push(['#/courts', 'layout-grid', 'courtsManage']);
     links.push(['#/settings', 'settings', 'navSettings']);
     return `<section class="feat-block"><div class="page-head row"><h2><i class="ti ti-bolt" aria-hidden="true"></i> ${esc(t('homeQuick'))}</h2></div>
       <div class="quick-links">${links.map(([h, i, k]) => `<a class="btn" href="${h}"><i class="ti ti-${i}" aria-hidden="true"></i> ${esc(t(k))}</a>`).join('')}</div></section>`;
@@ -407,82 +415,98 @@
       <button class="btn small primary" data-action="ver-manual" data-uid="${uid}" data-on="1"><i class="ti ti-check" aria-hidden="true"></i> ${esc(t('verConfirm'))}</button>`;
   }
 
-  // Riepilogo dei ruoli: admin generale (il titolare), altri admin, Admin Centro, cassa, coach.
+  // Riepilogo dei ruoli: admin generale (il titolare), Admin, segreteria, cassa, allenatori.
   function rolesCard() {
-    const rs = S().roles || {};
-    const who = r => Object.entries(rs).filter(([, v]) => v && v[r]).map(([uid, v]) => { const m = memberByUid(uid); return m ? personName(m) : v.name || uid; }).sort();
-    const coaches = (S().coaches || []).map(c => coachName(c.id)).sort();
-    const row = (icon, label, help, names) => `<li><span class="reg-names"><strong><i class="ti ti-${icon}" aria-hidden="true"></i> ${esc(label)}</strong>
-      <br><small class="muted">${esc(help)}</small><br>${names.length ? names.map(n => `<span class="badge">${esc(n)}</span>`).join(' ') : `<small class="muted">—</small>`}</span></li>`;
-    return `<div class="card" id="roles"><h2><i class="ti ti-key" aria-hidden="true"></i> ${esc(t('rolesTitle'))}</h2>
+    const byRole = r => (S().members || []).filter(m => roleOf(m.uid) === r).map(personName).sort();
+    const general = [...new Set(((window.Cloud && window.Cloud.generalUids) || []).concat(window.Cloud && window.Cloud.general && myUid() ? [myUid()] : []))].map(u => (uidName(u) === '?' ? 'Admin' : uidName(u)));
+    const row = (r, names) => `<li><span class="reg-names">${roleBadge(r)}<br><small class="muted">${esc(t('roleHelp_' + r))}</small><br>${names.length ? names.map(n => `<span class="badge">${esc(n)}</span>`).join(' ') : `<small class="muted">—</small>`}</span></li>`;
+    return `<details class="card sub-form" id="roles" data-keep="roles" ${keepOpen('roles')}><summary><i class="ti ti-key" aria-hidden="true"></i> ${esc(t('rolesTitle'))}</summary>
       <p class="muted small">${esc(t('rolesHelp'))}</p>
-      <ul class="reg-list">
-        ${row('crown', t('role_general'), t('roleHelp_general'), [...new Set(((window.Cloud && window.Cloud.generalUids) || []).concat(window.Cloud && window.Cloud.general && myUid() ? [myUid()] : []))].map(u => (uidName(u) === '?' ? 'Admin' : uidName(u))))}
-        ${row('building-community', t('role_center'), t('roleHelp_center'), who('center'))}
-        ${row('cash-register', t('role_cash'), t('roleHelp_cash'), who('cash'))}
-        ${row('whistle', t('role_coach'), t('roleHelp_coach'), coaches)}
-      </ul></div>`;
+      <ul class="reg-list roles-list">
+        ${row('general', general)}
+        ${['admin', 'seg', 'cash', 'coach'].map(r => row(r, byRole(r))).join('')}
+      </ul></details>`;
+  }
+  // Modulo "Crea utente" (admin e segreteria): nome, cognome, sesso, email, password iniziale e ruolo.
+  function userCreateCard() {
+    const rs = grantable();
+    return `<details class="card sub-form user-create" data-keep="user-create" ${keepOpen('user-create')}><summary><i class="ti ti-user-plus" aria-hidden="true"></i> ${esc(t('userCreateTitle'))}</summary>
+        <p class="muted small">${esc(t('userCreateHelp'))}</p>
+        <form class="grid-form" data-form="user-create">
+          <label>${esc(t('firstName'))}<input name="first" required maxlength="60" autocomplete="off"></label>
+          <label>${esc(t('lastName'))}<input name="last" required maxlength="60" autocomplete="off"></label>
+          <label>${esc(t('gender'))}<select name="gender" required><option value="">—</option><option value="M">${esc(t('male'))}</option><option value="F">${esc(t('female'))}</option></select></label>
+          <label>Email<input name="email" type="email" required autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+          <label>${esc(t('userCreatePwd'))}<input name="password" type="text" required minlength="6" autocomplete="off"><small class="muted">${esc(t('userCreatePwdHelp'))}</small></label>
+          <label>${esc(t('userRole'))}<select name="role" required>${rs.map(r => `<option value="${r}">${esc(t('role_' + r))}</option>`).join('')}</select>
+            <small class="muted">${esc(t(fullAdmin() ? 'userRoleHelpAdmin' : 'userRoleHelpSeg'))}</small></label>
+          <div class="form-actions span-all"><button class="btn primary"><i class="ti ti-user-plus" aria-hidden="true"></i> ${esc(t('userCreateBtn'))}</button></div>
+        </form></details>`;
+  }
+  // Ruolo nella scheda dell'utente: badge per tutti; menu per cambiarlo solo all'admin.
+  function userRoleRow(m) {
+    const r = roleOf(m.uid), rs = grantable();
+    const can = fullAdmin() && r !== 'general' && m.uid !== myUid() && rs.includes(r);
+    if (!can) return `<span class="ban-row"><i class="ti ti-key" aria-hidden="true"></i> ${esc(t('userRole'))}: ${roleBadge(r)}</span>`;
+    return `<label class="ban-row role-pick"><span><i class="ti ti-key" aria-hidden="true"></i> ${esc(t('userRole'))}</span>
+      <select data-change="user-role" data-uid="${m.uid}" aria-label="${esc(t('userRole'))}">${rs.map(x => `<option value="${x}" ${x === r ? 'selected' : ''}>${esc(t('role_' + x))}</option>`).join('')}</select></label>`;
   }
   function viewUsers() {
     const f = L.norm(ui.userFilter || '');
     const acc = S().accounts || {};
     const pend = new Set(homonymPending().flat().map(m => m.uid));
     const homs = new Set(homonymGroups().flat().map(m => m.uid));
+    const rf = ui.userRole || 'all';
     const list = (S().members || []).filter(m => !f || L.norm(`${m.first} ${m.last} ${acc[m.uid] || ''} ${(S().nicks || {})[m.uid] || ''}`).includes(f))
+      .filter(m => rf === 'all' || roleOf(m.uid) === rf || (rf === 'admin' && roleOf(m.uid) === 'general'))
       .sort((a, b) => personName(a).localeCompare(personName(b)));
     // iscritti senza conferma (né email né a mano): avviso in cima alla lista
     const confirmedUid = uid => !!((S().emailVerified || {})[uid] || (S().manualVerified || {})[uid]);
     const unconf = (S().members || []).filter(m => !confirmedUid(m.uid)).sort((a, b) => personName(a).localeCompare(personName(b)));
+    const count = r => (S().members || []).filter(m => roleOf(m.uid) === r || (r === 'admin' && roleOf(m.uid) === 'general')).length;
+    const roleTabs = `<nav class="tabs user-tabs" aria-label="${esc(t('userRole'))}">${['all', 'user', 'coach', 'seg', 'cash', 'admin'].map(k =>
+      `<a href="#/users" class="${rf === k ? 'active' : ''}" data-action="user-role-tab" data-r="${k}">${esc(t(k === 'all' ? 'usersAll' : 'role_' + k))} <small>${k === 'all' ? (S().members || []).length : count(k)}</small></a>`).join('')}</nav>`;
     return `
       <div class="page-head"><a class="back" href="#/settings">← ${esc(t('settings'))}</a><h1><i class="ti ti-users" aria-hidden="true"></i> ${esc(t('usersTitle'))} (${(S().members || []).length})</h1>
         <p class="muted">${esc(t('usersIntro'))}</p></div>
       ${pend.size ? `<p class="note warn"><i class="ti ti-alert-triangle" aria-hidden="true"></i> ${esc(t('homonymWarn'))}</p>` : ''}
+      ${userCreateCard()}
       ${rolesCard()}
-      <details class="card sub-form" data-keep="user-create" ${keepOpen('user-create')}><summary><i class="ti ti-user-plus" aria-hidden="true"></i> ${esc(t('userCreateTitle'))}</summary>
-        <p class="muted small">${esc(t('userCreateHelp'))}</p>
-        <form class="grid-form" data-form="user-create">
-          <label>${esc(t('firstName'))}<input name="first" required maxlength="60"></label>
-          <label>${esc(t('lastName'))}<input name="last" required maxlength="60"></label>
-          <label>${esc(t('gender'))}<select name="gender" required><option value="">—</option><option value="M">${esc(t('male'))}</option><option value="F">${esc(t('female'))}</option></select></label>
-          <label>Email<input name="email" type="email" required autocomplete="off" autocapitalize="off" spellcheck="false"></label>
-          <label>${esc(t('password'))}<input name="password" type="text" required minlength="6" autocomplete="off"></label>
-          <div class="form-actions"><button class="btn primary">${esc(t('userCreateBtn'))}</button></div>
-        </form></details>
       ${unconf.length ? `<div class="msg-alert" role="alert"><div class="msg-head"><strong><i class="ti ti-mail-exclamation" aria-hidden="true"></i> ${esc(t('usersUnconfTitle', { n: unconf.length }))}</strong></div>
         <div class="msg-text">${esc(t('usersUnconfHelp'))}</div>
         <ul class="reg-list">${unconf.map(m => `<li><span class="reg-names"><strong>${esc(personName(m))}</strong> <small class="muted">${esc(acc[m.uid] || '')}</small></span>
           <button class="btn small primary" data-action="ver-manual" data-uid="${m.uid}" data-on="1"><i class="ti ti-check" aria-hidden="true"></i> ${esc(t('verConfirm'))}</button></li>`).join('')}</ul></div>` : ''}
+      ${roleTabs}
       <div class="toolbar"><input type="search" class="search" placeholder="${esc(t('search'))}" value="${esc(ui.userFilter || '')}" data-change="user-filter" aria-label="${esc(t('search'))}"></div>
       ${f ? `<p class="note warn filter-note"><i class="ti ti-filter" aria-hidden="true"></i> ${esc(t('usersFiltered', { q: ui.userFilter, n: list.length, tot: (S().members || []).length }))}
         <button class="btn small" data-action="user-filter-clear"><i class="ti ti-x" aria-hidden="true"></i> ${esc(t('usersShowAll'))}</button></p>` : ''}
       <div class="card"><ul class="reg-list users-list">${list.map(m => {
+        const edit = canEditUser(m.uid);
         return `<li class="${pend.has(m.uid) ? 'homonym' : ''} ${banOf(m.uid).book ? 'banned' : ''}">
           <details class="user-item" data-keep="usr-${m.uid}" ${keepOpen('usr-' + m.uid)}>
-          <summary><strong>${esc(personName(m))}</strong> <span class="badge g-${m.gender}">${esc(m.gender)}</span>
+          <summary><strong>${esc(personName(m))}</strong> ${roleBadge(roleOf(m.uid))}
             ${(S().nicks || {})[m.uid] ? `<small class="muted">(${esc(S().nicks[m.uid])})</small>` : ''}
             ${homs.has(m.uid) ? `<span class="badge warn-b">${esc(t('homonym'))}</span>` : ''}
             ${confirmedUid(m.uid) ? '' : `<span class="badge warn-b">${esc(t('verPending'))}</span>`}
             ${banOf(m.uid).book ? `<span class="badge st-full">${esc(t('banTitle'))}</span>` : ''}</summary>
           <span class="reg-names">
             <small class="muted">${esc(acc[m.uid] || '—')}</small>
-            ${acc[m.uid] ? `<button class="btn small" data-action="user-reset" data-uid="${m.uid}"><i class="ti ti-key" aria-hidden="true"></i> ${esc(t('userResetBtn'))}</button>` : ''}
+            ${acc[m.uid] && edit ? `<button class="btn small" data-action="user-reset" data-uid="${m.uid}"><i class="ti ti-key" aria-hidden="true"></i> ${esc(t('userResetBtn'))}</button>` : ''}
             ${canDeleteUser(m.uid) ? `<button class="btn small danger" data-action="user-delete" data-uid="${m.uid}"><i class="ti ti-user-x" aria-hidden="true"></i> ${esc(t('userDelete'))}</button>` : ''}
+            ${userRoleRow(m)}
             <span class="ban-row">${verifyBadge(m.uid)} ${m.privacyAt ? `<span class="badge st-done" title="${esc(t('privacyAcceptedOn', { d: fmtDate(new Date(m.privacyAt).toLocaleDateString('sv')) }))}"><i class="ti ti-shield-check" aria-hidden="true"></i> ${esc(t('privacyOkBadge'))}</span>` : `<span class="badge tess-no">${esc(t('privacyNoBadge'))}</span>`}${m.deleteReq ? ` <span class="badge st-full">${esc(t('deleteRequested', { d: fmtDate(new Date(m.deleteReq).toLocaleDateString('sv')) }))}</span>` : ''}</span>
-            <span class="ban-row"><i class="ti ti-key" aria-hidden="true"></i> ${esc(t('rolesTitle'))}:
-              ${['center', 'cash'].filter(r => r !== 'center' || (window.Cloud && window.Cloud.general)).map(r => `<label class="check"><input type="checkbox" data-change="role" data-uid="${m.uid}" data-role="${r}" ${((S().roles || {})[m.uid] || {})[r] ? 'checked' : ''}> ${esc(t('role_' + r))}</label>`).join('')}
-              ${coachOf(m.uid) ? `<span class="badge">${esc(t('role_coach'))}</span>` : ''}</span>
-            <span class="ban-row"><i class="ti ti-ban" aria-hidden="true"></i> ${esc(t('banTitle'))}:
-              <label class="check"><input type="checkbox" data-change="ban" data-uid="${m.uid}" data-what="book" ${banOf(m.uid).book ? 'checked' : ''}> ${esc(t('banBook'))}</label></span></span>
-          <details class="sub-form" data-keep="ren-${m.uid}" ${keepOpen('ren-' + m.uid)}><summary><i class="ti ti-pencil" aria-hidden="true"></i> ${esc(t('userRename'))}</summary>
+            ${edit ? `<span class="ban-row"><i class="ti ti-ban" aria-hidden="true"></i> ${esc(t('banTitle'))}:
+              <label class="check"><input type="checkbox" data-change="ban" data-uid="${m.uid}" data-what="book" ${banOf(m.uid).book ? 'checked' : ''}> ${esc(t('banBook'))}</label></span>` : ''}</span>
+          ${edit ? `<details class="sub-form" data-keep="ren-${m.uid}" ${keepOpen('ren-' + m.uid)}><summary><i class="ti ti-pencil" aria-hidden="true"></i> ${esc(t('userRename'))}</summary>
             <form class="grid-form" data-form="member-rename" data-uid="${m.uid}">
               <label>${esc(t('firstName'))}<input name="first" required maxlength="60" value="${esc(m.first)}"></label>
               <label>${esc(t('lastName'))}<input name="last" required maxlength="60" value="${esc(m.last)}"></label>
               <div class="form-actions"><button class="btn small primary">${esc(t('save'))}</button></div>
-            </form></details>
-          <form class="nick-form" data-form="nick-save" data-uid="${m.uid}">
+            </form></details>` : ''}
+          ${fullAdmin() ? `<form class="nick-form" data-form="nick-save" data-uid="${m.uid}">
             <input name="nick" maxlength="40" value="${esc((S().nicks || {})[m.uid] || '')}" placeholder="${esc(t('nickPh'))}" aria-label="${esc(t('nick'))}">
             <button class="btn small">${esc(t('save'))}</button>
-          </form>
+          </form>` : ''}
           </details>
         </li>`; }).join('') || `<li class="muted">${esc(t('noMembers'))}</li>`}</ul></div>`;
   }
@@ -777,7 +801,7 @@
       ${verifyNotice()}
       ${banNotice('book')}
       <div class="page-head row"><h1><i class="ti ti-calendar-time" aria-hidden="true"></i> ${esc(t('bkTitle'))}</h1>
-        ${admin() ? `<a class="btn small" href="#/courts"><i class="ti ti-settings" aria-hidden="true"></i> ${esc(t('courtsManage'))}</a>` : ''}</div>
+        ${fullAdmin() ? `<a class="btn small" href="#/courts"><i class="ti ti-settings" aria-hidden="true"></i> ${esc(t('courtsManage'))}</a>` : ''}</div>
       <p class="muted">${esc(t('bkIntro', { c: courts.filter(c => c.visible).length, o: opened.length, m: hoursText(cfg.minHours), h: hoursText(cfg.maxHours), d: cfg.daysAhead }))}</p>
       <div class="date-nav">
         <button class="btn icon" data-action="bk-day" data-delta="-1" aria-label="${esc(t('bkPrevDay'))}" ${d <= today && !admin() ? 'disabled' : ''}><i class="ti ti-chevron-left" aria-hidden="true"></i></button>
@@ -1162,7 +1186,20 @@
   const centerAdm = () => !!(window.Cloud && window.Cloud.center);
   // admin generali (l'Admin Centro non li può eliminare)
   const isGeneralUser = uid => ((window.Cloud && window.Cloud.generalUids) || []).includes(uid);
-  const canDeleteUser = uid => admin() && (!!(window.Cloud && window.Cloud.general) || !isGeneralUser(uid));
+  // ruolo di un utente: admin generale, Admin (roles.center), segreteria, cassa, allenatore, utente
+  const roleOf = uid => {
+    if (isGeneralUser(uid) || (uid === myUid() && window.Cloud && window.Cloud.general)) return 'general';
+    const r = (S().roles || {})[uid] || {};
+    return r.center ? 'admin' : r.seg ? 'seg' : r.cash ? 'cash' : coachOf(uid) ? 'coach' : 'user';
+  };
+  // la segreteria modifica ed elimina solo utenti e allenatori; l'Admin non elimina un admin generale
+  const canEditUser = uid => fullAdmin() || (admin() && ['user', 'coach'].includes(roleOf(uid)));
+  const canDeleteUser = uid => (fullAdmin() && (!!(window.Cloud && window.Cloud.general) || !isGeneralUser(uid))) || (segr() && canEditUser(uid));
+  // ruoli che chi è collegato può dare: l'admin generale tutti; l'Admin tutti tranne Admin; la segreteria solo utente e allenatore
+  const ROLES = ['user', 'coach', 'seg', 'cash', 'admin'];
+  const grantable = () => (window.Cloud && window.Cloud.general ? ROLES : fullAdmin() ? ROLES.filter(r => r !== 'admin') : admin() ? ['user', 'coach'] : []);
+  const ROLE_ICON = { general: 'crown', admin: 'shield-star', seg: 'clipboard-list', cash: 'cash-register', coach: 'whistle', user: 'user' };
+  const roleBadge = r => `<span class="badge role-${r}"><i class="ti ti-${ROLE_ICON[r]}" aria-hidden="true"></i> ${esc(t('role_' + r))}</span>`;
   // Chi usa gli allenamenti in prima persona: l'utente registrato, oppure l'admin che ha anche la scheda da giocatore
   // (così un admin può essere corsista o coach).
   const self = () => member() || (admin() && window.Cloud.adminMember) || null;
@@ -1392,7 +1429,7 @@
           ${trChecks(null, month)}
           <div class="form-actions span-all"><button class="btn primary">${esc(t('athCreate'))}</button></div></form></details>`}
       ${list.length ? `<div class="ath-list">${list.map(x => athleteCard(x.a, x.m, month)).join('')}</div>` : `<div class="empty"><i class="ti ti-id-badge-2" aria-hidden="true"></i> ${esc(t(certOnly ? 'certNoneDue' : 'athNone'))}</div>`}
-      ${certOnly ? '' : pricesCard()}`;
+      ${certOnly || !fullAdmin() ? '' : pricesCard()}`;
   }
 
   function athleteCard(a, m, month) {
@@ -3435,14 +3472,14 @@
         <h2><i class="ti ti-key" aria-hidden="true"></i> ${esc(t(member() ? 'myAccount' : user ? 'adminArea' : 'loginOrRegister'))}</h2>
         ${account}
       </div>
-      ${admin() ? link('mail', t('messages'), t('messagesIntro'), '#/messages', t('messagesOpen')) : ''}
+      ${fullAdmin() ? link('mail', t('messages'), t('messagesIntro'), '#/messages', t('messagesOpen')) : ''}
       ${admin() ? `<div class="card"><h2><i class="ti ti-users" aria-hidden="true"></i> ${esc(t('usersTitle'))} (${(S().members || []).length})</h2>
         ${homonymPending().length ? `<p class="note warn">${esc(t('homonymWarn'))}</p>` : `<p class="muted small">${esc(t('usersIntro'))}</p>`}
         <a class="btn primary" href="#/users">${esc(t('usersOpen'))} →</a></div>` : ''}
       ${cashier() ? link('cash-register', t('caTitle'), t('caIntroShort'), '#/cassa') : ''}
       ${admin() ? link('report-analytics', t('rpTitle'), t('rpIntro'), '#/report') : ''}
       ${admin() ? link('cash-register', t('payAdminTitle'), t('payAdminIntro'), '#/payments') : ''}
-      ${admin() ? link('layout-grid', `${t('courtsManage')} (${(S().courts || []).length})`, t('courtsIntro'), '#/courts', t('courtsManage')) : ''}
+      ${fullAdmin() ? link('layout-grid', `${t('courtsManage')} (${(S().courts || []).length})`, t('courtsIntro'), '#/courts', t('courtsManage')) : ''}
       <div class="card">
         <h2>${esc(t('language'))}</h2>
         <div class="segmented wrap" role="group">
@@ -3465,12 +3502,14 @@
   const actions = Object.assign({}, trActions, occActions, payActions, statActions, privacyActions, reportActions, cassaActions, {
     'user-reset': el => {
       const m = memberByUid(el.dataset.uid), email = (S().accounts || {})[el.dataset.uid];
+      if (!canEditUser(el.dataset.uid)) return;
       if (!m || !email || !confirmed('userResetConfirm', { n: personName(m), e: email })) return;
       el.disabled = true;
       window.Cloud.resetPassword(email).then(() => { ui.flash = { text: t('userResetSent', { e: email }) }; render(); })
         .catch(e => { el.disabled = false; warn('regError', { code: e.code || e.message }); });
     },
     'user-filter-clear': () => { ui.userFilter = ''; render(); },
+    'user-role-tab': el => { ui.userRole = el.dataset.r; render(); },
     'user-delete': el => {
       const m = memberByUid(el.dataset.uid);
       if (!m || !canDeleteUser(m.uid)) return;   // l'admin centro non elimina un admin generale
@@ -3599,10 +3638,11 @@
 
   const forms = Object.assign({}, trForms, occForms, payForms, cassaForms, {
     'user-create': f => {
-      const d = { first: f.first.value.trim(), last: f.last.value.trim(), gender: f.gender.value, email: f.email.value.trim(), password: f.password.value };
+      const d = { first: f.first.value.trim(), last: f.last.value.trim(), gender: f.gender.value, email: f.email.value.trim(), password: f.password.value, role: f.role.value };
       if (!d.first || !d.last || !d.gender) return warn('errRegFields');
+      if (!grantable().includes(d.role)) return warn('errPermission');
       const btn = f.querySelector('button.primary'); btn.disabled = true;
-      window.Cloud.adminCreateUser(d).then(() => { (ui.keep || {})['user-create'] = false; ui.flash = { text: t('userCreated', { e: d.email }) }; render(); })
+      window.Cloud.adminCreateUser(d).then(() => { (ui.keep || {})['user-create'] = false; ui.flash = { text: t('userCreatedRole', { e: d.email, r: t('role_' + d.role) }) }; render(); })
         .catch(e => { btn.disabled = false; warn(e.code === 'auth/email-already-in-use' ? 'userCreateExists' : e.code === 'auth/weak-password' ? 'registerWeak' : 'regError', { code: e.code || e.message }); });
     },
     'court-save': f => {
@@ -3632,6 +3672,7 @@
     'msg-send': f => sendMessageForm(f),
     'member-rename': f => {
       const uid = f.dataset.uid, first = f.first.value.trim(), last = f.last.value.trim();
+      if (!canEditUser(uid)) return;
       if (!first || !last) return warn('errRegFields');
       window.Cloud.renameMember(uid, first, last).then(() => {
         ui.flash = { text: t('userRenamed') }; render();
@@ -3704,6 +3745,9 @@
   const CENTER_ACTIONS = new Set(['tr-delete', 'occ-cancel', 'occ-remove', 'occ-restore', 'occ-copy-group', 'tr-edit', 'tr-edit-cancel', 'tr-copy', 'grp-remove', 'att-force']);
   const CENTER_FORMS = new Set(['tr-save', 'grp-add', 'occ-copy']);
   const PUBLIC_FORMS = new Set(['login', 'register']);
+  // solo admin (non la segreteria): impostazioni dei campi, regole di prenotazione, listino, avvisi, articoli, messaggi
+  const ADMIN_FORMS = new Set(['court-save', 'recurring-add', 'booking-settings', 'book-rewards-save', 'msg-send', 'nick-save', 'editorial-save', 'notice-save', 'prices-save']);
+  const ADMIN_ACTIONS = new Set(['court-add', 'court-delete', 'recurring-delete', 'court-copy', 'msg-delete', 'msg-target', 'editorial-edit', 'editorial-clear', 'notice-edit', 'notice-clear']);
   const MEMBER_ACTIONS = new Set(['wr-go', 'wr-share', 'tr-past', 'tr-view', 'tr-dmonth', 'notice-read-all', 'profile-edit', 'profile-cancel', 'msg-read', 'verify-resend', 'verify-check', 'booking-open', 'booking-confirm', 'booking-delete', 'notice-dismiss', 'tr-month', 'tr-day', 'tr-tab', 'att-set', 'spot-apply', 'spot-withdraw', 'spot-seen', 'rc-pdf', 'st-period', 'st-ref', 'privacy-accept', 'my-data', 'delete-request']);
   const MEMBER_FORMS = new Set(['profile-save']);
   let submitMode = 'save';
@@ -3746,6 +3790,7 @@
     const fn = actions[el.dataset.action];
     if (!fn) return;
     e.preventDefault();
+    if (ADMIN_ACTIONS.has(el.dataset.action) && !fullAdmin()) return;
     if (!admin() && !PUBLIC_ACTIONS.has(el.dataset.action) && !(cashier() && CASH_ACTIONS.has(el.dataset.action)) && !(centerAdm() && CENTER_ACTIONS.has(el.dataset.action)) && !(member() && MEMBER_ACTIONS.has(el.dataset.action))) return;
     fn(el);
   });
@@ -3755,6 +3800,7 @@
     if (!f) return;
     e.preventDefault();
     const fn = forms[f.dataset.form];
+    if (ADMIN_FORMS.has(f.dataset.form) && !fullAdmin()) { submitMode = 'save'; return; }
     if (fn && (admin() || (cashier() && CASH_FORMS.has(f.dataset.form)) || (centerAdm() && CENTER_FORMS.has(f.dataset.form)) || PUBLIC_FORMS.has(f.dataset.form) || (member() && MEMBER_FORMS.has(f.dataset.form)))) fn(f);
     submitMode = 'save';
   });
@@ -3786,16 +3832,21 @@
         if (bk) bk.hidden = el.value !== 'q_court';
         break;
       }
-      case 'role': {
-        if (!admin()) return;
-        const m = memberByUid(el.dataset.uid);
-        window.Cloud.setRole(el.dataset.uid, el.dataset.role, el.checked, m ? personName(m) : '')
-          .then(() => { ui.flash = { text: t(el.checked ? 'roleGiven' : 'roleRemoved', { r: t('role_' + el.dataset.role), n: m ? personName(m) : '' }) }; render(); })
-          .catch(err => warn('regError', { code: err.code || err.message }));
+      case 'user-role': {
+        // ruolo scelto dal menu (solo admin): un ruolo per persona
+        if (!fullAdmin()) return;
+        const uid = el.dataset.uid, m = memberByUid(uid), cur = roleOf(uid), role = el.value, name = m ? personName(m) : '';
+        if (!grantable().includes(role) || !grantable().includes(cur)) { render(); return; }
+        const trs = (S().trainings || []).filter(tr => tr.coachUid === uid);
+        if (cur === 'coach' && trs.length && !confirmed('roleCoachLeave', { n: name, k: trs.length })) { render(); return; }
+        if (!confirmed('roleChangeConfirm', { n: name, a: t('role_' + cur), b: t('role_' + role) })) { render(); return; }
+        window.Cloud.setUserRole(uid, role, name, !!coachOf(uid))
+          .then(() => { ui.flash = { text: t('roleChanged', { n: name, r: t('role_' + role) }) }; render(); })
+          .catch(err => { warn('regError', { code: err.code || err.message }); });
         break;
       }
       case 'ban': {
-        if (!admin()) return;
+        if (!canEditUser(el.dataset.uid)) return;
         const cur = Object.assign({ book: false }, banOf(el.dataset.uid));
         cur[el.dataset.what] = el.checked;
         window.Cloud.setBan(el.dataset.uid, cur).then(() => { ui.flash = { text: t('saved') }; render(); }).catch(err => warn('regError', { code: err.code || err.message }));

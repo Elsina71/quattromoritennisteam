@@ -1031,6 +1031,16 @@ dl.summary dd:first-letter { text-transform: uppercase; }
 .badge.pay-paid { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
 .badge.pay-late { background: #fde3e3; color: #a11; border-color: transparent; }
 .badge.pay-due { background: #fff1db; color: #8a5300; border-color: transparent; }
+/* ---------- tennis: ruoli, tipi di campo, scheda di valutazione, certificati ---------- */
+.badge.role-general, .badge.role-admin { background: color-mix(in srgb, var(--primary) 14%, transparent); color: var(--primary); border-color: transparent; }
+.badge.role-seg { background: #e6f0fb; color: #1d4f8a; border-color: transparent; }
+.badge.role-cash { background: #fff1db; color: #8a5300; border-color: transparent; }
+.badge.role-coach { background: #e7f6e7; color: #23672a; border-color: transparent; }
+.badge.role-user { background: transparent; color: var(--muted); }
+.role-pick { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.role-pick select { min-height: 40px; }
+.roles-list .badge.role-general, .roles-list .badge[class*="role-"] { font-size: .85rem; }
+.user-tabs a small { opacity: .7; font-weight: 600; margin-left: 2px; }
 li.is-void { opacity: .6; }
 /* grafici del profilo (una serie, colore primario) */
 .charts-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 18px; margin: 10px 0; }

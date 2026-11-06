@@ -23,20 +23,25 @@ try {
 const auth = getAuth(app);
 // Solo per le prove in locale con l'emulatore Firebase (localStorage "pcm-emulator" = "1";
 // si accende aprendo l'app su localhost con ?emu=1 e si spegne con ?emu=0).
+// Porte diverse da quelle di serie (8080 e 9099): ?emu=1&fs=8180&au=9199 (restano salvate finché non si apre ?emu=0).
+const emuPort = (k, def) => { try { return Number(localStorage.getItem('pcm-emu-' + k)) || def; } catch (e) { return def; } };
 try {
-  const emu = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) && new URLSearchParams(location.search).get('emu');
-  if (emu === '1') localStorage.setItem('pcm-emulator', '1'); else if (emu === '0') localStorage.removeItem('pcm-emulator');
+  const qs = new URLSearchParams(location.search), emu = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) && qs.get('emu');
+  if (emu === '1') {
+    localStorage.setItem('pcm-emulator', '1');
+    ['fs', 'au'].forEach(k => { if (/^\d{2,5}$/.test(qs.get(k) || '')) localStorage.setItem('pcm-emu-' + k, qs.get(k)); });
+  } else if (emu === '0') ['pcm-emulator', 'pcm-emu-fs', 'pcm-emu-au'].forEach(k => localStorage.removeItem(k));
 } catch (e) { /* ignore */ }
 try {
   if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname) && localStorage.getItem('pcm-emulator') === '1') {
-    connectFirestoreEmulator(db, location.hostname, 8080);
-    connectAuthEmulator(auth, `http://${location.hostname}:9099`, { disableWarnings: true });
+    connectFirestoreEmulator(db, location.hostname, emuPort('fs', 8080));
+    connectAuthEmulator(auth, `http://${location.hostname}:${emuPort('au', 9099)}`, { disableWarnings: true });
   }
 } catch (e) { /* ignore */ }
 
 // Ultimo contenuto noto delle impostazioni, per scrivere solo ciò che cambia.
 const last = { settings: null };
-let user = null, isGeneral = false, isAdmin = false, member = null, coach = null, adminMember = null;
+let user = null, isGeneral = false, isAdmin = false, isSeg = false, member = null, coach = null, adminMember = null;
 // Admin generale riconosciuto dall'email: nel codice pubblico c'è solo l'impronta SHA-256, non l'email.
 // È il titolare dell'app (lo stesso controllo è nelle regole del database).
 const GENERAL_HASHES = ['a2de6b81796442dad657da768dcb08f740fe60afdbdb368e2f9a1604238913c1'];
@@ -47,9 +52,13 @@ async function emailHash(e) {
   } catch (err) { return ''; }
 }
 let generalUids = [];
-let roles = {};   // ruoli dati dagli admin: { center: Admin Centro, cash: cassa }
-// Admin Centro: per le regole del database è un admin (tutti i permessi tranne quelli riservati all'admin generale)
+let roles = {};   // ruoli dati dagli admin: { center: Admin, seg: segreteria, cash: cassa }
+// Admin (roles.center): per le regole del database è un admin (tutti i permessi tranne quelli riservati all'admin generale).
+// In questo caso passa già da adminCheck, quindi isCenter() resta falso: serve solo per un ruolo non ancora caricato.
 const isCenter = () => !isAdmin && !!roles.center;
+// STAFF: admin e segreteria. La segreteria gestisce utenti, prenotazioni di tutti, corsisti, allenamenti, pagamenti e cassa;
+// non cambia i ruoli e non gestisce i campi né le regole di prenotazione (solo l'admin).
+const staff = () => isAdmin || isSeg;
 
 const refresh = () => window.App && window.App.refresh();
 
@@ -89,7 +98,7 @@ let rolesUnsub = null;
 function listenRoles() {
   if (rolesUnsub) { rolesUnsub(); rolesUnsub = null; }
   Store.applyRemote('roles', {});
-  if (!isAdmin) return;
+  if (!staff()) return;
   rolesUnsub = onSnapshot(collection(db, 'roles'), snap => {
     Store.applyRemote('roles', Object.fromEntries(snap.docs.map(d => [d.id, d.data()])));
     refresh();
@@ -97,6 +106,16 @@ function listenRoles() {
 }
 function setRole(uid, role, on, name) {
   return setDoc(doc(db, 'roles', uid), { [role]: !!on, name: name || '', updated: Date.now(), by: user.uid }, { merge: true });
+}
+// Ruolo unico scelto dal menu della pagina Utenti: 'user', 'coach', 'seg', 'cash', 'admin' (= roles.center).
+// L'allenatore è in coaches/{uid}; gli altri ruoli in roles/{uid}. Un invio solo, tutto o niente.
+function roleFlags(role) { return { center: role === 'admin', seg: role === 'seg', cash: role === 'cash' }; }
+function setUserRole(uid, role, name, wasCoach) {
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'roles', uid), Object.assign(roleFlags(role), { name: name || '', updated: Date.now(), by: user.uid }));
+  if (role === 'coach' && !wasCoach) batch.set(doc(db, 'coaches', uid), { all: false, name: name || '' });
+  if (role !== 'coach' && wasCoach) batch.delete(doc(db, 'coaches', uid));
+  return batch.commit();
 }
 
 // Admin: solo le regole del database lo sanno (admins/probe è leggibile soltanto da un admin).
@@ -106,6 +125,7 @@ async function adminCheck() {
 onAuthStateChanged(auth, async u => {
   user = u;
   isAdmin = false;
+  isSeg = false;
   roles = {};
   coach = null;
   adminMember = null;
@@ -123,8 +143,9 @@ onAuthStateChanged(auth, async u => {
       if (!isGeneral) { try { roles = (await getDoc(doc(db, 'roles', u.uid))).data() || {}; } catch (e) { roles = {}; } }
     }
     if (!isAdmin) { try { const r = await getDoc(doc(db, 'roles', u.uid)); roles = r.exists() ? r.data() : {}; } catch (e) { roles = {}; } }
-    // Admin che è anche corsista o coach: la sua scheda utente, se esiste.
-    if (isAdmin) {
+    isSeg = !isAdmin && !!roles.seg;
+    // Admin o segreteria che è anche corsista o coach: la sua scheda utente, se esiste.
+    if (staff()) {
       try { const m = await getDoc(doc(db, 'members', u.uid)); adminMember = m.exists() ? Object.assign({ uid: u.uid, email: u.email || '' }, m.data()) : null; } catch (e) { adminMember = null; }
     } else {
       // Utente registrato: profilo in members/{uid}.
@@ -176,8 +197,8 @@ function listenAccount() {
   Store.applyRemote('members', []);
   Store.applyRemote('messages', []);
   Store.applyRemote('inbox', []);
-  if (!user || !(isAdmin || member || adminMember)) return;
-  if (isAdmin) {
+  if (!user || !(staff() || member || adminMember)) return;
+  if (staff()) {
     memUnsub = onSnapshot(collection(db, 'members'), snap => {
       Store.applyRemote('members', snap.docs.map(d => Object.assign({ uid: d.id }, d.data())));
       syncDir();
@@ -191,8 +212,8 @@ function listenAccount() {
       refresh();
     }, onError);
   }
-  // Solo l'admin vede le email di tutti gli account.
-  if (isAdmin) {
+  // Solo l'admin e la segreteria vedono le email di tutti gli account.
+  if (staff()) {
     accUnsub = onSnapshot(collection(db, 'accounts'), snap => {
       const map = {}, ver = {};
       snap.docs.forEach(d => { map[d.id] = d.data().email || ''; ver[d.id] = !!d.data().verified; });
@@ -216,17 +237,17 @@ function listenAccount() {
     msgParts[k] = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
     merge();
   }, onError)));
-  if (member || isAdmin) {
+  if (member || staff()) {
     inboxUnsub = onSnapshot(doc(db, 'inbox', user.uid), snap => {
       Store.applyRemote('inbox', snap.exists() ? snap.data().read || [] : []);
       refresh();
     }, onError);
   }
-  // Lista nera: l'admin vede tutti i blocchi, l'utente solo il proprio.
-  const banSrc = isAdmin ? collection(db, 'bans') : doc(db, 'bans', user.uid);
+  // Lista nera: l'admin (e la segreteria) vede tutti i blocchi, l'utente solo il proprio.
+  const banSrc = staff() ? collection(db, 'bans') : doc(db, 'bans', user.uid);
   banUnsub = onSnapshot(banSrc, snap => {
     const map = {};
-    if (isAdmin) snap.docs.forEach(d => { map[d.id] = d.data(); });
+    if (staff()) snap.docs.forEach(d => { map[d.id] = d.data(); });
     else if (snap.exists()) map[user.uid] = snap.data();
     Store.applyRemote('bans', map);
     refresh();
@@ -234,7 +255,7 @@ function listenAccount() {
   // Avvisi delle prenotazioni (modificate o cancellate): all'utente i suoi, all'admin quelli per "admins".
   const noteParts = {};
   // l'admin vede sia gli avvisi per gli admin sia i propri (es. se gioca anche lui)
-  const notes = Object.assign(isAdmin ? { a: query(collection(db, 'notices'), where('to', '==', 'admins')) } : {}, { u: query(collection(db, 'notices'), where('to', '==', user.uid)) });
+  const notes = Object.assign(staff() ? { a: query(collection(db, 'notices'), where('to', '==', 'admins')) } : {}, { u: query(collection(db, 'notices'), where('to', '==', user.uid)) });
   Object.entries(notes).forEach(([k, src]) => noteUnsubs.push(onSnapshot(src, snap => {
     noteParts[k] = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
     Store.applyRemote('notices', Object.values(noteParts).flat().sort((a, b) => (b.at || 0) - (a.at || 0)));
@@ -298,28 +319,34 @@ function listenVerified() {
   if (verUnsub) { verUnsub(); verUnsub = null; }
   manualOk = false;
   Store.applyRemote('manualVerified', {});
-  if (!user || !(isAdmin || member)) return;
-  verUnsub = isAdmin
+  if (!user || !(staff() || member)) return;
+  verUnsub = staff()
     ? onSnapshot(collection(db, 'verified'), snap => { const m = {}; snap.docs.forEach(d => { m[d.id] = d.data(); }); Store.applyRemote('manualVerified', m); refresh(); }, onError)
     : onSnapshot(doc(db, 'verified', user.uid), snap => { manualOk = snap.exists(); refresh(); }, onError);
 }
 function setManualVerified(uid, on) {
-  if (!isAdmin) return Promise.resolve();
+  if (!staff()) return Promise.resolve();
   return on ? setDoc(doc(db, 'verified', uid), { by: user.uid, at: Date.now() }) : deleteDoc(doc(db, 'verified', uid));
 }
 
-// Registrazione di un utente fatta dall'admin: account creato con un'app Firebase separata (l'admin resta collegato),
-// profilo, email e conferma a mano.
+// Registrazione di un utente fatta dall'admin o dalla segreteria: account creato con un'app Firebase separata
+// (chi lo crea resta collegato), profilo, email, conferma a mano e ruolo scelto nel modulo (d.role).
+// La segreteria crea solo utenti e allenatori (lo controllano anche le regole del database).
 async function adminCreateUser(d) {
-  if (!isAdmin) throw Object.assign(new Error('permission-denied'), { code: 'permission-denied' });
+  if (!staff()) throw Object.assign(new Error('permission-denied'), { code: 'permission-denied' });
+  const role = d.role || 'user';
+  if (!isAdmin && !['user', 'coach'].includes(role)) throw Object.assign(new Error('permission-denied'), { code: 'permission-denied' });
   const auth2 = secondAuth();
   const cred = await createUserWithEmailAndPassword(auth2, d.email.trim(), d.password);
   const uid = cred.user.uid, email = (cred.user.email || d.email).toLowerCase();
   await signOut(auth2);
+  const name = `${d.last} ${d.first}`;
   const batch = writeBatch(db);
   batch.set(doc(db, 'members', uid), { first: d.first, last: d.last, gender: d.gender, created: Date.now() });
   batch.set(doc(db, 'accounts', uid), { email, verified: false });
   batch.set(doc(db, 'verified', uid), { by: user.uid, at: Date.now() });
+  if (role === 'coach') batch.set(doc(db, 'coaches', uid), { all: false, name });
+  else if (role !== 'user') batch.set(doc(db, 'roles', uid), Object.assign(roleFlags(role), { name, updated: Date.now(), by: user.uid }));
   await batch.commit();
   return uid;
 }
@@ -343,7 +370,7 @@ function syncMyDir() {
 function syncDir() {
   clearTimeout(dirTimer);
   dirTimer = setTimeout(async () => {
-    if (!isAdmin) return;
+    if (!staff()) return;
     const snap = await getDoc(doc(db, 'dir', 'members')).catch(() => null);
     if (!snap) return;
     const have = snap.exists() ? snap.data() : {}, want = {};
@@ -383,7 +410,7 @@ function markRead(id) {
 
 // ---------- lista nera (solo admin) ----------
 function setBan(uid, data) {
-  if (!isAdmin) return Promise.resolve();
+  if (!staff()) return Promise.resolve();
   const ref = doc(db, 'bans', uid);
   return data.book ? setDoc(ref, { book: true, updated: Date.now() }) : deleteDoc(ref);
 }
@@ -421,7 +448,7 @@ function mergeBookings() {
 // admin: prenotazioni di un giorno passato (prima di ieri), caricate solo quando apre quel giorno
 let bkPast = {}, bkPastPl = {};
 function loadBookingsDay(date) {
-  if (!isAdmin || !date || date >= yesterday() || bkPast[date]) return;
+  if (!staff() || !date || date >= yesterday() || bkPast[date]) return;
   bkPast[date] = [];
   Promise.all([getDocs(query(collection(db, 'bookings'), where('date', '==', date))), getDocs(query(collection(db, 'bkplayers'), where('date', '==', date)))]).then(([snap, pl]) => {
     bkPast[date] = Object.values(groupSlots(snap.docs));
@@ -450,13 +477,13 @@ function listenBookings() {
   Store.applyRemote('recurring', []);
   mergeBookings();
   if (!user) return;
-  if (!isAdmin && roles.cash) {
+  if (!staff() && roles.cash) {
     // cassa: le prenotazioni (da ieri) servono per incassare le quote dei campi
     bkUnsubs.push(onSnapshot(query(collection(db, 'bookings'), where('date', '>=', yesterday())), snap => { bk.full = groupSlots(snap.docs); mergeBookings(); }, onError));
   }
   // admin centro: i blocchi ricorrenti dei campi (per i controlli quando crea o sposta un allenamento)
   if (isCenter()) bkUnsubs.push(onSnapshot(collection(db, 'recurring'), snap => { Store.applyRemote('recurring', snap.docs.map(d => Object.assign({ id: d.id }, d.data()))); refresh(); }, onError));
-  if (isAdmin) {
+  if (staff()) {
     bkUnsubs.push(onSnapshot(query(collection(db, 'bookings'), where('date', '>=', yesterday())), snap => {
       bk.full = groupSlots(snap.docs);
       bk.fullIds = new Set(snap.docs.map(d => d.id));
@@ -530,11 +557,11 @@ let bpUnsubs = [];
 function listenBkPlayers() {
   bpUnsubs.forEach(f => f()); bpUnsubs = [];
   Store.applyRemote('bkplayers', []); Store.applyRemote('bkpReady', false);
-  if (!user || !(isAdmin || member || adminMember)) return;
+  if (!user || !(staff() || member || adminMember)) return;
   const parts = {};
   const merge = () => { const all = {}; Object.values(parts).forEach(l => l.forEach(x => { all[x.id] = x; })); Store.applyRemote('bkplayers', Object.values(all)); refresh(); };
   // pronti solo con i dati del server (non la copia salvata sul telefono, che può essere vecchia)
-  const need = isAdmin ? ['all', 'by', 'in'] : ['by', 'in'], ok = new Set();
+  const need = staff() ? ['all', 'by', 'in'] : ['by', 'in'], ok = new Set();
   const on = (k, q) => bpUnsubs.push(onSnapshot(q, { includeMetadataChanges: true }, snap => {
     parts[k] = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
     if (!snap.metadata.fromCache) ok.add(k);
@@ -542,14 +569,14 @@ function listenBkPlayers() {
     merge();
   }, onError));
   // l'admin vede (e può modificare) i giocatori di tutte le prenotazioni, da ieri in poi
-  if (isAdmin) on('all', query(collection(db, 'bkplayers'), where('date', '>=', yesterday())));
+  if (staff()) on('all', query(collection(db, 'bkplayers'), where('date', '>=', yesterday())));
   on('by', query(collection(db, 'bkplayers'), where('by', '==', user.uid)));
   on('in', query(collection(db, 'bkplayers'), where('uids', 'array-contains', user.uid)));
 }
 
 // admin: dettaglio di una prenotazione (giocatori indicati da chi ha prenotato)
 async function bookingInfo(gid) {
-  if (!isAdmin) return null;
+  if (!staff()) return null;
   const out = { players: [] };
   const p = await getDoc(doc(db, 'bkplayers', gid));
   if (p.exists()) {
@@ -599,7 +626,7 @@ function listenTraining() {
     Store.applyRemote(kind, snap.docs.map(d => Object.assign({ id: d.id }, d.data())));
     refresh();
   }, onError));
-  if (isAdmin || roles.cash) {
+  if (staff() || roles.cash) {
     // elenco dei tesserati (solo i dati per la ricevuta): lo leggono admin e cassa, lo aggiorna l'admin
     trUnsubs.push(onSnapshot(collection(db, 'tesserati'), snap => {
       tessDocs = Object.fromEntries(snap.docs.map(d => [d.id, d.data()]));
@@ -607,7 +634,7 @@ function listenTraining() {
       syncTess(); refresh();
     }, onError));
   }
-  if (isAdmin) {
+  if (staff()) {
     ['coaches', 'groups', 'plans', 'packs', 'packuse'].forEach(k => on(collection(db, k), k));
     trUnsubs.push(onSnapshot(collection(db, 'athletes'), snap => {
       Store.applyRemote('athletes', snap.docs.map(d => Object.assign({ id: d.id }, d.data())));
@@ -638,7 +665,7 @@ function tessMirror(a) {
     city: a.city || '', address: a.address || '', cf: a.cf || '', seasons };
 }
 function syncTess() {
-  if (!isAdmin || !athLoaded || !tessDocs || tessSyncing) return;
+  if (!staff() || !athLoaded || !tessDocs || tessSyncing) return;
   const want = {};
   (Store.state.athletes || []).forEach(a => { const x = tessMirror(a); if (x) want[a.id] = x; });
   const batch = writeBatch(db);
@@ -698,7 +725,7 @@ function setOccMembers(tid, date, members) {
 }
 // Allenamento singolo (recupero) annullato o ripristinato: i suoi campi di quel giorno si liberano o si bloccano di nuovo.
 function extraTrainingBlocks(tr, del) {
-  if (!isAdmin || !tr.date) return Promise.resolve();
+  if (!staff() || !tr.date) return Promise.resolve();
   const batch = writeBatch(db);
   trainingBlocks(batch, tr, del);
   return batch.commit();
@@ -743,7 +770,7 @@ let freeUnsub = null;
 function listenOccFree() {
   if (freeUnsub) { freeUnsub(); freeUnsub = null; }
   Store.applyRemote('occfree', {});
-  if (!isAdmin) return;
+  if (!staff()) return;
   freeUnsub = onSnapshot(query(collection(db, 'occfree'), where('date', '>=', yesterday())), snap => {
     Store.applyRemote('occfree', Object.fromEntries(snap.docs.map(d => [d.id, d.data().free])));
     refresh();
@@ -752,13 +779,13 @@ function listenOccFree() {
 function listenAttendance() {
   ocUnsubs.forEach(f => f()); ocUnsubs = [];
   Store.applyRemote('att', []); Store.applyRemote('spots', []);
-  if (!user || !(isAdmin || member)) return;
+  if (!user || !(staff() || member)) return;
   const on = (src, kind) => ocUnsubs.push(onSnapshot(src, snap => {
     Store.applyRemote(kind, snap.docs.map(d => Object.assign({ id: d.id }, d.data())));
     refresh();
   }, onError));
   ['att', 'spots'].forEach(k => {
-    if (isAdmin) return on(query(collection(db, k), where('date', '>=', monthAgo())), k);
+    if (staff()) return on(query(collection(db, k), where('date', '>=', monthAgo())), k);
     if (coach || isCenter()) {
       // il coach vede le risposte e gli spot dei suoi allenamenti (o di tutti); più le proprie candidature
       // (l'admin centro li vede tutti)
@@ -884,7 +911,7 @@ function listenReceipts() {
   Store.applyRemote('receipts', []);
   if (caUnsubs.length) { caUnsubs.forEach(f => f()); caUnsubs = []; }
   Store.applyRemote('incassi', []); Store.applyRemote('bkpaid', {});
-  const cash = isAdmin || !!roles.cash;
+  const cash = staff() || !!roles.cash;
   if (!user || !(cash || member)) return;
   rcUnsub = onSnapshot(cash ? collection(db, 'receipts') : query(collection(db, 'receipts'), where('uid', '==', user.uid)), snap => {
     Store.applyRemote('receipts', snap.docs.map(d => Object.assign({ id: d.id }, d.data())));
@@ -1109,7 +1136,7 @@ function secondAuth() {
     const app2 = initializeApp(firebaseConfig, 'admin-create');
     second = getAuth(app2);
     try {
-      if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname) && localStorage.getItem('pcm-emulator') === '1') connectAuthEmulator(second, `http://${location.hostname}:9099`, { disableWarnings: true });
+      if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname) && localStorage.getItem('pcm-emulator') === '1') connectAuthEmulator(second, `http://${location.hostname}:${emuPort('au', 9099)}`, { disableWarnings: true });
     } catch (e) { /* ignore */ }
   }
   return second;
@@ -1174,9 +1201,12 @@ window.Cloud = {
   get roles() { return roles; },
   get general() { return isGeneral; },
   get generalUids() { return generalUids; },
-  get center() { return isAdmin || !!roles.center; },
-  get cashier() { return isAdmin || !!roles.cash; },
+  get center() { return staff() || !!roles.center; },
+  get cashier() { return staff() || !!roles.cash; },
+  get seg() { return isSeg; },
+  get staff() { return staff(); },
   setRole,
+  setUserRole,
   push,
   login: (email, password) => signInWithEmailAndPassword(auth, email, password),
   logout: () => { member = null; return signOut(auth); },

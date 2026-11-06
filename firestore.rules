@@ -1,8 +1,10 @@
 rules_version = '2';
 
 // Regole del database di Quattro Mori Tennis Team (derivate da quelle di Beach+ Arena, solo le parti usate).
+// Ruoli: ADMIN (admin generale + roles/{uid}.center), SEGRETERIA (roles/{uid}.seg), CASSA (roles/{uid}.cash),
+// ALLENATORE (coaches/{uid}), UTENTE (chiunque si registra).
 // Privacy: le prenotazioni hanno una parte pubblica senza nomi (busy) e una privata (bookings) che leggono solo
-// l'admin, la cassa e chi ha prenotato; le email (accounts) le leggono solo l'admin e l'interessato.
+// admin, segreteria, cassa e chi ha prenotato; le email (accounts) le leggono solo admin, segreteria e l'interessato.
 // La raccolta "admins" (ID documento = UID) si gestisce solo dalla console Firebase.
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -17,9 +19,21 @@ service cloud.firestore {
     function isGeneral() {
       return isOwner() || (request.auth != null && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
     }
-    // ADMIN: l'admin generale e l'ADMIN CENTRO (roles/{uid}.center), che ha tutti i suoi permessi
-    // tranne eliminare un admin generale e nominare o togliere un Admin Centro.
+    // ADMIN: l'admin generale e chi ha il ruolo Admin (roles/{uid}.center), che ha tutti i suoi permessi
+    // tranne eliminare un admin generale e nominare o togliere un Admin (solo l'admin generale).
     function isAdmin() { return isGeneral() || hasRole('center'); }
+    // SEGRETERIA: utenti e allenatori, prenotazioni di tutti, corsisti, allenamenti, pagamenti, cassa.
+    // Non cambia i ruoli e non gestisce i campi né le regole di prenotazione (data/settings).
+    function isSeg() { return hasRole('seg'); }
+    // STAFF: admin o segreteria
+    function isStaff() { return isAdmin() || isSeg(); }
+    // utente "semplice" (né admin generale né admin, segreteria o cassa): la segreteria modifica ed elimina solo questi
+    function plainUser(uid) {
+      return !generalUid(uid) && !(exists(/databases/$(database)/documents/roles/$(uid))
+        && (get(/databases/$(database)/documents/roles/$(uid)).data.get('center', false) == true
+          || get(/databases/$(database)/documents/roles/$(uid)).data.get('seg', false) == true
+          || get(/databases/$(database)/documents/roles/$(uid)).data.get('cash', false) == true));
+    }
     // l'utente uid è un admin generale (raccolta "admins" o email del titolare, dalla sua scheda accounts)
     function generalUid(uid) {
       return exists(/databases/$(database)/documents/admins/$(uid))
@@ -27,15 +41,16 @@ service cloud.firestore {
             && hashing.sha256(get(/databases/$(database)/documents/accounts/$(uid)).data.get('email', '').lower()).toHexString().lower()
                == 'a2de6b81796442dad657da768dcb08f740fe60afdbdb368e2f9a1604238913c1');
     }
-    // Ruoli assegnati dagli admin: roles/{uid} = { center: Admin Centro, cash: cassa }.
+    // Ruoli assegnati dagli admin: roles/{uid} = { center: Admin, seg: segreteria, cash: cassa }.
     function hasRole(r) {
       return request.auth != null
         && exists(/databases/$(database)/documents/roles/$(request.auth.uid))
         && get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.get(r, false) == true;
     }
-    function isCenter() { return isAdmin(); }
-    // CASSA: registra incassi ed emette ricevute.
-    function isCash() { return isAdmin() || hasRole('cash'); }
+    // allenamenti, gruppi e presenze: admin e segreteria
+    function isCenter() { return isStaff(); }
+    // CASSA: registra incassi ed emette ricevute (anche admin e segreteria).
+    function isCash() { return isStaff() || hasRole('cash'); }
     function txt(v, max) { return v is string && v.size() <= max; }
 
     // data/settings: campi, orari, regole di prenotazione, listino, avviso; data/editorial1-2: articoli della prima pagina.
@@ -45,9 +60,9 @@ service cloud.firestore {
     }
 
     match /roles/{uid} {
-      allow get: if request.auth != null && (request.auth.uid == uid || isAdmin());
-      allow list: if isAdmin();
-      // nominare o togliere un Admin Centro: solo l'admin generale; la cassa anche l'Admin Centro
+      allow get: if request.auth != null && (request.auth.uid == uid || isStaff());
+      allow list: if isStaff();
+      // i ruoli li cambia solo l'admin; nominare o togliere un Admin: solo l'admin generale
       allow create: if isGeneral() || (isAdmin() && request.resource.data.get('center', false) == false);
       allow update: if isGeneral() || (isAdmin() && request.resource.data.get('center', false) == resource.data.get('center', false));
       allow delete: if isGeneral() || (isAdmin() && resource.data.get('center', false) == false);
@@ -69,18 +84,19 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/bans/$(uid)).data.get(what, false) == true;
     }
 
-    // Profilo: nome, cognome, sesso. Lo scrive il titolare (o l'admin); lo leggono solo l'interessato, l'admin e la cassa.
+    // Profilo: nome, cognome, sesso. Lo scrive il titolare (o admin e segreteria); lo leggono solo l'interessato, admin, segreteria e cassa.
     // Agli altri utenti serve solo l'elenco ridotto dei nomi (dir/members) per scegliere i giocatori nei moduli.
     match /members/{uid} {
-      allow read: if isAdmin() || isCash() || (request.auth != null && request.auth.uid == uid);
+      allow read: if isStaff() || isCash() || (request.auth != null && request.auth.uid == uid);
       allow create, update: if request.auth != null && request.auth.uid == uid
         && request.resource.data.keys().hasOnly(['first', 'last', 'gender', 'created', 'privacyAt', 'privacyVer', 'deleteReq'])
         && request.resource.data.first is string && request.resource.data.first.size() > 0 && request.resource.data.first.size() <= 60
         && request.resource.data.last is string && request.resource.data.last.size() > 0 && request.resource.data.last.size() <= 60
         && request.resource.data.gender in ['M', 'F'];
-      allow delete: if isAdmin() && (isGeneral() || !generalUid(uid));   // l'Admin Centro non elimina un admin generale
-      // l'admin registra direttamente un utente
-      allow create, update: if isAdmin()
+      allow delete: if isAdmin() && (isGeneral() || !generalUid(uid));   // l'Admin non elimina un admin generale
+      allow delete: if isSeg() && plainUser(uid);                          // la segreteria: solo utenti e allenatori
+      // admin e segreteria registrano o correggono direttamente un utente (la segreteria: solo utenti e allenatori)
+      allow create, update: if (isAdmin() || (isSeg() && plainUser(uid)))
         && request.resource.data.keys().hasOnly(['first', 'last', 'gender', 'created', 'privacyAt', 'privacyVer', 'deleteReq'])
         && request.resource.data.gender in ['M', 'F'];
     }
@@ -96,7 +112,7 @@ service cloud.firestore {
     }
     match /dir/{id} {
       allow read: if id == 'members' && (isMember() || isCash());
-      allow write: if isAdmin();
+      allow write: if isStaff();
       allow create: if id == 'members' && isMember() && request.resource.data.keys().hasOnly([request.auth.uid]) && dirEntryOk(request.auth.uid);
       allow update: if id == 'members' && isMember()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([request.auth.uid]) && dirEntryOk(request.auth.uid);
@@ -104,8 +120,8 @@ service cloud.firestore {
 
     // Conferma a mano dell'utente da parte dell'admin (vale come email confermata).
     match /verified/{uid} {
-      allow read: if (request.auth != null && request.auth.uid == uid) || isAdmin();
-      allow write: if isAdmin();
+      allow read: if (request.auth != null && request.auth.uid == uid) || isStaff();
+      allow write: if isStaff();
     }
 
     // Messaggi dell'admin: li legge solo chi è tra i destinatari (o tutti gli utenti registrati se "all").
@@ -116,15 +132,16 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // Email dell'account: la vedono solo il titolare e l'admin.
+    // Email dell'account: la vedono solo il titolare, l'admin e la segreteria.
     match /accounts/{uid} {
-      allow read: if (request.auth != null && request.auth.uid == uid) || isAdmin();
+      allow read: if (request.auth != null && request.auth.uid == uid) || isStaff();
       allow write: if request.auth != null && request.auth.uid == uid
         && request.resource.data.keys().hasOnly(['email', 'verified'])
         && request.resource.data.email == request.auth.token.email.lower()
         && request.resource.data.get('verified', false) == (request.auth.token.email_verified == true);
-      allow create: if isAdmin() && request.resource.data.keys().hasOnly(['email', 'verified']) && request.resource.data.verified == false;
-      allow delete: if isAdmin() && (isGeneral() || !generalUid(uid));   // eliminazione dell'utente (non un admin generale, se a farlo è l'admin centro)
+      allow create: if isStaff() && request.resource.data.keys().hasOnly(['email', 'verified']) && request.resource.data.verified == false;
+      allow delete: if isAdmin() && (isGeneral() || !generalUid(uid));   // eliminazione dell'utente (non un admin generale, se a farlo è un Admin)
+      allow delete: if isSeg() && plainUser(uid);
     }
 
     // Messaggi già letti da ciascun utente.
@@ -133,8 +150,8 @@ service cloud.firestore {
     }
 
     match /bans/{uid} {
-      allow read: if (request.auth != null && request.auth.uid == uid) || isAdmin();
-      allow write: if isAdmin();
+      allow read: if (request.auth != null && request.auth.uid == uid) || isStaff();
+      allow write: if isStaff();
     }
 
 
@@ -179,8 +196,8 @@ service cloud.firestore {
     function canBook() { return isMember() && verified() && !banned(request.auth.uid, 'book'); }
 
     match /bookings/{id} {
-      allow read: if isAdmin() || isCash() || (request.auth != null && resource.data.userId == request.auth.uid);
-      allow write: if isAdmin();
+      allow read: if isStaff() || isCash() || (request.auth != null && resource.data.userId == request.auth.uid);
+      allow write: if isStaff();   // admin e segreteria: prenotazioni di tutti (anche per chi non è registrato) e blocchi
       allow create: if canBook() && validSlot(id);
       allow update: if canBook() && resource.data.userId == request.auth.uid && validSlot(id);
       allow create, update: if isCenter() && request.resource.data.get('gid', '').matches('trx_.*') && request.resource.data.get('userId', null) == null;
@@ -197,9 +214,9 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/bookings/$(d.date + '_' + d.courtId + '_' + d.from)).data.gid == gid;
     }
     match /bkplayers/{gid} {
-      allow read: if isAdmin() || (request.auth != null && (resource.data.by == request.auth.uid || request.auth.uid in resource.data.uids));
+      allow read: if isStaff() || (request.auth != null && (resource.data.by == request.auth.uid || request.auth.uid in resource.data.uids));
       // in modifica il documento deve essere già suo: il gid è pubblico (busy) e un altro potrebbe riusarlo
-      allow create, update: if isAdmin() || (isMember() && request.resource.data.by == request.auth.uid
+      allow create, update: if isStaff() || (isMember() && request.resource.data.by == request.auth.uid
         && (resource == null || resource.data.by == request.auth.uid)
         && request.resource.data.gid == gid
         && request.resource.data.keys().hasOnly(['gid', 'by', 'ownerName', 'date', 'from', 'to', 'courtId', 'courtName', 'uids', 'guests', 'names', 'remind', 'updated'])
@@ -211,13 +228,13 @@ service cloud.firestore {
         && txt(request.resource.data.get('ownerName', ''), 80) && txt(request.resource.data.get('courtName', ''), 40)
         && request.resource.data.get('names', {}) is map && request.resource.data.get('names', {}).size() <= 8
         && ownsBooking(request.resource.data, gid));
-      allow delete: if isAdmin() || (request.auth != null && resource.data.by == request.auth.uid);
+      allow delete: if isStaff() || (request.auth != null && resource.data.by == request.auth.uid);
     }
 
     // Parte pubblica: deve corrispondere alla prenotazione privata scritta nello stesso invio.
     match /busy/{id} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if isStaff();
       allow create, update: if isCenter() && request.resource.data.get('gid', '').matches('trx_.*') && existsAfter(bk(id))
         && getAfter(bk(id)).data.get('gid', '') == request.resource.data.gid;
       allow create, update: if request.auth != null
@@ -236,7 +253,7 @@ service cloud.firestore {
     }
 
     // ---------- allenamenti ----------
-    // trainings: pubblici (giorno, orari, coach, livello, massimo, campi); li scrive solo l'admin.
+    // trainings: pubblici (giorno, orari, coach, livello, massimo, campi); li scrivono admin e segreteria.
     // coaches/{uid}: coach indicato dall'admin (all = vede tutti gli allenamenti, altrimenti solo i suoi).
     // athletes/{uid}: scheda corsista con dati personali: solo admin e interessato (in lettura).
     // groups/{tid_mese}: nomi del gruppo: admin e coach (tutti o solo i gruppi dei suoi allenamenti).
@@ -250,11 +267,14 @@ service cloud.firestore {
     match /coaches/{uid} {
       allow get: if isCenter() || (request.auth != null && request.auth.uid == uid);
       allow list: if isCenter();
-      allow write: if isAdmin();
+      // gli allenatori li nominano admin e segreteria (non un admin, una segreteria o una cassa: lo fa l'admin)
+      allow write: if isAdmin() || (isSeg() && plainUser(uid));
     }
+    // scheda del corsista (dati personali, certificato, tesseramento, pagamenti): solo admin, segreteria e interessato.
+    // L'allenatore non la legge.
     match /athletes/{uid} {
-      allow get: if (request.auth != null && request.auth.uid == uid) || isAdmin();
-      allow list, write: if isAdmin();
+      allow get: if (request.auth != null && request.auth.uid == uid) || isStaff();
+      allow list, write: if isStaff();
       // admin centro: aggiungendo al gruppo crea/aggiorna solo nome, tesseramento e scadenza del certificato
       allow create: if isCenter() && request.resource.data.keys().hasOnly(['first', 'last', 'tess', 'certExp', 'created', 'updated']);
       allow update: if isCenter() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['first', 'last', 'tess', 'certExp', 'updated']);
@@ -265,7 +285,7 @@ service cloud.firestore {
     }
     // xmem/{tid_uid}: il corsista fa parte di un recupero allenamento (per la richiesta di presenza): admin e interessato
     match /xmem/{id} {
-      allow read: if (request.auth != null && resource.data.uid == request.auth.uid) || isAdmin();
+      allow read: if (request.auth != null && resource.data.uid == request.auth.uid) || isStaff();
       allow write: if isCenter();
     }
     match /plans/{id} {
@@ -276,7 +296,7 @@ service cloud.firestore {
     // packs/{id}: pacchetto di allenamenti (numero, prezzo, usati): admin e interessato (in lettura).
     match /packs/{id} {
       allow read: if isCenter() || (request.auth != null && resource.data.uid == request.auth.uid);
-      allow write: if isAdmin();
+      allow write: if isStaff();
       // annullando un allenamento, gli spot pagati con un pacchetto tornano nel pacchetto
       allow update: if isCenter() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['used']);
     }
@@ -284,7 +304,7 @@ service cloud.firestore {
     // packuse/{id presenza}: allenamento scalato dal pacchetto per una presenza. Nell'app di origine lo scrivevano
     // solo le Cloud Functions, che sul piano Spark non ci sono. TODO passo 2: rifare lo scalo dei pacchetti.
     match /packuse/{id} {
-      allow read: if (request.auth != null && resource.data.uid == request.auth.uid) || isAdmin();
+      allow read: if (request.auth != null && resource.data.uid == request.auth.uid) || isStaff();
       allow write: if false;
     }
 
@@ -306,9 +326,11 @@ service cloud.firestore {
     function seesTraining(d) {
       return request.auth != null && (d.uid == request.auth.uid
         || (isCoach() && (get(coachDoc()).data.get('all', false) == true || d.coachUid == request.auth.uid))
-        || hasRole('center'));
+        || isStaff());
     }
     function trCoach(tid) { return get(/databases/$(database)/documents/trainings/$(tid)).data.get('coachUid', ''); }
+    // l'utente è l'allenatore di quell'allenamento (segna le presenze e compila la scheda di valutazione)
+    function coachOfTr(tid) { return isCoach() && tid is string && trCoach(tid) == request.auth.uid; }
     function inGroup(tid, date, uid) {
       return exists(/databases/$(database)/documents/groups/$(tid + '_' + date[0:7]))
         && get(/databases/$(database)/documents/groups/$(tid + '_' + date[0:7])).data.uids.hasAny([uid]);
@@ -324,16 +346,31 @@ service cloud.firestore {
       allow update: if isMember() && verified()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['p', 'a'])
         && occCountsOk(oid);
+      // l'allenatore dell'allenamento segna le presenze: cambia solo i contatori (e crea la giornata se manca)
+      allow create: if coachOfTr(request.resource.data.tid)
+        && request.resource.data.keys().hasOnly(['tid', 'date', 'p', 'a', 's', 'cancelled'])
+        && oid == request.resource.data.tid + '_' + request.resource.data.date
+        && request.resource.data.s == 0 && request.resource.data.cancelled == false;
+      allow update: if coachOfTr(resource.data.tid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['p', 'a']);
     }
     // occfree/{tid_data}: posti spot liberi decisi dall'admin (il numero lo vede solo l'admin; in occ resta "open").
     match /occfree/{id} {
-      allow read, write: if isAdmin();
+      allow read, write: if isStaff();
     }
     match /att/{id} {
       // la propria anche prima che esista (l'id finisce con il proprio uid); l'admin centro tutte (anche non ancora create)
       allow get: if isCenter() || (request.auth != null && id.matches('.*_' + request.auth.uid)) || (resource != null && seesTraining(resource.data));
-      allow list: if isAdmin() || seesTraining(resource.data);
-      allow write: if isCenter();   // presenze segnate da admin e admin centro
+      allow list: if isStaff() || seesTraining(resource.data);
+      allow write: if isCenter();   // presenze segnate da admin e segreteria
+      // presenze segnate dall'allenatore di quell'allenamento, solo per i corsisti del gruppo del mese
+      allow create, update: if coachOfTr(request.resource.data.tid)
+        && request.resource.data.keys().hasOnly(['tid', 'date', 'uid', 'status', 'at', 'coachUid', 'forced', 'by'])
+        && id == request.resource.data.tid + '_' + request.resource.data.date + '_' + request.resource.data.uid
+        && request.resource.data.status in ['in', 'out'] && request.resource.data.by == request.auth.uid
+        && (inGroup(request.resource.data.tid, request.resource.data.date, request.resource.data.uid)
+            || request.resource.data.uid in get(occP(request.resource.data.tid + '_' + request.resource.data.date)).data.get('members', []));
+      allow delete: if coachOfTr(resource.data.tid);
       allow create, update: if isMember() && verified()
         && request.resource.data.keys().hasOnly(['tid', 'date', 'uid', 'status', 'at', 'coachUid'])
         && request.resource.data.uid == request.auth.uid
@@ -354,9 +391,9 @@ service cloud.firestore {
     }
     match /spots/{id} {
       // la propria anche prima che esista (l'id finisce con il proprio uid)
-      allow get: if isAdmin() || (request.auth != null && id.matches('.*_' + request.auth.uid)) || (resource != null && seesTraining(resource.data));
-      allow list: if isAdmin() || seesTraining(resource.data);
-      allow write: if isAdmin();
+      allow get: if isStaff() || (request.auth != null && id.matches('.*_' + request.auth.uid)) || (resource != null && seesTraining(resource.data));
+      allow list: if isStaff() || seesTraining(resource.data);
+      allow write: if isStaff();
       allow update: if isCenter() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['packBack']);
       // candidatura: solo "in attesa", per sé, non per un allenamento del proprio gruppo né annullato
       allow create: if isMember() && verified()
@@ -376,29 +413,29 @@ service cloud.firestore {
     }
 
     // ---------- ricevute ----------
-    // Ricevute: serie Q (quote sociali) e C (commerciali). La cassa le emette; correggerle o annullarle spetta all'admin generale.
+    // Ricevute: serie Q (quote sociali) e C (commerciali). La cassa le emette; correggerle o annullarle spetta ad admin e segreteria.
     match /receipts/{id} {
       allow read: if isCash() || (request.auth != null && resource.data.uid == request.auth.uid);
       allow create: if isCash() && request.resource.data.by == request.auth.uid
         && request.resource.data.series in ['Q', 'C'] && request.resource.data.void == false;
-      allow update, delete: if isAdmin();
+      allow update, delete: if isStaff();
     }
     // incassi/{id}: registro di tutti gli incassi (anche senza ricevuta) per il resoconto mensile.
     match /incassi/{id} {
       allow read: if isCash();
       allow create: if isCash() && request.resource.data.by == request.auth.uid && request.resource.data.void == false;
-      allow update, delete: if isAdmin();
+      allow update, delete: if isStaff();
     }
     // tesserati/{uid}: dati per l'intestazione delle ricevute (nome, nascita, residenza, codice fiscale, stagioni),
     // senza certificato né pagamenti. La legge la cassa; la scrive solo l'admin generale (copia delle schede).
     match /tesserati/{uid} {
       allow read: if isCash();
-      allow write: if isAdmin();
+      allow write: if isStaff();
     }
     // bkpaid/{gid}: prenotazione del campo pagata (quota sociale).
     match /bkpaid/{gid} {
       allow read, create: if isCash();
-      allow update, delete: if isAdmin();
+      allow update, delete: if isStaff();
     }
     match /counters/{id} {
       allow read, write: if isCash();
@@ -421,23 +458,20 @@ service cloud.firestore {
 
     // Avvisi di prenotazioni modificate o cancellate. L'utente scrive solo agli amministratori ("admins").
     match /notices/{id} {
-      allow read: if request.auth != null && (resource.data.to == request.auth.uid || (resource.data.to == 'admins' && isAdmin()));
+      allow read: if request.auth != null && (resource.data.to == request.auth.uid || (resource.data.to == 'admins' && isStaff()));
       allow create: if isMember() && safeId(id)
         && request.resource.data.keys().hasOnly(['to', 'text', 'at', 'by'])
         && request.resource.data.by == request.auth.uid
         && request.resource.data.text is string && request.resource.data.text.size() <= 400
-        && request.resource.data.to is string && (isAdmin() || request.resource.data.to == 'admins');
-      allow delete: if request.auth != null && (resource.data.to == request.auth.uid || (resource.data.to == 'admins' && isAdmin()));
+        && request.resource.data.to is string && (isStaff() || request.resource.data.to == 'admins');
+      allow delete: if request.auth != null && (resource.data.to == request.auth.uid || (resource.data.to == 'admins' && isStaff()));
       // "Ho letto" di un admin sugli avvisi per tutti gli admin: aggiunge solo il proprio uid a readBy
-      allow update: if resource.data.to == 'admins' && isAdmin()
+      allow update: if resource.data.to == 'admins' && isStaff()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy'])
         && request.resource.data.readBy is list
         && request.resource.data.readBy.hasAll(resource.data.get('readBy', []))
         && request.resource.data.readBy.removeAll(resource.data.get('readBy', [])) == [request.auth.uid];
     }
-
-    // A+B: iscrizioni degli Intermedi (livello A), private finché l'admin non chiude le liste.
-    // Le leggono e gestiscono l'admin tornei e chi si è iscritto (solo la propria: crea, legge, cancella).
 
     // Chi è admin lo decide solo il database: l'app chiede il documento "probe" (o il proprio) e,
     // se la lettura è permessa, l'utente è admin. Nessun UID nel codice pubblico.
