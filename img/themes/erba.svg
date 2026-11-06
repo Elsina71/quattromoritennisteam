@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" preserveAspectRatio="xMidYMid slice">
+<!-- Erba: prato rasato a strisce, righe bianche, rete e fondo consumato vicino alla linea (disegno originale) -->
+<defs>
+<pattern id="s" width="120" height="300" patternUnits="userSpaceOnUse"><rect width="60" height="300" fill="#3f7e46"/><rect x="60" width="60" height="300" fill="#4a8b4f"/></pattern>
+<radialGradient id="w" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#b9a46b" stop-opacity=".75"/><stop offset=".7" stop-color="#9c9a5c" stop-opacity=".3"/><stop offset="1" stop-color="#8a9a55" stop-opacity="0"/></radialGradient>
+<linearGradient id="v" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".12"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#0d2a14" stop-opacity=".25"/></linearGradient>
+</defs>
+<rect width="1200" height="300" fill="url(#s)"/>
+<ellipse cx="124" cy="150" rx="66" ry="118" fill="url(#w)"/>
+<ellipse cx="1076" cy="150" rx="66" ry="118" fill="url(#w)"/>
+<g fill="none" stroke="#fffdf4" stroke-width="6">
+<path d="M120 -10 V310 M1080 -10 V310"/>
+<path d="M340 34 V266 M860 34 V266"/>
+<path d="M340 150 H860"/>
+<path d="M120 34 H1080 M120 266 H1080"/>
+<path d="M120 4 H1080 M120 296 H1080"/>
+<path d="M120 150 h16 M1080 150 h-16"/>
+</g>
+<rect x="603" y="-10" width="14" height="320" fill="#0d2a14" opacity=".3"/>
+<rect x="596" y="-10" width="8" height="320" fill="#1d1d1d" opacity=".85"/>
+<rect x="597" y="-10" width="6" height="320" fill="#fffdf4"/>
+<rect width="1200" height="300" fill="url(#v)"/>
+<circle cx="760" cy="98" r="13" fill="#e2f04a"/>
+<path d="M750 92 q10 6 2 18 M770 88 q-10 6 -2 18" stroke="#fff" stroke-width="2" fill="none" opacity=".9"/>
+<rect y="0" width="1200" height="5" fill="#4b2a6b"/>
+<rect y="295" width="1200" height="5" fill="#4b2a6b"/>
+</svg>
