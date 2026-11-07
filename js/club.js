@@ -7,7 +7,8 @@ window.Club = Object.freeze({
   legalName: 'ASD Quattro Mori Tennis Team',     // ragione sociale (ricevute, privacy)
   address: 'via Marco Polo 12',                  // sede legale
   city: "09045 Quartu Sant'Elena (CA)",
-  courtsAddress: 'Via Soru e Mari 4',            // dove si gioca (i campi)
+  courtsAddress: 'Via Soru e Mari 3',            // dove si gioca (i campi)
+  courtsMap: 'https://maps.app.goo.gl/ydzCj8Vnf3VbUggA6',   // posizione dei campi su Google Maps
   courtsCity: "09045 Quartu Sant'Elena (CA)",
   cf: '92179440927',                             // codice fiscale
   vat: '03994320921',                            // partita IVA

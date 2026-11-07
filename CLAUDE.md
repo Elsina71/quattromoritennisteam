@@ -73,7 +73,7 @@ allenamenti, allenatori, cassa. Regole decise dal titolare: valgono per ogni mod
 ## Il circolo e iscrizioni online
 - Pagina pubblica «Il circolo» (`#/club`): chi siamo, il team (in `js/club.js`), calendario della scuola
   (15 settembre – 15 giugno, agonisti fino al 31 luglio: date di serie del «corso intero» nel listino), valori,
-  diventa sponsor, dove siamo (campi in Via Soru e Mari 4, sede legale in via Marco Polo 12, link a Google Maps).
+  diventa sponsor, dove siamo (campi in Via Soru e Mari 3, sede legale in via Marco Polo 12, link a Google Maps: `Club.courtsMap`).
 - Iscrizione online dei minori (`#/iscrizione`, pubblica): genitore e allievo, livello, consenso alle immagini (facoltativo,
   separato), informativa. Raccolta `enroll` (solo creazione per tutti, lettura e gestione solo staff). In «Iscrizioni»
   (`#/iscrizioni`): «Crea scheda corsista» (scheda senza account con il genitore come contatto) o «Archivia».

@@ -1235,7 +1235,7 @@
   // ====================================================================
   // IL CIRCOLO (#/club, pubblica) e ISCRIZIONE ONLINE DEI MINORI (#/iscrizione, pubblica)
   // ====================================================================
-  const mapsUrl = () => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${Club.courtsAddress}, ${Club.courtsCity}`)}`;
+  const mapsUrl = () => Club.courtsMap || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${Club.courtsAddress}, ${Club.courtsCity}`)}`;
   // stagione della scuola tennis: dal 15 settembre al 15 giugno (agonisti fino al 31 luglio)
   const schoolYear = d => { d = d || todayStr(); const y = +d.slice(0, 4), mo = +d.slice(5, 7); return mo >= 9 ? y : y - 1; };
   const schoolDates = d => { const a = schoolYear(d); return { from: `${a}-${Club.school.from}`, to: `${a + 1}-${Club.school.to}`, agoTo: `${a + 1}-${Club.school.agoTo}`, season: `${a}/${String((a + 1) % 100).padStart(2, '0')}` }; };
