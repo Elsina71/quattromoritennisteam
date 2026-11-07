@@ -831,6 +831,19 @@ function saveTraining(old, d, groups) {
   if (old && old.coachUid !== d.coachUid) (groups || []).forEach(g => batch.update(doc(db, 'groups', g.id), { coachUid: d.coachUid || '' }));
   return batch.commit().then(() => ref.id);
 }
+// Nuovo allenamento su più giorni: un documento per giorno, tutti nello stesso invio, con i loro blocchi dei campi.
+// Con più giorni hanno lo stesso «series» (l'ID del primo), così l'app li tiene insieme (corsisti, scheda).
+function saveTrainingSeries(list) {
+  const batch = writeBatch(db);
+  const refs = list.map(() => doc(collection(db, 'trainings')));
+  const series = list.length > 1 ? refs[0].id : null;
+  list.forEach((d, i) => {
+    const x = Object.assign({}, d, series ? { series } : {}, { created: Date.now() });
+    trainingBlocks(batch, Object.assign({ id: refs[i].id }, x), false);
+    batch.set(refs[i], x);
+  });
+  return batch.commit().then(() => refs.map(r => r.id));
+}
 // 5° allenamento del mese: corsisti del gruppo copiati nella giornata (possono dare la presenza)
 function setOccMembers(tid, date, members) {
   const oref = doc(db, 'occ', `${tid}_${date}`);
@@ -1735,7 +1748,7 @@ window.Cloud = {
   saveSelfProfile,
   renameMember,
   deleteUser,
-  saveTraining,
+  saveTraining, saveTrainingSeries,
   deleteTraining,
   saveGroups,
   saveAthlete,
