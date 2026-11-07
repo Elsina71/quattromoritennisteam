@@ -58,7 +58,8 @@ const Logic = (() => {
   }
   // Serie per il grafico: un punto per scheda (settimana, o poche schede) oppure per settimana ISO.
   // Ogni punto ha la media di ogni voce (null = nessun voto: buco, non zero) e la media delle voci scelte.
-  function evSeries(list, keys, kind, range, few) {
+  // until (facoltativo): le settimane dopo quel giorno (il futuro) non si mostrano
+  function evSeries(list, keys, kind, range, few, until) {
     const items = inRange(list, range).slice().sort((a, b) => a.date.localeCompare(b.date));
     const bySheet = kind === 'week' || items.length <= (few == null ? 4 : few);
     let buckets;
@@ -67,7 +68,7 @@ const Logic = (() => {
       buckets = [];
       const first = items.length ? items[0].date : range.from, last = items.length ? items[items.length - 1].date : range.to;
       const a = kind === 'all' ? weekStart(first) : weekStart(range.from), z = kind === 'all' ? last : range.to;
-      for (let w = a; w <= z; w = addDays(w, 7)) buckets.push({ key: isoWeek(w), date: w, items: items.filter(e => weekStart(e.date) === w) });
+      for (let w = a; w <= z && (!until || w <= until); w = addDays(w, 7)) buckets.push({ key: isoWeek(w), date: w, items: items.filter(e => weekStart(e.date) === w) });
     }
     return buckets.map(b => {
       const vals = {};

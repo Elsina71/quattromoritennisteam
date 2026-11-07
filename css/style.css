@@ -1654,3 +1654,43 @@ form:has(select[name=holder] option[value="__manual"]:checked) .mh-hide { displa
 .mh-fields { border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; }
 .mh-fields legend { font-weight: 700; }
 .ca-holder .mh-fields { flex-basis: 100%; }
+
+/* ---------- cruscotto delle valutazioni (grafico SVG disegnato a mano) ----------
+   Colori delle voci: tavolozza categoriale verificata per daltonismo (7 colori, ordine fisso);
+   nei design scuri si usano gli stessi colori schiariti per il fondo scuro. */
+.ev-dash { --ev-c1: #2a78d6; --ev-c2: #eb6834; --ev-c3: #1baf7a; --ev-c4: #eda100; --ev-c5: #e87ba4; --ev-c6: #008300; --ev-c7: #6250d6; }
+:is([data-design="padel"], [data-design="mamuthones"], [data-design="arena"], [data-design="halloween"], [data-design="capodanno"], [data-design="befana"], [data-theme="carnevale"], [data-theme="notturna"]) .ev-dash {
+  --ev-c1: #3987e5; --ev-c2: #d95926; --ev-c3: #199e70; --ev-c4: #c98500; --ev-c5: #d55181; --ev-c6: #2e9e2e; --ev-c7: #9085e9; }
+.ev-dash .ev-per { margin: 6px 0; }
+.ev-nav { display: flex; align-items: center; gap: 10px; margin: 6px 0 10px; }
+.ev-nav strong { min-width: 9em; text-align: center; }
+.ev-overall { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
+.ev-overall strong { font-size: 1.6rem; }
+.ev-overall strong.low { color: #c62828; }
+.ev-sw { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+.ev-c1 { --c: var(--ev-c1); } .ev-c2 { --c: var(--ev-c2); } .ev-c3 { --c: var(--ev-c3); } .ev-c4 { --c: var(--ev-c4); }
+.ev-c5 { --c: var(--ev-c5); } .ev-c6 { --c: var(--ev-c6); } .ev-c7 { --c: var(--ev-c7); }
+.ev-sw { background: var(--c); }
+.ev-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px; }
+.ev-chip { border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 999px; padding: 6px 12px; font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer; min-height: 36px; display: inline-flex; align-items: center; }
+.ev-chip[aria-pressed="false"] { opacity: .55; }
+.ev-chip[aria-pressed="false"] .ev-sw { background: transparent; box-shadow: inset 0 0 0 2px var(--c); }
+.ev-chip[aria-pressed="true"] { border-color: var(--text); }
+.ev-chart-wrap { overflow-x: auto; }
+.ev-chart { display: block; max-width: 100%; height: auto; }
+.ev-chart .ev-grid { stroke: var(--text); stroke-opacity: .12; stroke-width: 1; }
+.ev-chart .ev-six { stroke: var(--text); stroke-opacity: .7; stroke-width: 1.5; stroke-dasharray: 6 4; }
+.ev-chart .ev-ax { fill: var(--text); fill-opacity: .75; font-size: 11px; font-family: inherit; }
+.ev-chart .ev-six-l { fill-opacity: .9; font-weight: 600; }
+.ev-chart path.ev-s { stroke: var(--c); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.ev-chart circle.ev-s { fill: var(--c); stroke: var(--surface); stroke-width: 2; }
+.ev-chart path.ev-avgline { stroke: var(--text); stroke-width: 3; stroke-dasharray: 7 4; }
+.ev-chart circle.ev-avgline { fill: var(--text); stroke: var(--surface); stroke-width: 2; }
+.ev-chart .ev-hit { fill: transparent; stroke: none; cursor: help; }
+.ev-chart .ev-pt:hover circle.ev-s, .ev-chart .ev-pt:hover circle.ev-avgline { r: 6; }
+.ev-legend { list-style: none; padding: 0; margin: 6px 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .85rem; }
+.ev-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.ev-ln { display: inline-block; width: 22px; height: 0; border-top: 3px solid var(--c); }
+.ev-ln.ev-avgline { border-top: 3px dashed var(--text); }
+.ev-ln.ev-six { border-top: 2px dashed var(--text); opacity: .7; }
+@media (max-width: 520px) { .ev-avg { grid-template-columns: 8em 1fr 4.6em; gap: 6px; } }

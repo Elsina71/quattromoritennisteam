@@ -465,8 +465,17 @@ service cloud.firestore {
         && (inGroup(d.tid, d.date, d.uid)
             || (exists(occP(d.tid + '_' + d.date)) && d.uid in get(occP(d.tid + '_' + d.date)).data.get('members', [])));
     }
+    // evaccess/{uid corsista}: allenatori dei gruppi del corsista (lo aggiorna l'app di admin e segreteria).
+    function eaP(uid) { return /databases/$(database)/documents/evaccess/$(uid); }
+    match /evaccess/{uid} {
+      allow read: if isStaff();
+      allow write: if isStaff() && request.resource.data.keys().hasOnly(['coachUids', 'updated']) && request.resource.data.coachUids is list;
+      allow delete: if isStaff();
+    }
     match /evals/{id} {
       allow read: if isStaff() || (request.auth != null && (resource.data.by == request.auth.uid || resource.data.coachUid == request.auth.uid));
+      // l'allenatore legge tutte le schede dei corsisti dei suoi gruppi (anche scritte da altri allenatori)
+      allow read: if isCoach() && exists(eaP(resource.data.uid)) && request.auth.uid in get(eaP(resource.data.uid)).data.get('coachUids', []);
       allow create, update: if (isStaff() || coachOfTr(request.resource.data.tid)) && evOk(id, request.resource.data);
       // scheda senza account collegata all'account del ragazzo: lo staff copia la valutazione con l'ID nuovo
       // (stessi voti, nota e autore della valutazione di origine, che poi si cancella)

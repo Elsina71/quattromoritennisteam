@@ -60,7 +60,7 @@ const isCenter = () => !isAdmin && !!roles.center;
 // non cambia i ruoli e non gestisce i campi né le regole di prenotazione (solo l'admin).
 const staff = () => isAdmin || isSeg;
 
-const refresh = () => { if (window.App) window.App.refresh(); if (staff()) { schedulePackSync(); schedulePcSync(); syncPubCoaches(); } };
+const refresh = () => { if (window.App) window.App.refresh(); if (staff()) { schedulePackSync(); schedulePcSync(); syncPubCoaches(); scheduleEaSync(); } };
 
 // L'app è pronta appena arrivano le impostazioni (campi, orari, listino).
 function markLoaded() {
@@ -181,6 +181,7 @@ onAuthStateChanged(auth, async u => {
   listenReceipts();
   listenPtReq();
   listenEnroll();
+  listenEvAccess();
   authBusy = false;
   refresh();
 });
@@ -1628,6 +1629,38 @@ function listenEnroll() {
   }, onError);
 }
 
+// ---------- valutazioni visibili agli allenatori (evaccess) ----------
+// evaccess/{uid corsista} = { coachUids }: gli allenatori dei gruppi del corsista (ultimi 12 mesi e mese prossimo).
+// Lo tiene aggiornato l'app di admin e segreteria; le regole lo usano per far leggere all'allenatore tutte le schede
+// di valutazione dei propri corsisti, anche quelle scritte da altri allenatori.
+let eaDocs = null, eaUnsub = null, eaTimer = null, eaBusy = false;
+function listenEvAccess() {
+  if (eaUnsub) { eaUnsub(); eaUnsub = null; }
+  eaDocs = null;
+  if (!user || !staff()) return;
+  eaUnsub = onSnapshot(collection(db, 'evaccess'), snap => { eaDocs = Object.fromEntries(snap.docs.map(d => [d.id, d.data().coachUids || []])); scheduleEaSync(); }, onError);
+}
+function scheduleEaSync() {
+  clearTimeout(eaTimer);
+  eaTimer = setTimeout(() => {
+    if (!staff() || !eaDocs || eaBusy || !pcLoaded.has('groups')) return;
+    const d = new Date(); d.setMonth(d.getMonth() - 12); const from = d.toLocaleDateString('sv').slice(0, 7);
+    const want = {};
+    (Store.state.groups || []).filter(g => g.month >= from && g.coachUid).forEach(g => (g.uids || []).forEach(u => { (want[u] = want[u] || new Set()).add(g.coachUid); }));
+    const batch = writeBatch(db); let n = 0;
+    Object.entries(want).forEach(([u, set]) => { const list = [...set].sort(); if (JSON.stringify(list) !== JSON.stringify((eaDocs[u] || []).slice().sort())) { batch.set(doc(db, 'evaccess', u), { coachUids: list, updated: Date.now() }); n++; } });
+    Object.keys(eaDocs).forEach(u => { if (!want[u]) { batch.delete(doc(db, 'evaccess', u)); n++; } });
+    if (!n) return;
+    eaBusy = true;
+    batch.commit().catch(onError).finally(() => { eaBusy = false; });
+  }, 3000);
+}
+// allenatore: le schede di un suo corsista (tutte, anche di altri allenatori)
+async function loadEvalsOf(uid) {
+  const snap = await getDocs(query(collection(db, 'evals'), where('uid', '==', uid)));
+  return snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
+}
+
 window.Cloud = {
   saveEditorial,
   register,
@@ -1677,7 +1710,7 @@ window.Cloud = {
   decideSpot,
   setOccCancelled,
   setOccFree,
-  sendEnroll, setEnroll, createKidFromEnroll,
+  sendEnroll, setEnroll, createKidFromEnroll, loadEvalsOf,
   sendPtReq, withdrawPtReq, confirmPtReq, rejectPtReq, ptreqId,
   saveBkPlayers, saveBkPhone, moveBkPlayers, extraTrainingBlocks, setOccMembers,
   recordPayment,

@@ -125,6 +125,22 @@ await put(`occ/t1_${lastWeek}`, { tid: 't1', date: lastWeek, p: 2, a: 0, s: 0, c
 await put(`evals/t1_${lastWeek}_${uid.Chiara}`, { tid: 't1', date: lastWeek, uid: uid.Chiara, coachUid: uid.Marco, by: uid.Marco, v: { tec: 7, mov: 5, con: 6 }, note: 'Buon dritto in spinta / rovescio in ritardo sotto pressione', at: Date.now() });
 await put(`evals/t1_${lastWeek}_${uid.Sara}`, { tid: 't1', date: lastWeek, uid: uid.Sara, coachUid: uid.Marco, by: uid.Marco, v: { tec: 6, sce: 8, att: 9 }, note: 'Ottima attenzione / servizio da sistemare', at: Date.now() });
 
+// Chiara: molte schede su più mesi (cruscotto delle valutazioni), alcune su Padel principianti con un altro autore,
+// con voci a volte mancanti (buchi nel grafico) e due settimane senza schede
+const KEYS = ['tec', 'mov', 'ctl', 'sce', 'int', 'att', 'con'];
+for (let i = 2; i <= 30; i++) {
+  if (i === 9 || i === 10) continue;
+  const date = plus(-7 * i), v = {};
+  KEYS.forEach((k, j) => { if ((i + j) % 4 !== 0) v[k] = Math.max(3, Math.min(10, Math.round(5 + (30 - i) / 8 + Math.sin(i * 0.9 + j * 1.7) * 1.8))); });
+  await put(`evals/t1_${date}_${uid.Chiara}`, { tid: 't1', date, uid: uid.Chiara, coachUid: uid.Marco, by: uid.Marco, v, note: i % 3 ? '' : 'Buon impegno / più attenzione al rovescio', at: Date.now() });
+  if (i % 5 === 0) {
+    const d2 = plus(-7 * i + 1);
+    await put(`evals/t2_${d2}_${uid.Chiara}`, { tid: 't2', date: d2, uid: uid.Chiara, coachUid: uid.Paolo, by: uid.Paolo, v: { tec: 6, int: 8, att: 7 }, note: 'Scheda di un altro allenatore', at: Date.now() });
+  }
+}
+// indice degli allenatori dei corsisti (lo tiene aggiornato l'app dello staff): Marco vede tutte le schede dei suoi corsisti
+for (const u of g1.map(n => uid[n]).concat(kids.map(k => k.id), [uid.Matteo])) await put(`evaccess/${u}`, { coachUids: [uid.Marco], updated: Date.now() });
+
 // prenotazioni: Luca domani 18:00–19:00 (Campo 2), Andrea dopodomani 10:00–11:30 (Padel 1); blocco dell'admin
 async function booking(gid, courtId, date, from, to, userId, blocked = '') {
   for (let t = from; t < to; t = addMin(t, 30)) {

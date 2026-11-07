@@ -78,6 +78,7 @@
     else if (r[0] === 'train') { nav = 'train'; html = viewTraining(); }
     else if (r[0] === 'eval') { nav = 'train'; html = viewEval(r[1], r[2]); }
     else if (r[0] === 'ptreq') { nav = 'train'; html = viewPtReq(); }
+    else if (r[0] === 'valutazioni' && (coach() || admin())) { nav = 'train'; html = viewCoachEvals(); }
     else if (r[0] === 'club') { nav = 'home'; html = viewClub(); }
     else if (r[0] === 'iscrizione') { nav = 'home'; html = viewEnroll(); }
     else if (r[0] === 'iscrizioni' && admin()) { nav = 'train'; html = viewEnrolls(); }
@@ -273,6 +274,9 @@
     });
   }
   window.addEventListener('resize', () => fitEditorial());
+  // grafico delle valutazioni: si ridisegna alla nuova larghezza
+  let evResize = null;
+  window.addEventListener('resize', () => { if (!document.querySelector('.ev-chart')) return; clearTimeout(evResize); evResize = setTimeout(() => refresh(), 250); });
 
   // Pagina autonoma di un articolo.
   function viewArticle(i) {
@@ -1571,7 +1575,8 @@
     const tabs = `<nav class="tabs">${[['day', 'trTabDay', 'calendar-check'], ['groups', 'trTabGroups', 'users-group']].map(([k, l, i]) =>
       `<a href="#/train" class="${tab === k ? 'active' : ''}" data-action="tr-tab" data-tab="${k}"><i class="ti ti-${i}" aria-hidden="true"></i> ${esc(t(l))}</a>`).join('')}</nav>`;
     if (tab === 'day') return `${admin() ? trainingAlerts() : ''}<div class="page-head row"><h1><i class="ti ti-barbell" aria-hidden="true"></i> ${esc(t('navTrain'))}</h1>
-        ${admin() ? `<span class="btn-row"><a class="btn small" href="#/report"><i class="ti ti-report-analytics" aria-hidden="true"></i> ${esc(t('rpTitle'))} →</a><a class="btn small" href="#/athletes"><i class="ti ti-id-badge-2" aria-hidden="true"></i> ${esc(t('athTitle'))} →</a></span>` : ''}</div>${ptCta()}${tabs}${admin() ? myTrainingCard() : ''}${trainingDay()}`;
+        ${admin() ? `<span class="btn-row"><a class="btn small" href="#/report"><i class="ti ti-report-analytics" aria-hidden="true"></i> ${esc(t('rpTitle'))} →</a><a class="btn small" href="#/athletes"><i class="ti ti-id-badge-2" aria-hidden="true"></i> ${esc(t('athTitle'))} →</a></span>`
+          : coach() ? `<a class="btn small" href="#/valutazioni"><i class="ti ti-chart-line" aria-hidden="true"></i> ${esc(t('evMyTrainees'))} →</a>` : ''}</div>${ptCta()}${tabs}${admin() ? myTrainingCard() : ''}${trainingDay()}`;
     const month = ui.trMonth || curMonth();
     const list = visibleTrainings().filter(tr => !tr.date || tr.date.slice(0, 7) === month);
     const prev = shiftMonth(month, -1);
@@ -1827,26 +1832,112 @@
       <div class="btn-row"><button class="btn small danger" data-action="kid-del" data-uid="${esc(a.id)}"><i class="ti ti-trash" aria-hidden="true"></i> ${esc(t('kidDel'))}</button></div>`;
   }
   // Valutazioni del corsista (admin e segreteria): media per voce (6 = sufficienza) e ultime schede con la nota.
-  function evalSummary(uid) {
-    const list = (S().evals || []).filter(e => e.uid === uid).sort((x, y) => y.date.localeCompare(x.date) || (y.at || 0) - (x.at || 0));
+  // ---------- cruscotto delle valutazioni del corsista (solo admin e segreteria) ----------
+  // Periodo (settimana, mese, trimestre solare, semestre della stagione set–feb / mar–ago, tutto) con le frecce;
+  // schede del periodo, medie per voce e generale, grafico a linee in SVG (una linea per voce scelta + la media).
+  const EV_PERIODS = ['week', 'month', 'quarter', 'semester', 'all'];
+  const evDashState = uid => { ui.evDash = ui.evDash || {}; return (ui.evDash[uid] = ui.evDash[uid] || { kind: 'month', ref: todayStr(), keys: EV_KEYS.slice() }); };
+  const shortDate = d => new Date(d + 'T12:00').toLocaleDateString(I18n.locale(), { day: 'numeric', month: 'short' }).replace('.', '');
+  const monthShort = d => new Date(d + 'T12:00').toLocaleDateString(I18n.locale(), { month: 'short' }).replace('.', '');
+  function evPeriodLabel(kind, r) {
+    const cap = x => x.charAt(0).toUpperCase() + x.slice(1);
+    if (kind === 'week') return t('evPerWeekLbl', { a: new Date(r.from + 'T12:00').getDate(), b: shortDate(r.to) });
+    if (kind === 'month') return monthLabel(r.from.slice(0, 7));
+    if (kind === 'quarter' || kind === 'semester') { const y1 = r.from.slice(0, 4), y2 = r.to.slice(0, 4);
+      return y1 === y2 ? `${cap(monthShort(r.from))}–${monthShort(r.to)} ${y1}` : `${cap(monthShort(r.from))} ${y1}–${monthShort(r.to)} ${y2}`; }
+    return t('evPer_all');
+  }
+  const evFmt = v => v.toLocaleString(I18n.locale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  // grafico SVG disegnato a mano: asse Y 1–10 con la linea del 6, X = settimane (o schede)
+  function evChart(series, keys) {
+    if (!series.length || !series.some(p => p.avg != null)) return `<p class="muted small ev-chart-empty">${esc(t('evChartNone'))}</p>`;
+    const W = Math.max(300, Math.min(760, ($app.clientWidth || 800) - 72)), H = W < 420 ? 230 : 260;
+    const m = { l: 30, r: 12, t: 12, b: 34 }, iw = W - m.l - m.r, ih = H - m.t - m.b;
+    const n = series.length, x = i => m.l + (n === 1 ? iw / 2 : (i * iw) / (n - 1)), y = v => m.t + ih - ((v - 1) / 9) * ih;
+    const grid = [2, 4, 6, 8, 10].map(v => `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}" class="${v === 6 ? 'ev-six' : 'ev-grid'}"/>
+      <text x="${m.l - 6}" y="${y(v) + 4}" class="ev-ax" text-anchor="end">${v}</text>`).join('');
+    const every = Math.max(1, Math.ceil(n / Math.floor(iw / 52)));
+    const xl = series.map((p, i) => i % every === 0
+      ? `<text x="${x(i)}" y="${H - 12}" class="ev-ax" text-anchor="middle">${esc(shortDate(p.date))}</text>` : '').join('');
+    // linea con i buchi: segmenti tra punti consecutivi con valore; i punti isolati restano come pallini
+    const line = (get, cls, label) => {
+      let d = '', open = false;
+      series.forEach((p, i) => { const v = get(p); if (v == null) { open = false; return; } d += `${open ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)} `; open = true; });
+      const pts = series.map((p, i) => { const v = get(p); return v == null ? '' : `<g class="ev-pt"><circle cx="${x(i)}" cy="${y(v)}" r="4" class="${cls}"/><circle cx="${x(i)}" cy="${y(v)}" r="11" class="ev-hit"><title>${esc(label)} · ${esc(p.bySheet ? fmtDate(p.date) : t('evWeekOf', { d: shortDate(p.date) }))}: ${esc(evFmt(v))}${p.n > 1 ? ` (${esc(t('evSheetsN', { n: p.n }))})` : ''}</title></circle></g>`; }).join('');
+      return `<path d="${d}" class="${cls}" fill="none"/>${pts}`;
+    };
+    const lines = keys.map(k => line(p => p.vals[k], `ev-s ev-c${EV_KEYS.indexOf(k) + 1}`, t('ev_' + k))).join('');
+    const avg = keys.length > 1 ? line(p => p.avg, 'ev-s ev-avgline', t('evAvgLine')) : '';
+    return `<svg class="ev-chart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(t('evChartTitle'))}">
+      <g>${grid}</g>${xl}${lines}${avg}</svg>`;
+  }
+  function evalSummary(uid, src) {
+    const all = (src || S().evals || []).filter(e => e.uid === uid);
     const head = `<h3><i class="ti ti-clipboard-check" aria-hidden="true"></i> ${esc(t('evSumTitle'))}</h3>`;
-    if (!list.length) return `<div class="ev-sum">${head}<p class="muted small">${esc(t('evSumNone'))}</p></div>`;
-    const fmt = v => v.toLocaleString(I18n.locale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-    const rows = EV_KEYS.map(k => {
-      const vs = list.map(e => (e.v || {})[k]).filter(x => x != null);
-      const a = vs.length ? vs.reduce((x, y) => x + y, 0) / vs.length : null;
-      return `<li class="ev-avg ${a == null ? 'is-empty' : ''}"><span class="ev-avg-l">${esc(t('ev_' + k))}</span>
+    if (!all.length) return `<div class="ev-sum">${head}<p class="muted small">${esc(t('evSumNone'))}</p></div>`;
+    const st = evDashState(uid), r = L.periodRange(st.kind, st.ref), keys = EV_KEYS.filter(k => st.keys.includes(k));
+    const list = L.inRange(all, r).sort((x, y) => y.date.localeCompare(x.date) || (y.at || 0) - (x.at || 0));
+    const av = L.evAverages(list, EV_KEYS), avSel = L.evAverages(list, keys);
+    const seg = `<div class="segmented wrap ev-per" role="group" aria-label="${esc(t('evPeriod'))}">${EV_PERIODS.map(k => `<button data-action="ev-per" data-uid="${esc(uid)}" data-k="${k}" aria-pressed="${st.kind === k}">${esc(t('evPer_' + k))}</button>`).join('')}</div>`;
+    const nav = st.kind === 'all' ? '' : `<div class="ev-nav"><button class="btn small icon" data-action="ev-shift" data-uid="${esc(uid)}" data-n="-1" aria-label="${esc(t('prevPeriod'))}"><i class="ti ti-chevron-left" aria-hidden="true"></i></button>
+      <strong>${esc(evPeriodLabel(st.kind, r))}</strong>
+      <button class="btn small icon" data-action="ev-shift" data-uid="${esc(uid)}" data-n="1" aria-label="${esc(t('nextPeriod'))}"><i class="ti ti-chevron-right" aria-hidden="true"></i></button></div>`;
+    const rows = EV_KEYS.map(k => { const a = av.per[k].avg;
+      return `<li class="ev-avg ${a == null ? 'is-empty' : ''}"><span class="ev-avg-l"><i class="ev-sw ev-c${EV_KEYS.indexOf(k) + 1}" aria-hidden="true"></i>${esc(t('ev_' + k))}</span>
         <span class="ev-bar" aria-hidden="true"><i style="width:${a == null ? 0 : a * 10}%" class="${evClass(a == null ? null : Math.round(a * 10) / 10 < 6 ? 5 : 7)}"></i><b></b></span>
-        <span class="ev-avg-v">${a == null ? '–' : `<strong class="${a < 6 ? 'low' : ''}">${esc(fmt(a))}</strong>`} <small class="muted">${esc(t('evSumN', { n: vs.length }))}</small></span></li>`;
-    }).join('');
-    const last = list.slice(0, 5).map(e => { const tr = trainingById(e.tid);
+        <span class="ev-avg-v">${a == null ? '–' : `<strong class="${a < 6 ? 'low' : ''}">${esc(evFmt(a))}</strong>`} <small class="muted">${esc(t('evSumN', { n: av.per[k].n }))}</small></span></li>`; }).join('');
+    const ov = av.overall.avg;
+    const chips = `<div class="ev-chips" role="group" aria-label="${esc(t('evChartKeys'))}">
+      <button class="ev-chip" data-action="ev-key" data-uid="${esc(uid)}" data-k="all" aria-pressed="${keys.length === EV_KEYS.length}">${esc(t('evAllKeys'))}</button>
+      ${EV_KEYS.map((k, i) => `<button class="ev-chip" data-action="ev-key" data-uid="${esc(uid)}" data-k="${k}" aria-pressed="${keys.includes(k)}"><i class="ev-sw ev-c${i + 1}" aria-hidden="true"></i>${esc(t('ev_' + k))}</button>`).join('')}</div>`;
+    const series = keys.length ? L.evSeries(all, keys, st.kind, r, null, todayStr()) : [];
+    const legend = keys.length ? `<ul class="ev-legend">${keys.map(k => `<li><i class="ev-ln ev-c${EV_KEYS.indexOf(k) + 1}" aria-hidden="true"></i>${esc(t('ev_' + k))}${avSel.per[k].avg != null ? ` <small class="muted">${esc(evFmt(avSel.per[k].avg))}</small>` : ''}</li>`).join('')}
+      ${keys.length > 1 ? `<li><i class="ev-ln ev-avgline" aria-hidden="true"></i>${esc(t('evAvgLine'))}${avSel.overall.avg != null ? ` <small class="muted">${esc(evFmt(avSel.overall.avg))}</small>` : ''}</li>` : ''}
+      <li><i class="ev-ln ev-six" aria-hidden="true"></i>${esc(t('evPass'))}</li></ul>` : '';
+    const sheets = list.map(e => { const tr = trainingById(e.tid);
       return `<li><span class="reg-names"><strong>${esc(fmtDate(e.date))}</strong>${tr ? ` · ${esc(trTitle(tr))}` : ''}<br>
         ${EV_KEYS.filter(k => (e.v || {})[k] != null).map(k => `<span class="badge ev-mini ${evClass(e.v[k])}">${esc(t('evShort_' + k))} ${e.v[k]}</span>`).join(' ') || `<small class="muted">${esc(t('evNoVotes'))}</small>`}
         ${e.note ? `<br><small class="ev-note-txt">“${esc(e.note)}”</small>` : ''}</span></li>`; }).join('');
-    return `<div class="ev-sum">${head}<p class="muted small">${esc(t('evSumHelp', { n: list.length }))}</p>
+    return `<div class="ev-sum ev-dash" id="evd-${esc(uid)}">${head}${seg}${nav}
+      ${list.length ? `<div class="ev-overall"><span>${esc(t('evOverall'))}</span><strong class="${ov != null && ov < 6 ? 'low' : ''}">${ov == null ? '–' : esc(evFmt(ov))}</strong>
+        <small class="muted">${esc(t('evOverallN', { n: av.overall.n, s: list.length }))}</small></div>
       <ul class="ev-avgs">${rows}</ul>
-      <h4>${esc(t('evSumLast'))}</h4><ul class="reg-list">${last}</ul></div>`;
+      <h4>${esc(t('evChartTitle'))}</h4>${chips}${keys.length ? `<div class="ev-chart-wrap">${evChart(series, keys)}</div>${legend}<p class="muted small">${esc(t(series.length && series[0].bySheet ? 'evChartHelpSheets' : 'evChartHelpWeeks'))}</p>` : `<p class="muted small">${esc(t('evChartPick'))}</p>`}
+      <h4>${esc(t('evSheetsTitle', { n: list.length }))}</h4><ul class="reg-list ev-sheets">${sheets}</ul>`
+      : `<p class="muted small">${esc(t('evPeriodNone'))}</p>`}</div>`;
   }
+  // Allenatore: «I miei corsisti» (#/valutazioni): i corsisti dei suoi gruppi → cruscotto delle valutazioni
+  // (tutte le schede, anche di altri allenatori; solo nomi e voti, niente dati della scheda corsista).
+  function myTrainees() {
+    const me = myUid(), out = {};
+    (S().groups || []).filter(g => admin() || g.coachUid === me).forEach(g => (g.uids || []).forEach(u => { if (!out[u]) out[u] = (g.names || {})[u] || uidName(u); }));
+    return Object.entries(out).map(([uid, name]) => ({ uid, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }
+  function viewCoachEvals() {
+    const list = myTrainees(), pick = ui.evPick && list.some(x => x.uid === ui.evPick) ? ui.evPick : null;
+    ui.coachEvals = ui.coachEvals || {};
+    if (pick && !ui.coachEvals[pick] && !ui.evLoading) {
+      ui.evLoading = pick;
+      window.Cloud.loadEvalsOf(pick).then(l => { ui.coachEvals[pick] = l; }).catch(e => { ui.coachEvals[pick] = []; warn('evLoadErr', { code: e.code || e.message }); })
+        .finally(() => { ui.evLoading = null; render(); });
+    }
+    const cur = pick && list.find(x => x.uid === pick);
+    return `<div class="page-head"><a class="back" href="#/train">← ${esc(t('navTrain'))}</a><h1><i class="ti ti-chart-line" aria-hidden="true"></i> ${esc(t('evMyTrainees'))}</h1>
+        <p class="muted">${esc(t('evMyTraineesHelp'))}</p></div>
+      ${list.length ? `<div class="card"><div class="ev-chips ev-people">${list.map(x => `<button class="ev-chip" data-action="ev-pick" data-uid="${esc(x.uid)}" aria-pressed="${x.uid === pick}">${esc(x.name)}</button>`).join('')}</div></div>` : `<div class="empty">${esc(t('evMyTraineesNone'))}</div>`}
+      ${cur ? `<div class="card"><h2>${esc(cur.name)}</h2>${ui.coachEvals[pick] ? evalSummary(pick, ui.coachEvals[pick]) : `<p class="muted">${esc(t('loading'))}</p>`}</div>` : ''}`;
+  }
+  const evDashActions = {
+    'ev-pick': el => { ui.evPick = el.dataset.uid; if (ui.coachEvals) delete ui.coachEvals[el.dataset.uid]; render(); },
+    'ev-per': el => { const st = evDashState(el.dataset.uid); st.kind = el.dataset.k; st.ref = todayStr(); render(); },
+    'ev-shift': el => { const st = evDashState(el.dataset.uid); st.ref = L.shiftPeriod(st.kind, st.ref, +el.dataset.n); render(); },
+    'ev-key': el => {
+      const st = evDashState(el.dataset.uid), k = el.dataset.k;
+      if (k === 'all') st.keys = st.keys.length === EV_KEYS.length ? [] : EV_KEYS.slice();
+      else st.keys = st.keys.includes(k) ? st.keys.filter(x => x !== k) : st.keys.concat([k]);
+      render();
+    }
+  };
   // Pacchetti del corsista (admin): elenco con allenamenti usati/rimasti e pagamento; nuovo pacchetto.
   function packCard(uid) {
     const ks = packsOf(uid).slice().reverse();
@@ -4463,7 +4554,7 @@
   // ---------- azioni ----------
   const confirmed = (key, p) => confirm(t(key, p));
 
-  const actions = Object.assign({}, enActions, ptActions, trActions, occActions, evActions, payActions, statActions, privacyActions, reportActions, cassaActions, {
+  const actions = Object.assign({}, evDashActions, enActions, ptActions, trActions, occActions, evActions, payActions, statActions, privacyActions, reportActions, cassaActions, {
     'user-reset': el => {
       const m = memberByUid(el.dataset.uid), email = (S().accounts || {})[el.dataset.uid];
       if (!canEditUser(el.dataset.uid)) return;
@@ -4749,7 +4840,7 @@
   const MEMBER_ACTIONS = new Set(['wr-go', 'wr-share', 'tr-past', 'tr-view', 'tr-dmonth', 'notice-read-all', 'profile-edit', 'profile-cancel', 'msg-read', 'verify-resend', 'verify-check', 'booking-open', 'booking-confirm', 'booking-delete', 'notice-dismiss', 'tr-month', 'tr-day', 'tr-tab', 'att-set', 'spot-apply', 'spot-withdraw', 'spot-seen', 'rc-pdf', 'st-period', 'st-ref', 'privacy-accept', 'my-data', 'delete-request', 'ptreq-withdraw']);
   const MEMBER_FORMS = new Set(['profile-save']);
   // allenatore: presenze e scheda di valutazione dei propri allenamenti (controllo anche nell'azione e nelle regole)
-  const COACH_ACTIONS = new Set(['att-force', 'ev-vote', 'ev-save', 'ev-save-all', 'occ-confirm']);
+  const COACH_ACTIONS = new Set(['ev-per', 'ev-shift', 'ev-key', 'ev-pick', 'att-force', 'ev-vote', 'ev-save', 'ev-save-all', 'occ-confirm']);
   let submitMode = 'save';
 
   // reminder delle prenotazioni: la prima pagina si aggiorna ogni minuto (compaiono e spariscono da soli)

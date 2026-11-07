@@ -67,6 +67,10 @@ test('serie per settimana con i buchi (null, non zero) e la media delle voci sce
   assert.equal(s[2].vals.tec, null); assert.equal(s[2].avg, null);
   assert.equal(s[3].vals.mov, 9); assert.equal(s[3].vals.tec, null); assert.equal(s[3].avg, 9);
 });
+test('serie: le settimane future non si mostrano', () => {
+  const s = Logic.evSeries(EV, ['tec', 'mov'], 'month', Logic.periodRange('month', '2026-11-10'), 2, '2026-11-12');
+  assert.equal(s[s.length - 1].date, '2026-11-09');
+});
 test('serie per scheda nella settimana (o con poche schede)', () => {
   const s = Logic.evSeries(EV, ['tec'], 'week', Logic.periodRange('week', '2026-11-03'));
   assert.equal(s.length, 2); assert.ok(s[0].bySheet);

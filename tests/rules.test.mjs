@@ -630,5 +630,40 @@ await test('ricevuta intestata a mano: la leggono solo staff e cassa', async () 
   await assertFails(getDoc(doc(anon(), 'receipts/rm1')));
 });
 
+// ---------- allenatore: valutazioni di tutti i propri corsisti (evaccess) ----------
+await env.withSecurityRulesDisabled(async c => {
+  const f = c.firestore();
+  await setDoc(doc(f, 'evals/tX_2030-02-01_ev1'), { tid: 'tX', date: '2030-02-01', uid: 'ev1', coachUid: 'coach1', by: 'coach1', v: { tec: 7 }, note: '', at: 1 });
+  await setDoc(doc(f, 'evals/tY_2030-02-02_ev1'), { tid: 'tY', date: '2030-02-02', uid: 'ev1', coachUid: 'altro', by: 'altro', v: { mov: 5 }, note: '', at: 1 });
+  await setDoc(doc(f, 'evals/tX_2030-02-01_ev2'), { tid: 'tX', date: '2030-02-01', uid: 'ev2', coachUid: 'altro', by: 'altro', v: { tec: 6 }, note: '', at: 1 });
+  await setDoc(doc(f, 'athletes/ev1'), { first: 'Ev', cf: 'X' });
+  await setDoc(doc(f, 'packs/pev1'), { uid: 'ev1', n: 4, used: 0 });
+  await setDoc(doc(f, 'plans/ev1_2030-02'), { uid: 'ev1', month: '2030-02' });
+});
+await test('lo staff scrive l\'indice degli allenatori del corsista; gli altri no', async () => {
+  await assertFails(setDoc(doc(db('coach2'), 'evaccess/ev1'), { coachUids: ['coach2'], updated: 1 }));
+  await assertSucceeds(setDoc(doc(db('segr'), 'evaccess/ev1'), { coachUids: ['coach1', 'coach2'], updated: 1 }));
+  await assertFails(setDoc(doc(db('segr'), 'evaccess/ev2'), { coachUids: ['coach1'], extra: 1 }));
+  await assertFails(getDoc(doc(db('coach2'), 'evaccess/ev1')));
+});
+await test('l\'allenatore legge tutte le schede dei suoi corsisti, anche scritte da altri', async () => {
+  await assertSucceeds(getDoc(doc(db('coach2'), 'evals/tX_2030-02-01_ev1')));
+  await assertSucceeds(getDoc(doc(db('coach2'), 'evals/tY_2030-02-02_ev1')));
+  await assertSucceeds(getDocs(query(collection(db('coach2'), 'evals'), where('uid', '==', 'ev1'))));
+});
+await test('l\'allenatore non legge le schede di corsisti non suoi, né scheda, pacchetti e piani', async () => {
+  await assertFails(getDoc(doc(db('coach2'), 'evals/tX_2030-02-01_ev2')));
+  await assertFails(getDocs(query(collection(db('coach2'), 'evals'), where('uid', '==', 'ev2'))));
+  await assertFails(getDocs(collection(db('coach2'), 'evals')));
+  await assertFails(getDoc(doc(db('coach2'), 'athletes/ev1')));
+  await assertFails(getDoc(doc(db('coach2'), 'packs/pev1')));
+  await assertFails(getDoc(doc(db('coach2'), 'plans/ev1_2030-02')));
+  await assertFails(getDoc(doc(db('luca'), 'evals/tX_2030-02-01_ev1')));
+});
+await test('le scritture restano all\'allenatore di quell\'allenamento: chi legge non modifica', async () => {
+  await assertFails(setDoc(doc(db('coach2'), 'evals/tX_2030-02-01_ev1'), { tid: 'tX', date: '2030-02-01', uid: 'ev1', coachUid: 'coach2', by: 'coach2', v: { tec: 9 }, note: '', at: 2 }));
+  await assertFails(deleteDoc(doc(db('coach2'), 'evals/tY_2030-02-02_ev1')));
+});
+
 await env.cleanup();
 console.log(`prove delle regole: ${n} superate`);

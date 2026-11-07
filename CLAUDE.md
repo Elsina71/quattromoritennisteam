@@ -15,6 +15,8 @@ allenamenti, allenatori, cassa. Regole decise dal titolare: valgono per ogni mod
 - **Segreteria**: utenti (modifica e cancellazione di utenti e allenatori), prenotazioni di tutti, corsisti, allenamenti,
   certificati medici, tesseramento, pagamenti delle quote. Non cambia i ruoli.
 - **Allenatore**: vede solo i propri allenamenti e i nomi dei propri corsisti, e compila la scheda di valutazione.
+  Vede **tutte le schede di valutazione dei propri corsisti** (anche scritte da altri allenatori) nel cruscotto
+  «I miei corsisti» (`#/valutazioni`): solo nome e voti, niente dati della scheda corsista, contatti, pacchetti o pagamenti.
   Non vede certificati medici, contatti o note dei corsisti (solo admin e segreteria).
 - **Utente**: chiunque si registra; prenota i campi per sé.
 
@@ -84,6 +86,14 @@ allenamenti, allenatori, cassa. Regole decise dal titolare: valgono per ogni mod
   Consistenza (regolarità: pochi errori a un buon ritmo).
 - Nota del giorno di una riga: un punto forte + una cosa da migliorare.
 - Non serve valutare tutte le voci: bastano le 2-3 lavorate quel giorno; la scheda completa una volta al mese.
+- **Cruscotto delle valutazioni** (scheda del corsista per admin e segreteria; «I miei corsisti» per l'allenatore):
+  periodo Settimana (lun–dom) · Mese · Trimestre (solare, come il Wrapped) · Semestre (della stagione: set–feb, mar–ago) · Tutto,
+  con le frecce; voti per allenamento del periodo, media per voce (con il numero di voti) e media generale con la linea del 6;
+  grafico a linee in SVG disegnato a mano (un punto per settimana ISO, o per scheda nella settimana o con poche schede;
+  settimane senza voti = buchi), voci scelte una alla volta o tutte, più la linea «Media» tratteggiata. Calcoli in
+  `js/logic.js` (provati in `tests/logic.test.mjs`). Lettura per l'allenatore: `evaccess/{uid corsista}.coachUids`
+  (allenatori dei gruppi degli ultimi 12 mesi, aggiornato dall'app di admin e segreteria); le scritture restano
+  all'allenatore di quell'allenamento, admin e segreteria.
 
 ## Cassa
 - Quote: singolo allenamento, mensile, trimestrale, corso intero, pacchetto di lezioni. Il tesseramento è una quota a parte.
