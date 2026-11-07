@@ -1593,10 +1593,75 @@
         <label class="tr-pick"><span class="sr-only">${esc(t('trPickMonth'))}</span><input type="month" value="${month}" data-change="tr-month-pick" aria-label="${esc(t('trPickMonth'))}"></label>
         ${canCopy ? `<button class="btn small" data-action="tr-copy" data-m="${month}"><i class="ti ti-copy" aria-hidden="true"></i> ${esc(t('trCopyPrev', { m: monthLabel(prev) }))}</button>` : ''}
       </div>
-      ${list.length ? `<div class="tr-grid">${list.map(tr => trainingCard(tr, month)).join('')}</div>` : `<div class="empty"><i class="ti ti-barbell" aria-hidden="true"></i> ${esc(t('trNone'))}</div>`}
+      ${list.length ? `<div class="tr-list">${trBlocks(list).map(b => trCompact(b, month)).join('')}</div>` : `<div class="empty"><i class="ti ti-barbell" aria-hidden="true"></i> ${esc(t('trNone'))}</div>`}
       ${centerAdm() ? trainingForm(null) : ''}
       ${admin() ? coachesCard() : ''}
       ${admin() ? selfProfileCard() : ''}`;
+  }
+
+  // Lista compatta degli allenamenti: una riga per allenamento (i giorni dello stesso «series» insieme) con nome,
+  // allenatore, giorni e orari; aprendola si vedono le schede complete (gruppo, presenze, modifica).
+  function trBlocks(list) {
+    const out = [], by = {};
+    list.forEach(tr => {
+      const k = tr.series && !tr.date ? 's:' + tr.series : 't:' + tr.id;
+      if (!by[k]) { by[k] = { key: k, trs: [] }; out.push(by[k]); }
+      by[k].trs.push(tr);
+    });
+    out.forEach(b => b.trs.sort((x, y) => x.dow - y.dow || x.from.localeCompare(y.from)));
+    return out;
+  }
+  function trCompact(b, month) {
+    const tr0 = b.trs[0], key = 'trc-' + b.key.replace(/[^\w-]/g, '');
+    const open = keepOpen(key) || b.trs.some(x => x.id === ui.trEdit) ? 'open' : '';
+    const coaches = [...new Set(b.trs.map(x => x.coachUid).filter(Boolean))].map(coachName);
+    const n = Math.max(0, ...b.trs.map(x => ((groupOf(x.id, month) || {}).uids || []).length));
+    return `<details class="card tr-compact ${isPrivateTr(tr0) ? 'tr-private' : isExtraTr(tr0) ? 'tr-extra' : ''}" data-keep="${esc(key)}" ${open}>
+      <summary><span class="trc-main"><strong class="trc-name">${esc(trTitle(tr0))}</strong>
+        <span class="trc-coach"><i class="ti ti-school" aria-hidden="true"></i> ${esc(coaches.join(', ') || t('trNoCoach'))}</span>
+        <span class="trc-days">${b.trs.map(x => `<span class="trc-day"><i class="ti ti-${isExtraTr(x) ? 'calendar-event' : 'calendar-repeat'}" aria-hidden="true"></i> ${esc(trLabel(x))}</span>`).join('')}</span></span>
+        <span class="trc-side"><span class="badge" title="${esc(t('trcPeople'))}"><i class="ti ti-users" aria-hidden="true"></i> ${n}/${tr0.max || 0}</span><i class="ti ti-chevron-down trc-chev" aria-hidden="true"></i></span></summary>
+      <div class="trc-body">${b.trs.length > 1 ? seriesCard(b.trs, month) : trainingCard(tr0, month)}</div>
+    </details>`;
+  }
+  // Allenamento su più giorni come un allenamento unico: dati, giorni e orari, un solo gruppo del mese (il corsista
+  // si aggiunge e si toglie da tutti i giorni); sotto, giorno per giorno, la prossima giornata, «Modifica» ed «Elimina».
+  function seriesCard(trs, month) {
+    const tr0 = trs[0];
+    const groups = trs.map(x => ({ tr: x, uids: ((groupOf(x.id, month) || {}).uids) || [], names: ((groupOf(x.id, month) || {}).names) || {} }));
+    const uids = [...new Set(groups.flatMap(g => g.uids))];
+    const names = Object.assign({}, ...groups.map(g => g.names));
+    const coaches = [...new Set(trs.map(x => x.coachUid).filter(Boolean))].map(coachName);
+    const courts = [...new Set(trs.flatMap(x => x.courts || []))].map(courtName);
+    const max = Math.max(...trs.map(x => x.max || 0));
+    const dayShort = x => { const d = dayName(x.dow); return d.charAt(0).toUpperCase() + d.slice(1, 3); };
+    const rows = uids.map(uid => {
+      const a = athleteOf(uid), on = groups.filter(g => g.uids.includes(uid));
+      const part = on.length < trs.length ? ` <span class="badge">${esc(t('grpOnlyDays', { l: on.map(g => dayShort(g.tr)).join(', ') }))}</span>` : '';
+      return `<li><span class="reg-names"><strong>${esc(names[uid] || coachName(uid))}</strong>${isKid(uid) && admin() ? ` <span class="badge kid-badge">${esc(t('kidBadge'))}</span>` : ''}${part}
+        ${admin() && !isExtPerson(uid) ? `<br>${tessBadge(a)} ${certBadge(a)}` : ''}</span>
+        ${centerAdm() ? `<button class="btn small danger" data-action="grp-remove" data-tid="${esc(on[0].tr.id)}" data-m="${month}" data-uid="${uid}" aria-label="${esc(t('remove'))}"><i class="ti ti-user-minus" aria-hidden="true"></i></button>` : ''}</li>`;
+    }).join('');
+    const days = trs.map(x => {
+      if (centerAdm() && ui.trEdit === x.id) return `<div class="tr-day-block">${trainingForm(x)}</div>`;
+      const od = nextOcc(x, month), oc = od && occOf(x.id, od);
+      return `<div class="tr-day-block"><p><strong><i class="ti ti-calendar-repeat" aria-hidden="true"></i> ${esc(trLabel(x))}</strong>
+          <span class="muted small">${(x.courts || []).length ? ' · ' + esc(x.courts.map(courtName).join(', ')) : ''}${x.coachUid && coaches.length > 1 ? ' · ' + esc(coachName(x.coachUid)) : ''}</span></p>
+        ${od ? `<p class="muted small"><i class="ti ti-calendar-check" aria-hidden="true"></i> ${esc(t(oc && oc.cancelled ? 'occCancelledOn' : 'trNextDay', { d: longDate(od) }))}</p>` : ''}
+        ${centerAdm() ? `<div class="btn-row"><button class="btn small" data-action="tr-edit" data-id="${esc(x.id)}"><i class="ti ti-pencil" aria-hidden="true"></i> ${esc(t('trEditDay'))}</button>
+          <button class="btn small danger" data-action="tr-delete" data-id="${esc(x.id)}"><i class="ti ti-trash" aria-hidden="true"></i> ${esc(t('trDeleteDay'))}</button></div>` : ''}</div>`;
+    }).join('');
+    return `<div class="card tr-card tr-series-card" id="tr-${esc(tr0.id)}">
+      <div class="ch-head">${lvlBadge(tr0.level)} <span class="badge ${uids.length >= max ? 'st-full' : ''}">${uids.length}/${max}</span></div>
+      <h3>${esc(trTitle(tr0))}</h3>
+      <ul class="trs-days">${trs.map(x => `<li><i class="ti ti-calendar-repeat" aria-hidden="true"></i> ${esc(trLabel(x))}</li>`).join('')}</ul>
+      <p class="muted small"><i class="ti ti-school" aria-hidden="true"></i> ${esc(t('trCoach'))}: ${esc(coaches.join(', ') || t('trNoCoach'))}${courts.length ? ` · <i class="ti ti-layout-grid" aria-hidden="true"></i> ${esc(courts.join(', '))}` : ''}</p>
+      <h4>${esc(t('grpTitle', { m: monthLabel(month) }))}</h4>
+      ${uids.length ? `<ul class="reg-list">${rows}</ul>` : `<p class="muted small">${esc(t('grpEmpty'))}</p>`}
+      ${grpAddForm(tr0, month, uids, true)}
+      <h4>${esc(t('trDaysTitle'))}</h4>
+      ${days}
+    </div>`;
   }
 
   function trainingCard(tr, month) {
@@ -1611,6 +1676,11 @@
         ${admin() && !isExtPerson(uid) ? `<br>${tessBadge(a)} ${certBadge(a)}` : isExtPerson(uid) ? ` <span class="badge">${esc(t('ptExternal'))}</span>` : ''}</span>
         ${centerAdm() ? `<button class="btn small danger" data-action="grp-remove" data-tid="${esc(tr.id)}" data-m="${month}" data-uid="${uid}" aria-label="${esc(t('remove'))}"><i class="ti ti-user-minus" aria-hidden="true"></i></button>` : ''}</li>`;
     }).join('');
+    const add = grpAddForm(tr, month, uids, false);
+    return trCardHtml(tr, month, uids, rows, add, od, oc, full);
+  }
+  // modulo «Aggiungi un corsista» (all = allenamento su più giorni: il corsista va in tutti i giorni)
+  function grpAddForm(tr, month, uids, all) {
     let add = '';
     if (centerAdm()) {
       const members = traineePeople().filter(m => !uids.includes(m.uid)).sort((a, b) => personName(a).localeCompare(personName(b)));
@@ -1621,17 +1691,20 @@
           <label class="check"><input type="checkbox" name="tess"> ${esc(t('tessLabel', { s: seasonOf(todayStr()) }))}</label>
           ${admin() ? certTypeSelect('') : ''}
           <label>${esc(t('certExp'))}<input type="date" name="certExp"></label>
-          ${seriesOf(tr).length ? `<label class="check span-all"><input type="checkbox" name="allDays" checked> ${esc(t('grpAllDays', { l: seriesOf(tr).map(trLabel).join(' · ') }))}</label>` : ''}
-          <div class="form-actions span-all"><button class="btn primary">${esc(t('grpAddBtn'))}</button></div>
+          ${all ? `<input type="checkbox" name="allDays" checked hidden>` : seriesOf(tr).length ? `<label class="check span-all"><input type="checkbox" name="allDays" checked> ${esc(t('grpAllDays', { l: seriesOf(tr).map(trLabel).join(' · ') }))}</label>` : ''}
+          <div class="form-actions span-all"><button class="btn primary">${esc(t(all ? 'grpAddBtnDays' : 'grpAddBtn'))}</button></div>
         </form></details>`;
     }
+    return add;
+  }
+  function trCardHtml(tr, month, uids, rows, add, od, oc, full) {
     return `<div class="card tr-card ${isPrivateTr(tr) ? 'tr-private' : isExtraTr(tr) ? 'tr-extra' : ''}" id="tr-${esc(tr.id)}">
       <div class="ch-head">${extraBadge(tr)}${lvlBadge(tr.level)} <span class="badge ${full ? 'st-full' : ''}">${uids.length}/${tr.max}</span></div>
       <h3>${esc(trTitle(tr))}</h3>
       <p class="muted cap"><i class="ti ti-${isExtraTr(tr) ? 'calendar-event' : 'calendar-repeat'}" aria-hidden="true"></i> ${esc(trLabel(tr))}</p>
       ${seriesOf(tr).length ? `<p class="muted small tr-series"><i class="ti ti-link" aria-hidden="true"></i> ${esc(t('trAlsoDays'))} ${seriesOf(tr).map(x => trLabel(x)).join(' · ')}</p>` : ''}
-      <p class="muted small">${tr.coachUid ? `<i class="ti ti-school" aria-hidden="true"></i> ${esc(t('trCoach'))}: ${esc(coachName(tr.coachUid))}` : ''}
-        ${tr.coachUid && (tr.courts || []).length ? ' · ' : ''}${(tr.courts || []).length ? `<i class="ti ti-layout-grid" aria-hidden="true"></i> ${esc(tr.courts.map(courtName).join(', '))}` : ''}</p>
+      <p class="muted small"><i class="ti ti-school" aria-hidden="true"></i> ${esc(t('trCoach'))}: ${esc(tr.coachUid ? coachName(tr.coachUid) : t('trNoCoach'))}
+        ${(tr.courts || []).length ? ' · ' : ''}${(tr.courts || []).length ? `<i class="ti ti-layout-grid" aria-hidden="true"></i> ${esc(tr.courts.map(courtName).join(', '))}` : ''}</p>
       <h4>${esc(t('grpTitle', { m: monthLabel(month) }))}</h4>
       ${od && uids.length ? `<p class="muted small"><i class="ti ti-calendar-check" aria-hidden="true"></i> ${esc(t(oc && oc.cancelled ? 'occCancelledOn' : 'attOfDay', { d: longDate(od) }))}</p>` : ''}
       ${uids.length ? `<ul class="reg-list">${rows}</ul>` : `<p class="muted small">${esc(t('grpEmpty'))}</p>`}

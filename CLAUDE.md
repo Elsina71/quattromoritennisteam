@@ -56,6 +56,11 @@ allenamenti, allenatori, cassa. Regole decise dal titolare: valgono per ogni mod
   (`Cloud.saveTrainingSeries`), con gli stessi nome, livello, allenatore e campi e lo stesso `series`; ognuno blocca i suoi
   campi nel suo orario. La scheda mostra «Anche: …» con gli altri giorni. «Aggiungi un corsista» lo mette di serie in tutti
   i giorni (casella), togliendolo esce da tutti i giorni del mese. Ogni giorno si modifica o si elimina da solo.
+- Pagina «Allenamenti e gruppi»: **lista compatta** (`trBlocks`/`trCompact`), una riga per allenamento con nome,
+  allenatore (o «Allenatore da scegliere»), giorni e orari e il numero di corsisti; si apre per vedere tutto. Un allenamento
+  su più giorni è **una sola riga e una sola scheda** (`seriesCard`): un gruppo del mese (il corsista va in tutti i giorni;
+  «solo lun, mer» se manca in qualche giorno), poi giorno per giorno prossima giornata, «Modifica questo giorno» ed
+  «Elimina questo giorno». L'allenatore si vede sempre nelle informazioni.
 - Tipi (badge nelle liste): **Allenamento settimanale**, **Recupero allenamento** (una data, `tr.date`),
   **Allenamento privato** (`type: 'private'`, una data, un allievo: utente, ragazzo senza account o esterno `x-…` con il solo nome, un maestro).
 - Livelli, in quest'ordine: Minitennis 4-6 anni, Scuola Tennis Orange 6-8 anni, Scuola Tennis Green 8-10 anni,

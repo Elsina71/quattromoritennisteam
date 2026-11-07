@@ -1711,3 +1711,26 @@ form:has(select[name=holder] option[value="__manual"]:checked) .mh-hide { displa
   .tr-day-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; padding-bottom: 8px; border-bottom: 1px dashed var(--line, #ddd); }
   .tr-day-row > label:first-child { grid-column: 1 / -1; }
 }
+
+/* Allenamenti e gruppi: lista compatta, si apre per vedere tutto */
+.tr-list { display: grid; gap: 10px; margin-bottom: 14px; }
+.tr-compact { margin: 0; padding: 0; }
+.tr-compact > summary { list-style: none; cursor: pointer; display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 12px 14px; }
+.tr-compact > summary::-webkit-details-marker { display: none; }
+.trc-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.trc-name { font-size: 1.05rem; }
+.trc-coach, .trc-day { color: var(--muted, #666); font-size: .9rem; }
+.trc-days { display: flex; flex-wrap: wrap; gap: 2px 14px; }
+.trc-side { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.trc-chev { transition: transform .2s; font-size: 1.2rem; }
+.tr-compact[open] .trc-chev { transform: rotate(180deg); }
+.tr-compact[open] > summary { border-bottom: 1px dashed var(--line, #ddd); }
+.trc-body { padding: 12px; margin: 0; }
+.trc-body .tr-card { box-shadow: none; }
+.tr-compact .tr-series { display: none; }
+.trs-days { list-style: none; margin: 2px 0; padding: 0; display: grid; gap: 2px; font-weight: 600; }
+.tr-day-block { border-top: 1px dashed var(--line, #ddd); padding-top: 8px; margin-top: 4px; }
+.tr-day-block p { margin: 0 0 4px; }
+.tr-compact .trc-body > .tr-card { border: 0; margin: 0; }
+/* aperta: nome e giorni sono già nella riga in alto */
+.tr-compact .trc-body .tr-card > h3, .tr-compact .trc-body .tr-card > p.cap, .tr-compact .trc-body .trs-days { display: none; }
