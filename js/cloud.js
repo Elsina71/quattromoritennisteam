@@ -1605,7 +1605,7 @@ async function loadMyActivity(uid) {
 // le scrive l'admin (anche l'Admin Centro).
 function push(state) {
   if (!isAdmin) return;
-  const settings = JSON.stringify({ notice: state.notice || '', noticeUntil: state.noticeUntil || '', nicks: state.nicks || {}, courts: state.courts || [], booking: state.booking || null, bookRewards: state.bookRewards || null, prices: state.prices || null });
+  const settings = JSON.stringify({ notice: state.notice || '', noticeUntil: state.noticeUntil || '', nicks: state.nicks || {}, courts: state.courts || [], booking: state.booking || null, bookRewards: state.bookRewards || null, prices: state.prices || null, levels: state.levels || null });
   if (settings === last.settings) return;
   last.settings = settings;
   // minMinutes e maxMinutes: durata minima e massima di una prenotazione (di serie 1 ora e 2 ore), lette dalle regole del database.

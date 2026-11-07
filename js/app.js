@@ -1230,11 +1230,41 @@
 
   // livelli degli allenamenti (etichette fpLevel_…), nell'ordine deciso dal titolare.
   // I livelli di prima (start, inter, high, pro) restano leggibili; un livello sconosciuto si mostra com'è scritto.
-  const LEVELS = ['mini', 'orange', 'green', 'kids', 'perf', 'preago', 'ago', 'adv', 'adult'];
-  const levelLabel = l => { if (!l) return ''; const k = 'fpLevel_' + l, x = t(k); return x === k ? String(l) : x; };
-  const lvlBadge = l => (l ? `<span class="badge lvl-${/^[a-z]+$/.test(l) ? l : 'other'}">${esc(levelLabel(l))}</span>` : '');
-  const levelOptions = cur => LEVELS.map(l => `<option value="${l}" ${l === cur ? 'selected' : ''}>${esc(levelLabel(l))}</option>`).join('')
-    + (cur && !LEVELS.includes(cur) ? `<option value="${esc(cur)}" selected>${esc(levelLabel(cur))}</option>` : '');
+  // L'admin può rinominare, riordinare, aggiungere e togliere i livelli (data/settings → levels: [{ key, name }]).
+  // Senza modifiche valgono quelli di serie; un livello di serie senza nome nuovo resta tradotto nelle tre lingue.
+  const DEFAULT_LEVELS = ['mini', 'orange', 'green', 'kids', 'perf', 'preago', 'ago', 'adv', 'adult'];
+  const levelList = () => ((S().levels || []).length ? S().levels : DEFAULT_LEVELS.map(key => ({ key, name: '' })));
+  const lvKeys = () => levelList().map(x => x.key);
+  const levelDefault = l => { const k = 'fpLevel_' + l, x = t(k); return x === k ? '' : x; };
+  const levelLabel = l => { if (!l) return ''; const c = (S().levels || []).find(x => x.key === l); return (c && c.name) || levelDefault(l) || String(l); };
+  const lvlBadge = l => {
+    if (!l) return '';
+    const i = lvKeys().indexOf(l), cls = DEFAULT_LEVELS.includes(l) || /^(start|inter|high|pro)$/.test(l) ? l : i >= 0 ? 'c' + (i % 8) : 'other';
+    return `<span class="badge lvl-${cls}">${esc(levelLabel(l))}</span>`;
+  };
+  const levelOptions = cur => lvKeys().map(l => `<option value="${esc(l)}" ${l === cur ? 'selected' : ''}>${esc(levelLabel(l))}</option>`).join('')
+    + (cur && !lvKeys().includes(cur) ? `<option value="${esc(cur)}" selected>${esc(levelLabel(cur))}</option>` : '');
+  // Gestione dei livelli (solo admin), nella pagina degli allenamenti
+  function levelsCard() {
+    const used = l => (S().trainings || []).filter(tr => tr.level === l).length;
+    const list = levelList();
+    return `<details class="card sub-form lv-card" data-keep="lv-card" ${keepOpen('lv-card')}><summary><i class="ti ti-stairs" aria-hidden="true"></i> ${esc(t('lvTitle'))}</summary>
+      <p class="muted small">${esc(t('lvHelp'))}</p>
+      <form data-form="lv-save" class="lv-form">
+        <ol class="lv-list">${list.map((x, i) => `<li>${lvlBadge(x.key)}
+          <input name="n_${esc(x.key)}" value="${esc(x.name || '')}" placeholder="${esc(levelDefault(x.key) || x.key)}" maxlength="40" aria-label="${esc(t('lvName'))}">
+          <span class="btn-row">
+            <button type="button" class="btn small" data-action="lv-move" data-k="${esc(x.key)}" data-d="-1" ${i ? '' : 'disabled'} aria-label="${esc(t('lvUp'))}"><i class="ti ti-arrow-up" aria-hidden="true"></i></button>
+            <button type="button" class="btn small" data-action="lv-move" data-k="${esc(x.key)}" data-d="1" ${i < list.length - 1 ? '' : 'disabled'} aria-label="${esc(t('lvDown'))}"><i class="ti ti-arrow-down" aria-hidden="true"></i></button>
+            <button type="button" class="btn small danger" data-action="lv-del" data-k="${esc(x.key)}" aria-label="${esc(t('lvDel'))}" title="${esc(used(x.key) ? t('lvUsed', { n: used(x.key) }) : t('lvDel'))}"><i class="ti ti-trash" aria-hidden="true"></i></button></span>
+          ${used(x.key) ? `<small class="muted">${esc(t('lvUsed', { n: used(x.key) }))}</small>` : ''}</li>`).join('')}</ol>
+        <label>${esc(t('lvNew'))}<input name="newName" maxlength="40" placeholder="${esc(t('lvNewPh'))}"></label>
+        <div class="form-actions"><button class="btn primary"><i class="ti ti-device-floppy" aria-hidden="true"></i> ${esc(t('lvSave'))}</button></div>
+      </form></details>`;
+  }
+  // livelli scritti nelle impostazioni (la prima modifica copia quelli di serie)
+  const lvEditable = () => levelList().map(x => ({ key: x.key, name: x.name || '' }));
+  const lvSlug = name => { const b = L.norm(name).replace(/[^a-z0-9]+/g, '').slice(0, 16) || 'liv'; let k = b, n = 2; while (lvKeys().includes(k)) k = b.slice(0, 14) + n++; return k; };
   // Moduli a scomparsa che restano aperti anche se la pagina si ridisegna (aggiornamenti dal database).
   const keepOpen = key => ((ui.keep || {})[key] ? 'open' : '');
   // ====================================================================
@@ -1312,7 +1342,7 @@
         ${enPersonFields('p', false)}
         <h2 class="span-all"><i class="ti ti-ball-tennis" aria-hidden="true"></i> ${esc(t('enKid'))}</h2>
         ${enPersonFields('k', true)}
-        <label class="span-all">${esc(t('trLevel'))}<select name="level" required><option value="">—</option>${LEVELS.map(l => `<option value="${l}">${esc(levelLabel(l))}</option>`).join('')}</select></label>
+        <label class="span-all">${esc(t('trLevel'))}<select name="level" required><option value="">—</option>${lvKeys().map(l => `<option value="${esc(l)}">${esc(levelLabel(l))}</option>`).join('')}</select></label>
         <fieldset class="span-all en-images"><legend>${esc(t('enImages'))}</legend>
           <p class="muted small">${esc(t('enImagesHelp'))}</p>
           <label class="check"><input type="radio" name="images" value="yes"> ${esc(t('enImagesYes'))}</label>
@@ -1344,7 +1374,7 @@
     const parent = enRead(f, 'p', false), kid = enRead(f, 'k', true), level = f.level.value;
     const e = enCheck(parent, false) || enCheck(kid, true);
     if (e) return warn(e);
-    if (!LEVELS.includes(level)) return warn('ptNeedLevel');
+    if (!lvKeys().includes(level)) return warn('ptNeedLevel');
     if (!f.privacy.checked) return warn('registerPrivacyNeeded');
     if (!kid.phone) delete kid.phone;
     if (!kid.email) delete kid.email;
@@ -1618,6 +1648,7 @@
       </div>
       ${list.length ? `<div class="tr-list">${trBlocks(list).map(b => trCompact(b, month)).join('')}</div>` : `<div class="empty"><i class="ti ti-barbell" aria-hidden="true"></i> ${esc(t('trNone'))}</div>`}
       ${centerAdm() ? trainingForm(null) : ''}
+      ${fullAdmin() ? levelsCard() : ''}
       ${admin() ? coachesCard() : ''}
       ${admin() ? selfProfileCard() : ''}`;
   }
@@ -1771,7 +1802,7 @@
   function trainingForm(tr) {
     // nuovo allenamento: dopo un avviso il modulo riparte da quanto già scritto (ui.trDraft)
     const dr = !tr && ui.trDraft;
-    const v = tr || dr || { name: '', dow: 1, from: '19:00', to: '20:15', level: LEVELS[0], max: 8, coachUid: '', courts: [] };
+    const v = tr || dr || { name: '', dow: 1, from: '19:00', to: '20:15', level: lvKeys()[0], max: 8, coachUid: '', courts: [] };
     const coaches = (S().coaches || []).slice().sort((a, b) => coachName(a.id).localeCompare(coachName(b.id)));
     const opt = (sel, list) => list.map(h => `<option ${h === sel ? 'selected' : ''}>${h}</option>`).join('');
     const ex = isExtraTr(tr), pv = isPrivateTr(tr), kind = tr ? trType(tr) : (dr && dr.kind) || 'weekly';
@@ -2556,7 +2587,7 @@
       <label>${esc(t('ptStart'))}<select name="from" required>${ptStarts().map(h => `<option ${h === (dr.from || '17:00') ? 'selected' : ''}>${h}</option>`).join('')}</select></label>
       <fieldset class="span-all pt-durs"><legend>${esc(t('bkDuration'))}</legend><div class="segmented wrap">${PT_DURS.map(n => `<label class="seg-radio"><input type="radio" name="dur" value="${n}" ${n === (Number(dr.dur) || 60) ? 'checked' : ''}><span>${esc(durText('00:00', fromMin(n)))}</span></label>`).join('')}</div></fieldset>
       <label>${esc(t('ptCoach'))}<select name="coach"><option value="">${esc(t('ptCoachAny'))}</option>${coaches.map(c => `<option value="${esc(c.v)}" ${dr.coach === c.v ? 'selected' : ''}>${esc(c.name)}${c.role ? ' — ' + esc(teamRole(c.role)) : ''}</option>`).join('')}</select></label>
-      <label>${esc(t('trLevel'))}<select name="level" required><option value="">—</option>${LEVELS.map(l => `<option value="${l}" ${dr.level === l ? 'selected' : ''}>${esc(levelLabel(l))}</option>`).join('')}</select></label>
+      <label>${esc(t('trLevel'))}<select name="level" required><option value="">—</option>${lvKeys().map(l => `<option value="${esc(l)}" ${dr.level === l ? 'selected' : ''}>${esc(levelLabel(l))}</option>`).join('')}</select></label>
       <label class="span-all">${esc(t('ptPhone'))}<input type="tel" name="phone" required maxlength="20" inputmode="tel" autocomplete="tel" value="${esc(phone)}" placeholder="${esc(t('bkPhonePh'))}">
         <small class="muted">${esc(t('ptPhoneHelp'))}</small></label>
       <label class="span-all">${esc(t('ptNotes'))}<textarea name="notes" rows="3" maxlength="300" placeholder="${esc(t('ptNotesPh'))}">${esc(dr.notes || '')}</textarea></label>
@@ -2640,7 +2671,7 @@
     if (c.startsWith('u:')) d.coachUid = c.slice(2); else if (c.startsWith('n:')) d.coachName = c.slice(2, 82);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(d.date) || d.date < todayStr() || d.date > ptMaxDate()) return warn('ptBadDate');
     if (d.date === todayStr() && d.from <= nowHM()) return warn('ptBadDate');
-    if (!LEVELS.includes(d.level)) return warn('ptNeedLevel');
+    if (!lvKeys().includes(d.level)) return warn('ptNeedLevel');
     if (!d.phone || !phoneOk(d.phone)) return warn('phoneBad');
     if (guest) {
       if (!v('first') || !v('last')) return warn('errRegFields');
@@ -3854,7 +3885,7 @@
     if (!d) return { per, p, loading: true };
     const ss = rpSessions(p.from, p.to, d);
     const byTr = rpGroup(ss, s => s.tr.id, s => `${trTitle(s.tr)} · ${trLabel(s.tr)}`);
-    const byLvl = rpGroup(ss, s => s.tr.level, s => levelLabel(s.tr.level)).sort((a, b) => LEVELS.indexOf(a.key) - LEVELS.indexOf(b.key));
+    const byLvl = rpGroup(ss, s => s.tr.level, s => levelLabel(s.tr.level)).sort((a, b) => lvKeys().indexOf(a.key) - LEVELS.indexOf(b.key));
     const byCoach = rpGroup(ss, s => s.tr.coachUid || '', s => (s.tr.coachUid ? coachName(s.tr.coachUid) : t('rpNoCoach'))).sort((a, b) => a.label.localeCompare(b.label));
     const byDay = rpGroup(ss, s => s.tr.dow, s => { const x = dayName(s.tr.dow); return x.charAt(0).toUpperCase() + x.slice(1); }).sort((a, b) => a.key - b.key);
     return { per, p, d, ss, byTr, byLvl, byCoach, byDay, all: rpGroup(ss, () => 'all', () => t('rpAll'))[0] };
@@ -4195,6 +4226,20 @@
     'tr-month': el => { ui.trMonth = el.dataset.m; render(); },
     'tr-edit': el => { ui.trEdit = el.dataset.id; render(); },
     'tr-mine': el => { ui.trMine = el.dataset.v === '1'; render(); },
+    'lv-move': el => {
+      const list = lvEditable(), i = list.findIndex(x => x.key === el.dataset.k), j = i + Number(el.dataset.d);
+      if (i < 0 || j < 0 || j >= list.length) return;
+      // nomi già scritti nel modulo ma non salvati
+      const f = el.closest('form'); list.forEach(x => { const inp = f && f.elements['n_' + x.key]; if (inp) x.name = inp.value.trim().slice(0, 40); });
+      [list[i], list[j]] = [list[j], list[i]]; S().levels = list; commit(t('lvSaved'));
+    },
+    'lv-del': el => {
+      const k = el.dataset.k, n = (S().trainings || []).filter(tr => tr.level === k).length;
+      if (n) return warn('lvInUse', { n });
+      if (levelList().length <= 1) return warn('lvLast');
+      if (!confirmed('lvDelConfirm', { l: levelLabel(k) })) return;
+      S().levels = lvEditable().filter(x => x.key !== k); commit(t('lvSaved'));
+    },
     'tr-day-add': el => { const f = el.closest('form'), rows = readTrDays(f), last = rows[rows.length - 1] || { dow: 1, from: '18:00', to: '19:30' };
       ui.trDays = rows.concat([{ dow: last.dow % 7 + 1, from: last.from, to: last.to, coach2: last.coach2 || '' }]); keepTrDraft(f); render(); },
     'tr-day-del': el => { const f = el.closest('form'), rows = readTrDays(f); rows.splice(+el.dataset.i, 1); ui.trDays = rows; keepTrDraft(f); render(); },
@@ -4914,6 +4959,16 @@
     'ptreq-send': f => ptSend(f),
     'enroll-send': f => enSend(f),
     'ptreq-confirm': f => ptConfirm(f),
+    'lv-save': f => {
+      const list = lvEditable();
+      list.forEach(x => { const inp = f.elements['n_' + x.key]; if (inp) x.name = inp.value.trim().slice(0, 40); });
+      const nn = f.newName.value.trim().slice(0, 40);
+      if (nn) {
+        if (list.some(x => L.norm(x.name || levelDefault(x.key)) === L.norm(nn))) return warn('lvExists', { l: nn });
+        list.push({ key: lvSlug(nn), name: nn });
+      }
+      S().levels = list; commit(t(nn ? 'lvAdded' : 'lvSaved', { l: nn }));
+    },
     'user-create': f => {
       const d = { first: f.first.value.trim(), last: f.last.value.trim(), gender: f.gender.value, email: f.email.value.trim(), password: f.password.value, role: f.role.value,
         alsoCoach: !!(f.alsoCoach && f.alsoCoach.checked) };
@@ -5038,8 +5093,8 @@
   const CENTER_FORMS = new Set(['tr-save', 'grp-add', 'occ-copy']);
   const PUBLIC_FORMS = new Set(['login', 'register', 'complete-profile', 'ptreq-send', 'enroll-send']);
   // solo admin (non la segreteria): impostazioni dei campi, regole di prenotazione, listino, avvisi, articoli, messaggi
-  const ADMIN_FORMS = new Set(['court-save', 'recurring-add', 'booking-settings', 'book-rewards-save', 'msg-send', 'nick-save', 'editorial-save', 'notice-save', 'prices-save']);
-  const ADMIN_ACTIONS = new Set(['court-open', 'court-close', 'court-delete', 'recurring-delete', 'court-copy', 'msg-delete', 'msg-target', 'editorial-edit', 'editorial-clear', 'notice-edit', 'notice-clear']);
+  const ADMIN_FORMS = new Set(['court-save', 'recurring-add', 'booking-settings', 'book-rewards-save', 'msg-send', 'nick-save', 'editorial-save', 'notice-save', 'prices-save', 'lv-save']);
+  const ADMIN_ACTIONS = new Set(['court-open', 'court-close', 'court-delete', 'recurring-delete', 'court-copy', 'msg-delete', 'msg-target', 'editorial-edit', 'editorial-clear', 'notice-edit', 'notice-clear', 'lv-move', 'lv-del']);
   const MEMBER_ACTIONS = new Set(['wr-go', 'wr-share', 'tr-past', 'tr-view', 'tr-dmonth', 'notice-read-all', 'profile-edit', 'profile-cancel', 'msg-read', 'verify-resend', 'verify-check', 'booking-open', 'booking-confirm', 'booking-delete', 'notice-dismiss', 'tr-month', 'tr-day', 'tr-tab', 'att-set', 'spot-apply', 'spot-withdraw', 'spot-seen', 'rc-pdf', 'st-period', 'st-ref', 'privacy-accept', 'my-data', 'delete-request', 'ptreq-withdraw']);
   const MEMBER_FORMS = new Set(['profile-save']);
   // allenatore: presenze e scheda di valutazione dei propri allenamenti (controllo anche nell'azione e nelle regole)
