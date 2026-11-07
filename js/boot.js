@@ -66,8 +66,8 @@ window.BpaSeason = {
   design: function (stored, picked, prev) {
     var s = window.BpaSeason.current();
     if (s && picked !== window.BpaSeason.key()) return s;
-    if (stored && stored !== s && window.BpaSeason.chosenInSeason(stored, picked)) return prev || 'quattromori';
-    return stored || 'quattromori';
+    if (stored && stored !== s && window.BpaSeason.chosenInSeason(stored, picked)) return prev || 'erba';
+    return stored || 'erba';
   }
 };
 // Stile grafico scelto su questo dispositivo (applicato subito, prima del caricamento dell'app).

@@ -1,5 +1,5 @@
 /* Quattro Mori Tennis Team (grafica derivata da Beach+ Arena): colori predefiniti; tavolozze e temi grafici in fondo al file.
-   Lo stile predefinito è il design "quattromori" (vedi boot.js e app.js). */
+   Lo stile predefinito è il design "erba" (vedi boot.js e app.js). */
 :root {
   --bg: #f3f8f6;
   --surface: #ffffff;
@@ -974,6 +974,14 @@ dl.summary dd:first-letter { text-transform: uppercase; }
 .court-form table.hours td, .court-form table.hours th { padding: 4px 6px; }
 .court-form table.hours select { padding: 4px 6px; min-height: 34px; }
 .court-form table.hours input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--primary); }
+/* pagina Campi: ogni campo creato è una riga compatta; si apre solo quello in modifica */
+.court-list { display: grid; gap: 8px; margin-bottom: 12px; }
+.court-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 12px 16px; margin: 0; }
+.court-row .btn-row { margin: 0; }
+.court-row-info { min-width: 0; }
+.court-row-info strong { font-size: 1.05rem; }
+.court-form h3 { margin: 0 0 10px; }
+.court-new .court-form { padding: 4px 0 0; }
 .ban-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 6px; font-size: .8rem; color: var(--muted); }
 .ban-row label.check { font-size: .8rem; }
 .users-list li.banned { background: var(--danger-soft); }
@@ -987,6 +995,15 @@ dl.summary dd:first-letter { text-transform: uppercase; }
 .badge.lvl-inter { background: #e6f0fb; color: #1d4f8a; border-color: transparent; }
 .badge.lvl-high { background: #fff1db; color: #8a5300; border-color: transparent; }
 .badge.lvl-pro { background: #fde4e4; color: #9b1c1c; border-color: transparent; }
+/* livelli nuovi (dal più piccolo agli adulti) */
+.badge.lvl-mini { background: #fdeaf3; color: #9b2360; border-color: transparent; }
+.badge.lvl-orange { background: #ffeedd; color: #a14a00; border-color: transparent; }
+.badge.lvl-green { background: #e5f5e3; color: #24692a; border-color: transparent; }
+.badge.lvl-perf { background: #e3f1f8; color: #135c80; border-color: transparent; }
+.badge.lvl-preago { background: #ebe8fb; color: #4b3a9e; border-color: transparent; }
+.badge.lvl-ago { background: #fde4e4; color: #9b1c1c; border-color: transparent; }
+.badge.lvl-adv { background: #2b2b2b; color: #fff; border-color: transparent; }
+.badge.lvl-adult { background: #eef0f2; color: #3b4652; border-color: transparent; }
 
 /* menu in basso con molte voci: si scorre in orizzontale invece di stringere troppo le voci */
 @media (max-width: 1199px) {

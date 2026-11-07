@@ -519,6 +519,11 @@
   // di serie: da 1 ora a 2 ore (1 h, 1 h 30, 2 h), a mezz'ore
   const BOOK_DEFAULTS = { minHours: 1, maxHours: 2, maxPerDay: 1, daysAhead: 7 };
   const bookCfg = () => Object.assign({}, BOOK_DEFAULTS, S().booking || {});
+  // Giorni avanti in cui si può prenotare (da oggi). 0 = nessun limite. Non c'è un preavviso minimo:
+  // si prenota anche all'ultimo momento, fino all'inizio della mezz'ora.
+  const BOOK_NO_LIMIT = 365;   // "senza limite": il calendario arriva comunque fino a un anno
+  const daysAheadOf = cfg => { const n = Number(cfg.daysAhead); return n === 0 ? 0 : n > 0 ? Math.round(n) : 7; };
+  const bookMaxDate = (cfg, from) => addDays(from || todayStr(), daysAheadOf(cfg) || BOOK_NO_LIMIT);
   // Durata minima di una prenotazione in minuti (l'admin non ha limiti).
   const minBook = () => (admin() ? 30 : Math.max(30, Math.round(Number(bookCfg().minHours) * 60) || 30));
   const hoursText = h => durText('00:00', fromMin(Math.round(Number(h) * 60) || 30));
@@ -756,7 +761,7 @@
     if (!ui.bookDate || (ui.bookDate < today && !admin())) ui.bookDate = today;
     const d = ui.bookDate;
     if (admin() && d < today && window.Cloud && window.Cloud.loadBookingsDay) window.Cloud.loadBookingsDay(d);
-    const max = addDays(today, Number(cfg.daysAhead) || 7);
+    const max = bookMaxDate(cfg, today);
     const allCourts = bookableCourts();
     // filtro Tutti / Tennis / Padel, solo se ci sono campi di entrambi i tipi
     const types = COURT_TYPES.filter(k => allCourts.some(c => courtType(c) === k));
@@ -837,7 +842,7 @@
       ${banNotice('book')}
       <div class="page-head row"><h1><i class="ti ti-calendar-time" aria-hidden="true"></i> ${esc(t('bkTitle'))}</h1>
         ${fullAdmin() ? `<a class="btn small" href="#/courts"><i class="ti ti-settings" aria-hidden="true"></i> ${esc(t('courtsManage'))}</a>` : ''}</div>
-      <p class="muted">${esc(t('bkIntro', { c: courts.filter(c => c.visible).length, o: opened.length, m: hoursText(cfg.minHours), h: hoursText(cfg.maxHours), d: cfg.daysAhead }))}</p>
+      <p class="muted">${esc(t('bkIntro', { c: courts.filter(c => c.visible).length, o: opened.length, m: hoursText(cfg.minHours), h: hoursText(cfg.maxHours) }))} ${esc(daysAheadOf(cfg) ? t('bkAheadN', { d: daysAheadOf(cfg) }) : t('bkAheadAny'))}</p>
       <div class="date-nav">
         <button class="btn icon" data-action="bk-day" data-delta="-1" aria-label="${esc(t('bkPrevDay'))}" ${d <= today && !admin() ? 'disabled' : ''}><i class="ti ti-chevron-left" aria-hidden="true"></i></button>
         <input type="date" value="${d}" ${admin() ? '' : `min="${today}"`} max="${max}" data-change="bk-date" aria-label="${esc(t('bkDay'))}">
@@ -982,7 +987,7 @@
     const orig = s.editId && (S().bookings || []).find(b => b.id === s.editId);
     const owner = admin() ? (s.blocked ? null : s.userId || (orig ? orig.userId : uid)) : uid;
     if (!admin()) {
-      if (s.date > addDays(todayStr(), Number(cfg.daysAhead) || 7)) return warn('bkNotBookable');
+      if (s.date > bookMaxDate(cfg)) return warn('bkNotBookable');
       if (toMin(s.to) - toMin(s.from) < minBook()) return warn('bkMinHours', { h: hoursText(cfg.minHours) });
       if (toMin(s.to) - toMin(s.from) > Number(cfg.maxHours) * 60) return warn('bkMaxHours', { h: hoursText(cfg.maxHours) });
       const same = (S().bookings || []).filter(b => b.userId === uid && b.date === s.date && b.id !== s.editId).length;
@@ -1037,6 +1042,8 @@
   }
 
   // ---------- reward dei campi (prenotazioni giocate), soglie decise dall'admin ----------
+  // Gli utenti li vedono solo se l'admin li ha attivati (pagina Campi, «Premi delle prenotazioni»; di serie spenti).
+  const rewardsOn = () => !!(S().bookRewards && S().bookRewards.on === true);
   function bookRewardFor(n) {
     const th = S().bookRewards || {};
     let best = null;
@@ -1063,9 +1070,32 @@
   }
 
   // ---------- amministrazione dei campi ----------
-  function courtForm(c) {
+  // Orari in breve: giorni consecutivi con lo stesso orario insieme (es. "lun–ven 08:00–23:00 · dom chiuso").
+  function hoursShort(c) {
+    const val = n => { const o = c.hours[n]; return o && o.open && o.from < o.to ? `${o.from}–${o.to}` : t('courtClosedShort'); };
+    const out = [];
+    for (let n = 1; n <= 7;) {
+      let m = n; while (m < 7 && val(m + 1) === val(n)) m++;
+      out.push(n === 1 && m === 7 ? `${t('courtEveryDay')} ${val(n)}` : `${dayShort(n).replace('.', '')}${m > n ? '–' + dayShort(m).replace('.', '') : ''} ${val(n)}`);
+      n = m + 1;
+    }
+    return out.join(' · ');
+  }
+  // Campo già creato: una riga compatta (nome, tipo, orari in breve) con «Modifica» ed «Elimina campo».
+  // Si apre una sola scheda alla volta (ui.courtOpen); «Nuovo campo» è in fondo.
+  function courtRow(c) {
+    if (ui.courtOpen === c.id) return courtForm(c);
+    return `<div class="card court-row" id="court-${esc(c.id)}">
+      <div class="court-row-info"><strong>${esc(c.name)}</strong> ${typeBadge(c)}${c.visible ? '' : ` <span class="badge">${esc(t('bkHidden'))}</span>`}
+        <br><small class="muted"><i class="ti ti-clock" aria-hidden="true"></i> ${esc(hoursShort(c))}</small></div>
+      <div class="btn-row"><button class="btn small" data-action="court-open" data-id="${esc(c.id)}"><i class="ti ti-pencil" aria-hidden="true"></i> ${esc(t('edit'))}</button>
+        <button class="btn small danger" data-action="court-delete" data-id="${esc(c.id)}"><i class="ti ti-trash" aria-hidden="true"></i> ${esc(t('courtDelete'))}</button></div>
+    </div>`;
+  }
+  function courtForm(c, isNew) {
     const opt = v => HALF_HOURS.map(h => `<option ${h === v ? 'selected' : ''}>${h}</option>`).join('');
-    return `<form data-form="court-save" class="card court-form"><input type="hidden" name="id" value="${esc(c.id)}">
+    return `<form data-form="court-save" class="${isNew ? '' : 'card '}court-form" ${isNew ? '' : `id="court-${esc(c.id)}"`}><input type="hidden" name="id" value="${isNew ? '' : esc(c.id)}">
+      ${isNew ? '' : `<h3>${esc(c.name)} ${typeBadge(c)}</h3>`}
       <div class="grid-form"><label>${esc(t('courtName'))}<input name="name" value="${esc(c.name)}" maxlength="40" required></label>
         <label>${esc(t('courtType'))}<select name="type">${COURT_TYPES.map(k => `<option value="${k}" ${c.type === k ? 'selected' : ''}>${esc(t('courtType_' + k))}</option>`).join('')}</select></label>
         <label class="check"><input type="checkbox" name="visible" ${c.visible ? 'checked' : ''}> ${esc(t('courtVisible'))}</label></div>
@@ -1077,8 +1107,9 @@
       </tbody></table></div>
       <div class="form-actions">
         <button type="button" class="btn small" data-action="court-copy">${esc(t('courtCopy'))}</button>
-        <button type="button" class="btn small danger" data-action="court-delete" data-id="${esc(c.id)}"><i class="ti ti-trash" aria-hidden="true"></i> ${esc(t('courtDelete'))}</button>
-        <button class="btn small primary">${esc(t('save'))}</button>
+        ${isNew ? '' : `<button type="button" class="btn small" data-action="court-close">${esc(t('close'))}</button>
+        <button type="button" class="btn small danger" data-action="court-delete" data-id="${esc(c.id)}"><i class="ti ti-trash" aria-hidden="true"></i> ${esc(t('courtDelete'))}</button>`}
+        <button class="btn small primary">${esc(t(isNew ? 'courtCreate' : 'save'))}</button>
       </div></form>`;
   }
 
@@ -1127,26 +1158,36 @@
         <label>${esc(t('bkMinHoursLbl'))}<select name="minHours">${[0.5, 1, 1.5, 2, 2.5, 3].map(h => `<option value="${h}" ${h == cfg.minHours ? 'selected' : ''}>${esc(durText('00:00', fromMin(h * 60)))}</option>`).join('')}</select></label>
         <label>${esc(t('bkMaxHoursLbl'))}<select name="maxHours">${[0.5, 1, 1.5, 2, 2.5, 3, 4].map(h => `<option value="${h}" ${h == cfg.maxHours ? 'selected' : ''}>${esc(durText('00:00', fromMin(h * 60)))}</option>`).join('')}</select></label>
         <label>${esc(t('bkMaxDayLbl'))}<input type="number" min="1" name="maxPerDay" value="${cfg.maxPerDay}"></label>
-        <label>${esc(t('bkDaysAheadLbl'))}<input type="number" min="1" max="90" name="daysAhead" value="${cfg.daysAhead}"></label>
+        <label>${esc(t('bkDaysAheadLbl'))}<input type="number" min="0" max="${BOOK_NO_LIMIT}" name="daysAhead" value="${daysAheadOf(cfg)}" inputmode="numeric">
+          <small class="muted">${esc(t('bkDaysAheadHelp'))}</small></label>
         <div class="form-actions span-all"><button class="btn primary">${esc(t('save'))}</button></div>
       </form>
       <h2>${esc(t('courtsTitle'))}</h2>
       <p class="muted small">${esc(t('courtsHelp'))}</p>
-      ${(S().courts || []).map(courtForm).join('')}
-      <div class="btn-row"><button class="btn" data-action="court-add"><i class="ti ti-plus" aria-hidden="true"></i> ${esc(t('courtAdd'))}</button></div>
+      <div class="court-list">${(S().courts || []).map(courtRow).join('') || `<p class="muted">${esc(t('bkNoCourtsAdmin'))}</p>`}</div>
+      <details class="card sub-form court-new" data-keep="court-new" ${keepOpen('court-new')}><summary><i class="ti ti-plus" aria-hidden="true"></i> ${esc(t('courtAdd'))}</summary>
+        ${courtForm(Store.normCourt({ id: '', name: `${t('bkCourt')} ${(S().courts || []).length + 1}` }), true)}</details>
       <p class="muted small">${esc(t('courtsBlockHelp'))}</p>
       ${recurringCard()}
-      <form class="card" data-form="book-rewards-save">
-        <h2><i class="ti ti-star" aria-hidden="true"></i> ${esc(t('bookRewardsTitle'))}</h2>
+      <details class="card sub-form" data-keep="book-rewards" ${keepOpen('book-rewards')}><summary><i class="ti ti-star" aria-hidden="true"></i> ${esc(t('bookRewardsTitle'))}
+        <span class="badge ${rewardsOn() ? 'st-done' : ''}">${esc(t(rewardsOn() ? 'rewardsOnBadge' : 'rewardsOffBadge'))}</span></summary>
+        <form data-form="book-rewards-save">
         <p class="muted small">${esc(t('bookRewardsHelp'))}</p>
+        <label class="check"><input type="checkbox" name="on" ${rewardsOn() ? 'checked' : ''}> ${esc(t('rewardsOnLbl'))}</label>
+        <p class="muted small">${esc(t('rewardsOnHelp'))}</p>
         <div class="grid-form">${REWARDS.map(([k, icon]) => `<label>${icon} ${esc(t('rw_' + k))}
           <input name="${k}" type="number" min="0" inputmode="numeric" value="${th[k] || ''}" placeholder="—"></label>`).join('')}</div>
         <div class="form-actions"><button class="btn primary">${esc(t('save'))}</button></div>
-      </form>`;
+      </form></details>`;
   }
 
-  // livelli degli allenamenti (etichette fpLevel_…)
-  const LEVELS = ['start', 'inter', 'high', 'pro'];
+  // livelli degli allenamenti (etichette fpLevel_…), nell'ordine deciso dal titolare.
+  // I livelli di prima (start, inter, high, pro) restano leggibili; un livello sconosciuto si mostra com'è scritto.
+  const LEVELS = ['mini', 'orange', 'green', 'perf', 'preago', 'ago', 'adv', 'adult'];
+  const levelLabel = l => { if (!l) return ''; const k = 'fpLevel_' + l, x = t(k); return x === k ? String(l) : x; };
+  const lvlBadge = l => (l ? `<span class="badge lvl-${/^[a-z]+$/.test(l) ? l : 'other'}">${esc(levelLabel(l))}</span>` : '');
+  const levelOptions = cur => LEVELS.map(l => `<option value="${l}" ${l === cur ? 'selected' : ''}>${esc(levelLabel(l))}</option>`).join('')
+    + (cur && !LEVELS.includes(cur) ? `<option value="${esc(cur)}" selected>${esc(levelLabel(cur))}</option>` : '');
   // Moduli a scomparsa che restano aperti anche se la pagina si ridisegna (aggiornamenti dal database).
   const keepOpen = key => ((ui.keep || {})[key] ? 'open' : '');
   // ====================================================================
@@ -1254,7 +1295,7 @@
   const trLabel = tr => { if (tr.date) { const x = longDate(tr.date); return `${x.charAt(0).toUpperCase() + x.slice(1)} ${esc(tr.from)}–${esc(tr.to)}`; }
     const d = dayName(tr.dow); return `${d.charAt(0).toUpperCase() + d.slice(1)} ${esc(tr.from)}–${esc(tr.to)}`; };
   const extraBadge = tr => (isExtraTr(tr) ? `<span class="badge tr-extra-badge"><i class="ti ti-refresh" aria-hidden="true"></i> ${esc(t('trExtraBadge'))}</span>` : '');
-  const trTitle = tr => tr.name || t('trDefaultName', { l: t('fpLevel_' + tr.level) });
+  const trTitle = tr => tr.name || t('trDefaultName', { l: levelLabel(tr.level) });
   const groupOf = (tid, month) => (S().groups || []).find(g => g.tid === tid && g.month === month);
   const athleteOf = uid => (S().athletes || []).find(a => a.id === uid);
   const planOf = (uid, month) => (S().plans || []).find(p => p.uid === uid && p.month === month);
@@ -1358,7 +1399,7 @@
         </form></details>`;
     }
     return `<div class="card tr-card ${isExtraTr(tr) ? 'tr-extra' : ''}" id="tr-${esc(tr.id)}">
-      <div class="ch-head">${extraBadge(tr)}<span class="badge lvl-${tr.level}">${esc(t('fpLevel_' + tr.level))}</span> <span class="badge ${full ? 'st-full' : ''}">${uids.length}/${tr.max}</span></div>
+      <div class="ch-head">${extraBadge(tr)}${lvlBadge(tr.level)} <span class="badge ${full ? 'st-full' : ''}">${uids.length}/${tr.max}</span></div>
       <h3>${esc(trTitle(tr))}</h3>
       <p class="muted cap"><i class="ti ti-${isExtraTr(tr) ? 'calendar-event' : 'calendar-repeat'}" aria-hidden="true"></i> ${esc(trLabel(tr))}</p>
       <p class="muted small">${tr.coachUid ? `<i class="ti ti-school" aria-hidden="true"></i> ${esc(t('trCoach'))}: ${esc(coachName(tr.coachUid))}` : ''}
@@ -1375,7 +1416,7 @@
   function trainingForm(tr) {
     // nuovo allenamento: dopo un avviso il modulo riparte da quanto già scritto (ui.trDraft)
     const dr = !tr && ui.trDraft;
-    const v = tr || dr || { name: '', dow: 1, from: '19:00', to: '20:15', level: 'inter', max: 8, coachUid: '', courts: [] };
+    const v = tr || dr || { name: '', dow: 1, from: '19:00', to: '20:15', level: LEVELS[0], max: 8, coachUid: '', courts: [] };
     const coaches = (S().coaches || []).slice().sort((a, b) => coachName(a.id).localeCompare(coachName(b.id)));
     const opt = (sel, list) => list.map(h => `<option ${h === sel ? 'selected' : ''}>${h}</option>`).join('');
     const ex = isExtraTr(tr);
@@ -1393,7 +1434,7 @@
         <label class="only-weekly">${esc(t('bkDay'))}<select name="dow">${[1, 2, 3, 4, 5, 6, 7].map(n => `<option value="${n}" ${n === v.dow ? 'selected' : ''}>${esc(dayName(n))}</option>`).join('')}</select></label>
         <label>${esc(t('courtFrom'))}<select name="from">${opt(v.from, QUARTERS.slice(0, -1))}</select></label>
         <label>${esc(t('courtTo'))}<select name="to">${opt(v.to, QUARTERS.slice(1))}</select></label>
-        <label>${esc(t('trLevel'))}<select name="level">${LEVELS.map(l => `<option value="${l}" ${l === v.level ? 'selected' : ''}>${esc(t('fpLevel_' + l))}</option>`).join('')}</select></label>
+        <label>${esc(t('trLevel'))}<select name="level">${levelOptions(v.level)}</select></label>
         <label>${esc(t('trMax'))}<input type="number" name="max" min="1" max="60" required value="${v.max}" inputmode="numeric"></label>
         <label>${esc(t('trCoach'))}<select name="coachUid"><option value="">—</option>${coaches.map(c => `<option value="${esc(c.id)}" ${c.id === v.coachUid ? 'selected' : ''}>${esc(coachName(c.id))}</option>`).join('')}</select>
           ${coaches.length ? '' : `<small class="muted">${esc(t('trNoCoaches'))}</small>`}</label>
@@ -1675,7 +1716,7 @@
     if (!old) ui.trDraft = Object.assign({}, d, { kind: extra ? 'extra' : 'weekly', date: f.date ? f.date.value : '', copyFrom: f.copyFrom ? f.copyFrom.value : '' });
     if (d.to <= d.from) return warn('fpTimeErr');
     if (extra) return trSaveExtra(f, old, d);
-    d.reason = `${t('navTrain')} · ${d.name || t('fpLevel_' + d.level)}${d.coachUid ? ' · ' + coachName(d.coachUid) : ''}`;
+    d.reason = `${t('navTrain')} · ${d.name || levelLabel(d.level)}${d.coachUid ? ' · ' + coachName(d.coachUid) : ''}`;
     // campi: niente sovrapposizioni con altri blocchi ricorrenti; avviso se ci sono prenotazioni future
     const mineR = new Set((old ? old.courts || [] : []).map(c => `t_${esc(old.id)}_${c}`));
     const clash = d.courts.filter(c => (S().recurring || []).some(r => !mineR.has(r.id) && r.courtId === c && r.dow === d.dow && r.from < d.to && d.from < r.to));
@@ -1697,7 +1738,7 @@
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return warn('trExtraNeedDate');
     if (!old && date < todayStr()) return warn('trExtraPast');
     Object.assign(d, { date, dow: dow(date) });
-    d.reason = `${t('trExtraBadge')} · ${d.name || t('fpLevel_' + d.level)}${d.coachUid ? ' · ' + coachName(d.coachUid) : ''}`;
+    d.reason = `${t('trExtraBadge')} · ${d.name || levelLabel(d.level)}${d.coachUid ? ' · ' + coachName(d.coachUid) : ''}`;
     // campi: niente blocchi ricorrenti (altri allenamenti) né prenotazioni in quell'orario di quel giorno
     const clashR = d.courts.filter(c => (S().recurring || []).some(r => r.courtId === c && r.dow === d.dow && r.from < d.to && d.from < r.to));
     if (clashR.length) return warn('trCourtBusy', { c: clashR.map(courtName).join(', ') });
@@ -1855,7 +1896,7 @@
       else if (needsVerify()) act = `<p class="note warn">${esc(t('verifyFirst'))}</p>`;
       else act = `<button class="btn primary" data-action="spot-apply" data-tid="${esc(tr.id)}" data-date="${date}"><i class="ti ti-hand-finger" aria-hidden="true"></i> ${esc(t('spotApply'))}</button>`;
       return `<div class="card tr-card spot-card" id="spot-${esc(tr.id)}-${date}">
-        <div class="ch-head"><span class="badge lvl-${tr.level}">${esc(t('fpLevel_' + tr.level))}</span> ${free > 0 ? freeBadge(tr, date) : ''}</div>
+        <div class="ch-head">${lvlBadge(tr.level)} ${free > 0 ? freeBadge(tr, date) : ''}</div>
         <h3>${esc(trTitle(tr))}</h3>
         <p class="muted cap"><i class="ti ti-calendar" aria-hidden="true"></i> ${esc(longDate(date))} · ${esc(tr.from)}–${esc(tr.to)}</p>
         ${tr.coachUid ? `<p class="muted small"><i class="ti ti-school" aria-hidden="true"></i> ${esc(coachName(tr.coachUid))}</p>` : ''}
@@ -2063,7 +2104,7 @@
     const spotPrice = (S().prices || {}).spot;
     const n = groupSize(tr, date.slice(0, 7), date);
     return `<div class="card tr-card occ-card ${isExtraTr(tr) ? 'tr-extra' : ''} ${o.cancelled ? 'is-cancelled' : ''}" id="occ-${esc(tr.id)}-${date}">
-      <div class="ch-head">${extraBadge(tr)}<span class="badge lvl-${tr.level}">${esc(t('fpLevel_' + tr.level))}</span>
+      <div class="ch-head">${extraBadge(tr)}${lvlBadge(tr.level)}
         ${o.cancelled ? `<span class="badge st-full">${esc(t('occCancelled'))}</span>` : admin() ? freeBadge(tr, date) : ''}</div>
       <h3>${esc(trTitle(tr))}</h3>
       <p class="muted"><i class="ti ti-clock" aria-hidden="true"></i> ${esc(tr.from)}–${esc(tr.to)}${tr.coachUid ? ` · ${esc(coachName(tr.coachUid))}` : ''}</p>
@@ -2954,7 +2995,7 @@
     if (!d) return { per, p, loading: true };
     const ss = rpSessions(p.from, p.to, d);
     const byTr = rpGroup(ss, s => s.tr.id, s => `${trTitle(s.tr)} · ${trLabel(s.tr)}`);
-    const byLvl = rpGroup(ss, s => s.tr.level, s => t('fpLevel_' + s.tr.level)).sort((a, b) => LEVELS.indexOf(a.key) - LEVELS.indexOf(b.key));
+    const byLvl = rpGroup(ss, s => s.tr.level, s => levelLabel(s.tr.level)).sort((a, b) => LEVELS.indexOf(a.key) - LEVELS.indexOf(b.key));
     const byCoach = rpGroup(ss, s => s.tr.coachUid || '', s => (s.tr.coachUid ? coachName(s.tr.coachUid) : t('rpNoCoach'))).sort((a, b) => a.label.localeCompare(b.label));
     const byDay = rpGroup(ss, s => s.tr.dow, s => { const x = dayName(s.tr.dow); return x.charAt(0).toUpperCase() + x.slice(1); }).sort((a, b) => a.key - b.key);
     return { per, p, d, ss, byTr, byLvl, byCoach, byDay, all: rpGroup(ss, () => 'all', () => t('rpAll'))[0] };
@@ -3065,7 +3106,7 @@
     const r = rpData();
     if (r.loading) return;
     const sessions = [['Data', 'Allenamento', 'Livello', 'Allenatore', 'Iscritti', 'Presenti', 'Assenti', 'Senza risposta', 'Spot', 'Recuperi', 'Totale presenti']]
-      .concat(r.ss.slice().sort((a, b) => (a.date + a.tr.from).localeCompare(b.date + b.tr.from)).map(s => [itDate(s.date), `${trTitle(s.tr)} ${s.tr.from}–${s.tr.to}`, t('fpLevel_' + s.tr.level),
+      .concat(r.ss.slice().sort((a, b) => (a.date + a.tr.from).localeCompare(b.date + b.tr.from)).map(s => [itDate(s.date), `${trTitle(s.tr)} ${s.tr.from}–${s.tr.to}`, levelLabel(s.tr.level),
         s.tr.coachUid ? coachName(s.tr.coachUid) : '', s.enrolled, s.in, s.out, s.nr, s.spot, s.rec, s.in + s.spot + s.rec]));
     const ath = [['Allenamento', 'Corsista', 'Presenze', 'Assenze', 'di cui senza risposta', 'Recuperi fatti', 'Allenamenti assenti']];
     r.byTr.forEach(x => { const tr = trainingById(x.key); if (!tr) return;
@@ -3081,7 +3122,7 @@
     if (!d) return;
     const trs = trainings(), PAYM = { cash: 'contanti', card: 'POS', transfer: 'bonifico' };
     const sheetTr = [['Allenamento', 'Giorno', 'Orario', 'Livello', 'Allenatore', 'Max persone', 'Campi', 'Iscritti nel mese']]
-      .concat(trs.map(tr => [trTitle(tr), dayName(tr.dow), `${esc(tr.from)}–${esc(tr.to)}`, t('fpLevel_' + tr.level), tr.coachUid ? coachName(tr.coachUid) : '', tr.max || 0,
+      .concat(trs.map(tr => [trTitle(tr), dayName(tr.dow), `${esc(tr.from)}–${esc(tr.to)}`, levelLabel(tr.level), tr.coachUid ? coachName(tr.coachUid) : '', tr.max || 0,
         (tr.courts || []).map(courtName).join(', '), ((groupOf(tr.id, month) || {}).uids || []).length]));
     const sheetGr = [['Allenamento', 'Orario', 'Corsista']];
     trs.forEach(tr => { const g = groupOf(tr.id, month); ((g && g.uids) || []).forEach(u => sheetGr.push([trTitle(tr), trLabel(tr), (g.names || {})[u] || coachName(u)])); });
@@ -3394,14 +3435,14 @@
         <div class="ph-name"><h1>${esc(personName(m))}</h1>
           <p><span class="badge g-${m.gender}">${esc(t(m.gender === 'F' ? 'female' : 'male'))}</span> <span class="ph-mail">${esc(m.email)}</span></p>
           ${(S().nicks || {})[m.uid] ? `<p class="ph-mail">${esc(t('nickShownAs', { n: S().nicks[m.uid] }))}</p>` : ''}</div>
-        ${rw ? `<span class="ph-reward" title="${esc(t('reward'))}">${rw.icon} ${esc(t('rw_' + rw.key))}</span>` : ''}
+        ${rw && rewardsOn() ? `<span class="ph-reward" title="${esc(t('reward'))}">${rw.icon} ${esc(t('rw_' + rw.key))}</span>` : ''}
       </div>
       <div class="ph-stats">
         <div><strong>${played == null ? '…' : played}</strong><span>${esc(t('phPlayed'))}</span></div>
         <div><strong>${nextN}</strong><span>${esc(t('phNext'))}</span></div>
-        <div><strong>${rw ? rw.icon : '—'}</strong><span>${esc(t('reward'))}</span></div>
+        ${rewardsOn() ? `<div><strong>${rw ? rw.icon : '—'}</strong><span>${esc(t('reward'))}</span></div>` : ''}
       </div>
-      ${next && played != null ? `<div class="ph-progress"><div class="ph-prog-head"><span>${esc(t('agNextReward', { r: t('rw_' + next[0]) }))} ${next[1]}</span><span>${esc(t('phToGo', { n: goal - n }))}</span></div>
+      ${rewardsOn() && next && played != null ? `<div class="ph-progress"><div class="ph-prog-head"><span>${esc(t('agNextReward', { r: t('rw_' + next[0]) }))} ${next[1]}</span><span>${esc(t('phToGo', { n: goal - n }))}</span></div>
         <div class="ph-bar" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><span style="width:${pct}%"></span></div></div>` : ''}
     </section>`;
   }
@@ -3576,7 +3617,7 @@
       ${wrappedAlert()}
       ${myAgenda(m, myBk)}
       ${wrappedList(m)}
-      <div class="stats-row">${bookRewardStat(m.uid)}</div>
+      ${rewardsOn() ? `<div class="stats-row">${bookRewardStat(m.uid)}</div>` : ''}
       ${myStatsCard()}
       ${myTrainingCard(true)}
       ${myReceiptsCard()}
@@ -3700,7 +3741,7 @@
   const DESIGN_KEY = 'pcm-design';
 
   function currentDesign() {
-    // Stile predefinito: Quattro Mori (ognuno può sceglierne un altro in Impostazioni).
+    // Stile predefinito: Erba (ognuno può sceglierne un altro in Impostazioni).
     // Periodi a tema (Halloween, Natale, Capodanno, Befana: vedi BpaSeason in boot.js): per tutti, salvo chi in quei giorni sceglie un altro stile.
     return ui.design || BpaSeason.design(Consent.read(DESIGN_KEY), Consent.read('pcm-design-hw'), Consent.read('pcm-design-prev'));
   }
@@ -3930,9 +3971,12 @@
       (S().notices || []).filter(n => n.to === 'admins' && !(n.readBy || []).includes(me)).forEach(n => { n.readBy = (n.readBy || []).concat([me]); window.Cloud.dismissNotice(n.id, true); });
       render();
     },
-    'court-add': () => { S().courts = (S().courts || []).concat(Store.normCourt({ id: Store.uid('c'), name: `${t('bkCourt')} ${(S().courts || []).length + 1}` })); commit(); },
+    'court-open': el => { ui.courtOpen = el.dataset.id; render(); const x = document.getElementById('court-' + el.dataset.id); if (x) x.scrollIntoView({ block: 'nearest' }); },
+    'court-close': () => { ui.courtOpen = null; render(); },
     'court-delete': el => {
-      if (!confirmed('courtDeleteConfirm')) return;
+      const c = courtById(el.dataset.id);
+      if (!c || !confirmed('courtDeleteConfirm', { n: c.name })) return;
+      if (ui.courtOpen === c.id) ui.courtOpen = null;
       S().courts = (S().courts || []).filter(c => c.id !== el.dataset.id);
       (S().recurring || []).filter(r => r.courtId === el.dataset.id).forEach(r => window.Cloud.deleteRecurring(r).catch(() => {}));
       commit(t('saved'));
@@ -4009,7 +4053,9 @@
         .catch(e => { btn.disabled = false; warn(e.code === 'auth/email-already-in-use' ? 'userCreateExists' : e.code === 'auth/weak-password' ? 'registerWeak' : 'regError', { code: e.code || e.message }); });
     },
     'court-save': f => {
-      const c = courtById(f.id.value);
+      // nuovo campo (id vuoto): si crea e la sua scheda resta ridotta; modifica: si salva e si chiude
+      const isNew = !f.id.value;
+      const c = isNew ? Store.normCourt({ id: Store.uid('c'), name: f.name.value.trim() || `${t('bkCourt')} ${(S().courts || []).length + 1}` }) : courtById(f.id.value);
       if (!c) return;
       const hours = {};
       for (let n = 1; n <= 7; n++) {
@@ -4018,17 +4064,20 @@
         hours[n] = o;
       }
       Object.assign(c, { name: f.name.value.trim() || c.name, type: f.type.value === 'padel' ? 'padel' : 'tennis', visible: f.visible.checked, hours });
-      commit(t('saved'));
+      if (isNew) { S().courts = (S().courts || []).concat([c]); (ui.keep || {})['court-new'] = false; }
+      ui.courtOpen = null;
+      commit(t(isNew ? 'courtCreated' : 'saved', { n: c.name }));
     },
     'recurring-add': f => addRecurringForm(f),
     'booking-settings': f => {
       if (Number(f.minHours.value) > Number(f.maxHours.value)) return warn('bkMinMax');
-      S().booking = { minHours: Number(f.minHours.value) || 1, maxHours: Number(f.maxHours.value) || 2, maxPerDay: Math.max(1, parseInt(f.maxPerDay.value, 10) || 1), daysAhead: Math.max(1, parseInt(f.daysAhead.value, 10) || 7) };
+      S().booking = { minHours: Number(f.minHours.value) || 1, maxHours: Number(f.maxHours.value) || 2, maxPerDay: Math.max(1, parseInt(f.maxPerDay.value, 10) || 1), daysAhead: (v => (isNaN(v) ? 7 : Math.min(BOOK_NO_LIMIT, Math.max(0, v))))(parseInt(f.daysAhead.value, 10)) };
       commit(t('saved'));
     },
     'book-rewards-save': f => {
       const th = {};
       REWARDS.forEach(([k]) => { const v = parseInt(f[k].value, 10); if (v > 0) th[k] = v; });
+      th.on = !!f.on.checked;
       S().bookRewards = th;
       commit(t('saved'));
     },
@@ -4119,7 +4168,7 @@
   const PUBLIC_FORMS = new Set(['login', 'register', 'complete-profile']);
   // solo admin (non la segreteria): impostazioni dei campi, regole di prenotazione, listino, avvisi, articoli, messaggi
   const ADMIN_FORMS = new Set(['court-save', 'recurring-add', 'booking-settings', 'book-rewards-save', 'msg-send', 'nick-save', 'editorial-save', 'notice-save', 'prices-save']);
-  const ADMIN_ACTIONS = new Set(['court-add', 'court-delete', 'recurring-delete', 'court-copy', 'msg-delete', 'msg-target', 'editorial-edit', 'editorial-clear', 'notice-edit', 'notice-clear']);
+  const ADMIN_ACTIONS = new Set(['court-open', 'court-close', 'court-delete', 'recurring-delete', 'court-copy', 'msg-delete', 'msg-target', 'editorial-edit', 'editorial-clear', 'notice-edit', 'notice-clear']);
   const MEMBER_ACTIONS = new Set(['wr-go', 'wr-share', 'tr-past', 'tr-view', 'tr-dmonth', 'notice-read-all', 'profile-edit', 'profile-cancel', 'msg-read', 'verify-resend', 'verify-check', 'booking-open', 'booking-confirm', 'booking-delete', 'notice-dismiss', 'tr-month', 'tr-day', 'tr-tab', 'att-set', 'spot-apply', 'spot-withdraw', 'spot-seen', 'rc-pdf', 'st-period', 'st-ref', 'privacy-accept', 'my-data', 'delete-request']);
   const MEMBER_FORMS = new Set(['profile-save']);
   // allenatore: presenze e scheda di valutazione dei propri allenamenti (controllo anche nell'azione e nelle regole)
