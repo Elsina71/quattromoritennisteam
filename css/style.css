@@ -999,6 +999,7 @@ dl.summary dd:first-letter { text-transform: uppercase; }
 .badge.lvl-mini { background: #fdeaf3; color: #9b2360; border-color: transparent; }
 .badge.lvl-orange { background: #ffeedd; color: #a14a00; border-color: transparent; }
 .badge.lvl-green { background: #e5f5e3; color: #24692a; border-color: transparent; }
+.badge.lvl-kids { background: #fff6cc; color: #7a5a00; border-color: transparent; }
 .badge.lvl-perf { background: #e3f1f8; color: #135c80; border-color: transparent; }
 .badge.lvl-preago { background: #ebe8fb; color: #4b3a9e; border-color: transparent; }
 .badge.lvl-ago { background: #fde4e4; color: #9b1c1c; border-color: transparent; }
@@ -1743,3 +1744,9 @@ form:has(select[name=holder] option[value="__manual"]:checked) .mh-hide { displa
 
 /* admin o segreteria che allena: tutti gli allenamenti / i miei */
 .tr-mine { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+
+/* Allenamenti per i visitatori: nome, categoria, giorni e orari */
+.pub-tr-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.pub-tr-list li { padding: 10px 0; border-top: 1px dashed var(--line, #ddd); }
+.pub-tr-list li:first-child { border-top: 0; }
+.pub-tr-days { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 4px; color: var(--muted, #666); font-size: .92rem; }

@@ -1575,11 +1575,22 @@
     return Object.assign(keep, { id: `${uid}_${month}`, uid, month, tids, desc, n: tids.length, price: old && old.manual ? old.price : auto, manual: !!(old && old.manual), updated: Date.now() });
   }
 
+  // Visitatori (senza accesso): solo nome e categoria dell'allenamento, giorni e orari. Niente allenatori, campi,
+  // corsisti o posti; niente recuperi né allenamenti privati. I giorni dello stesso allenamento stanno insieme.
+  function publicTrainings() {
+    const list = weeklyTrainings();
+    if (!list.length) return '';
+    const blocks = trBlocks(list.slice().sort((a, b) => a.dow - b.dow || a.from.localeCompare(b.from)));
+    return `<div class="card pub-tr"><h2><i class="ti ti-calendar-repeat" aria-hidden="true"></i> ${esc(t('pubTrTitle'))}</h2>
+      <ul class="pub-tr-list">${blocks.map(b => `<li><strong>${esc(trTitle(b.trs[0]))}</strong> ${lvlBadge(b.trs[0].level)}
+        <span class="pub-tr-days">${b.trs.map(x => `<span><i class="ti ti-clock" aria-hidden="true"></i> ${esc(trLabel(x))}</span>`).join('')}</span></li>`).join('')}</ul></div>`;
+  }
+
   function viewTraining() {
     // utenti e visitatori: posti spot disponibili e i propri allenamenti
     if (!admin() && !coach() && !centerAdm()) {
       const mine = member() ? myTrainingCard() : '';
-      return `${trainingAlerts()}<div class="page-head"><h1><i class="ti ti-barbell" aria-hidden="true"></i> ${esc(t('navTrain'))}</h1><p class="muted">${esc(t('trIntroPublic'))}</p></div>${ptCta()}${myPtReqs()}${mine}${spotSection(false)}`;
+      return `${trainingAlerts()}<div class="page-head"><h1><i class="ti ti-barbell" aria-hidden="true"></i> ${esc(t('navTrain'))}</h1><p class="muted">${esc(t('trIntroPublic'))}</p></div>${ptCta()}${myPtReqs()}${mine}${spotSection(false)}${myUid() ? '' : publicTrainings()}`;
     }
     const tab = ui.trTab || 'day';
     const tabs = `<nav class="tabs">${[['day', 'trTabDay', 'calendar-check'], ['groups', 'trTabGroups', 'users-group']].map(([k, l, i]) =>
