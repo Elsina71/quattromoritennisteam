@@ -2908,7 +2908,7 @@
     if (pd) {
       const r = pd.rid && receiptById(pd.rid);
       return `<p class="pay-line"><i class="ti ti-circle-check" aria-hidden="true"></i> ${paidLine(obj, pd)}
-        ${r ? ` <button class="btn small" data-action="rc-pdf" data-id="${esc(r.id)}"><i class="ti ti-file-type-pdf" aria-hidden="true"></i> ${esc(t('receiptPdf'))}</button>`
+        ${r ? ` <button class="btn small" data-action="rc-pdf" data-id="${esc(r.id)}"><i class="ti ti-file-type-pdf" aria-hidden="true"></i> ${esc(t('receiptPdf'))}</button> ${rcSendBtns(r)}`
           : ` <button class="btn small" data-action="pay-undo" data-kind="${kind}" data-ref="${esc(obj.id)}" data-iid="${pd.iid || ''}">${esc(t('payUndo'))}</button>`}</p>`;
     }
     const key = `${kind}:${esc(obj.id)}`;
@@ -2986,6 +2986,64 @@
     } catch (e) { console.error(e); warn('regError', { code: e.message }); }
   }
 
+  // ---------- «Invia ricevuta» (WhatsApp) e «Invia per email», senza server ----------
+  // Telefono: scheda del corsista (o del genitore per le schede senza account), poi l'ultimo telefono lasciato nelle
+  // prenotazioni o nelle richieste. Email: account dell'utente (solo staff) o scheda/genitore.
+  function rcContact(r) {
+    const uid = r.uid || '', a = athleteOf(uid) || {}, pa = a.parent || {};
+    const known = (S().bkphones || []).filter(x => x.by === uid).concat((S().ptreqs || []).filter(x => x.uid === uid)).sort((x, y) => (y.at || 0) - (x.at || 0));
+    const phone = (isKid(uid) ? pa.phone || a.phone : a.phone || pa.phone) || (known[0] || {}).phone || '';
+    const email = (isKid(uid) ? pa.email || a.email : (S().accounts || {})[uid] || a.email || pa.email) || '';
+    return { phone: String(phone || '').trim(), email: String(email || '').trim() };
+  }
+  const rcSurname = r => { const m = memberByUid(r.uid); const n = m && m.last ? m.last : String((r.person || {}).name || '').trim().split(/\s+/).pop() || ''; return latinName(n); };
+  const rcShareName = r => `Ricevuta_${rcNum(r).replace(/\//g, '-')}${rcSurname(r) ? '_' + rcSurname(r) : ''}.pdf`;
+  const rcTextOf = r => t('rcShareText', { n: rcNum(r), d: fmtDate(r.issued || r.payDate), c: Club.name });
+  const canShareFiles = () => { try { return !!(navigator.canShare && navigator.share && navigator.canShare({ files: [new File(['x'], 'x.pdf', { type: 'application/pdf' })] })); } catch (e) { return false; } };
+  async function rcSend(r, how) {
+    const c = rcContact(r), share = canShareFiles();
+    // sul computer la nuova scheda di WhatsApp si apre subito (al clic), così il browser non la blocca
+    const w = !share && how === 'wa' ? window.open('', '_blank') : null;
+    let file, blob;
+    try {
+      blob = (await receiptsPdf([r])).output('blob');
+      file = new File([blob], rcShareName(r), { type: 'application/pdf' });
+    } catch (e) { if (w) w.close(); console.error(e); return warn('regError', { code: e.message }); }
+    const subject = t('rcMailSubject', { n: rcNum(r), c: Club.name });
+    const body = t('rcMailBody', { n: rcNum(r), d: fmtDate(r.issued || r.payDate), c: Club.name, p: Club.phone, e: Club.email });
+    let note = '';
+    if (how === 'mail') {
+      if (c.email) { try { await navigator.clipboard.writeText(c.email); note = t('rcMailCopied', { e: c.email }); } catch (e) { note = t('rcMailTo', { e: c.email }); } }
+      else note = t('rcNoEmail');
+    }
+    if (share && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share(how === 'mail' ? { files: [file], title: subject, text: body } : { files: [file], title: rcTextOf(r), text: rcTextOf(r) });
+        ui.flash = { type: how === 'mail' && !c.email ? 'warn' : 'ok', text: note || t('rcShared') }; render();
+      } catch (e) {
+        // annullato dall'utente (AbortError) o condivisione non riuscita: nessun messaggio rosso
+        if (e && e.name !== 'AbortError') { saveBlob(blob, file.name); ui.flash = { text: t('rcAttachNote') }; render(); }
+        else if (note) { ui.flash = { text: note }; render(); }
+      }
+      return;
+    }
+    saveBlob(blob, file.name);
+    if (how === 'wa') {
+      const url = `https://wa.me/${c.phone ? waNumber(c.phone) : ''}?text=${encodeURIComponent(t('rcWaText', { n: rcNum(r), d: fmtDate(r.issued || r.payDate), c: Club.name }))}`;
+      if (w) { try { w.opener = null; } catch (e) { /* ignore */ } w.location.href = url; } else window.open(url, '_blank', 'noopener');
+      ui.lastRcLink = url;
+      ui.flash = c.phone ? { text: t('rcAttachNote') } : { type: 'warn', text: `${t('rcNoPhone')} ${t('rcAttachNote')}` };
+    } else {
+      const url = `mailto:${encodeURIComponent(c.email || '').replace(/%40/g, '@')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(t('rcMailBodyAttach', { n: rcNum(r) }) + '\n\n' + body)}`;
+      ui.lastRcLink = url;
+      const a = document.createElement('a'); a.href = url; document.body.appendChild(a); a.click(); a.remove();
+      ui.flash = { type: c.email ? 'ok' : 'warn', text: `${note} ${t('rcAttachNote')}`.trim() };
+    }
+    render();
+  }
+  const rcSendBtns = r => (cashier() && r && !r.void ? `<button class="btn small" data-action="rc-send" data-how="wa" data-id="${esc(r.id)}"><i class="ti ti-brand-whatsapp" aria-hidden="true"></i> ${esc(t('rcSendWa'))}</button>
+    <button class="btn small" data-action="rc-send" data-how="mail" data-id="${esc(r.id)}"><i class="ti ti-mail-forward" aria-hidden="true"></i> ${esc(t('rcSendMail'))}</button>` : '');
+
   // ---------- AMMINISTRAZIONE PAGAMENTI (admin) ----------
   // Ricevute (di qualsiasi mese) intestate a persone non tesserate: si tessera la persona o si cambia l'intestatario.
   function notTessCard() {
@@ -3037,6 +3095,7 @@
           ${r.void ? ` <span class="badge st-full">${esc(t('receiptVoid'))}</span>` : ''}<br>
           <small class="muted">${esc(fmtDate(r.issued))} · ${esc(euro(r.amount))} · ${esc(t('pay_' + r.method))} · ${esc(r.causale)}</small></span>
           <span class="btn-row"><button class="btn small" data-action="rc-pdf" data-id="${esc(r.id)}"><i class="ti ti-download" aria-hidden="true"></i> PDF</button>
+          ${rcSendBtns(r)}
           <button class="btn small" data-action="rc-renum" data-id="${esc(r.id)}"><i class="ti ti-hash" aria-hidden="true"></i> ${esc(t('receiptRenum'))}</button>
           ${r.void ? '' : `<button class="btn small" data-action="ca-holder-open" data-id="${esc(r.id)}">${esc(t('caHolderBtn'))}</button>
           <button class="btn small danger" data-action="rc-void" data-id="${esc(r.id)}">${esc(t('receiptVoidBtn'))}</button>`}</span>
@@ -3061,6 +3120,7 @@
     'pay-month': el => { ui.payMonth = el.dataset.m; render(); },
     'pay-undo': el => { if (confirmed('payUndoConfirm')) window.Cloud.unpay(el.dataset.kind, el.dataset.ref, el.dataset.iid).then(() => render()).catch(trErr); },
     'rc-pdf': el => { const r = receiptById(el.dataset.id); if (r) downloadReceipts([r], 'pdf'); },
+    'rc-send': el => { const r = receiptById(el.dataset.id); if (r && cashier()) rcSend(r, el.dataset.how === 'mail' ? 'mail' : 'wa'); },
     // Cambia il numero di una ricevuta: da quella in poi (stesso anno) la numerazione prosegue in ordine.
     'rc-renum': el => {
       const r = receiptById(el.dataset.id);
@@ -3208,6 +3268,7 @@
     const who = uid => (uid ? (memberByUid(uid) ? personName(memberByUid(uid)) : uid === myUid() ? t('caMe') : 'Admin') : '');
     const rcBtns = i => Object.entries(i.receipts || {}).map(([sr, r]) => { const rr = receiptById(r.id); return `<span class="badge rc-${sr}">${esc(rr ? rcNum(rr) : r.rn)}</span>${rr ? tessStar(rr) : ''}
       ${rr ? `<button class="btn small" data-action="rc-pdf" data-id="${esc(rr.id)}" aria-label="PDF ${esc(rcNum(rr))}"><i class="ti ti-file-type-pdf" aria-hidden="true"></i></button>` : ''}
+      ${rr && !i.void ? rcSendBtns(rr) : ''}
       ${rr && admin() && !i.void ? `<button class="btn small" data-action="ca-holder-open" data-id="${esc(rr.id)}">${esc(t('caHolderBtn'))}</button>` : ''}`; }).join(' ');
     return `<div class="page-head row"><h1><i class="ti ti-cash-register" aria-hidden="true"></i> ${esc(t('caTitle'))}</h1>
         ${admin() ? `<a class="btn small" href="#/payments"><i class="ti ti-receipt" aria-hidden="true"></i> ${esc(t('payAdminTitle'))} →</a>` : ''}</div>
@@ -4630,7 +4691,7 @@
   // Azioni consentite a tutti; le altre solo agli amministratori (o al ruolo indicato).
   const PUBLIC_ACTIONS = new Set(['login-google', 'set-lang', 'set-theme', 'set-design', 'logout', 'reset-password', 'close-dialog', 'bk-day', 'bk-band', 'bk-type', 'bk-dur', 'bk-slot', 'bk-clear', 'bk-shorter', 'bk-longer']);
   // cassa: registra incassi, scarica ricevute e prospetto
-  const CASH_ACTIONS = new Set(['ca-month', 'ca-addline', 'ca-xlsx', 'rc-pdf']);
+  const CASH_ACTIONS = new Set(['ca-month', 'ca-addline', 'ca-xlsx', 'rc-pdf', 'rc-send']);
   const CASH_FORMS = new Set(['ca-save']);
   // Admin Centro: allenamenti (vede tutti, annulla una giornata, elimina)
   const CENTER_ACTIONS = new Set(['tr-delete', 'occ-cancel', 'occ-remove', 'occ-restore', 'occ-copy-group', 'tr-edit', 'tr-edit-cancel', 'tr-copy', 'grp-remove', 'att-force']);

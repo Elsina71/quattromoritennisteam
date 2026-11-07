@@ -1225,7 +1225,20 @@ const I18n = (() => {
       enNoteLevel: "Livello: {l}",
       enBornLine: "nato/a a {p} il {d}",
       enSeason: "stagione {s}",
-      enAlert: "Iscrizioni online da gestire: {n}"
+      enAlert: "Iscrizioni online da gestire: {n}",
+      rcSendWa: "Invia ricevuta",
+      rcSendMail: "Invia per email",
+      rcShareText: "Ricevuta n. {n} del {d} — {c}",
+      rcWaText: "Ricevuta n. {n} del {d} — {c}: in allegato la ricevuta.",
+      rcMailSubject: "Ricevuta n. {n} — {c}",
+      rcMailBody: "Gentile socio/a,\nin allegato la ricevuta n. {n} del {d}.\nGrazie e a presto in campo!\n\n{c}\nTel. {p} · {e}",
+      rcMailBodyAttach: "In allegato la ricevuta n. {n}.",
+      rcMailCopied: "Indirizzo copiato ({e}): incollalo nel campo A.",
+      rcMailTo: "Indirizzo da usare: {e}.",
+      rcNoEmail: "Nessuna email per questa persona: aggiungi un'email alla scheda.",
+      rcNoPhone: "Nessun telefono per questa persona: aggiungi un telefono alla scheda.",
+      rcAttachNote: "Allega il PDF appena scaricato.",
+      rcShared: "Ricevuta pronta da inviare."
     },
     en: {
       loginGoogle: "Continue with Google",
@@ -2451,7 +2464,20 @@ const I18n = (() => {
       enNoteLevel: "Level: {l}",
       enBornLine: "born in {p} on {d}",
       enSeason: "season {s}",
-      enAlert: "Online enrolments to handle: {n}"
+      enAlert: "Online enrolments to handle: {n}",
+      rcSendWa: "Send receipt",
+      rcSendMail: "Send by email",
+      rcShareText: "Receipt no. {n} of {d} — {c}",
+      rcWaText: "Receipt no. {n} of {d} — {c}: please find the receipt attached.",
+      rcMailSubject: "Receipt no. {n} — {c}",
+      rcMailBody: "Dear member,\nplease find attached receipt no. {n} of {d}.\nThank you and see you on court!\n\n{c}\nPhone {p} · {e}",
+      rcMailBodyAttach: "Please find attached receipt no. {n}.",
+      rcMailCopied: "Address copied ({e}): paste it into the To field.",
+      rcMailTo: "Address to use: {e}.",
+      rcNoEmail: "No email for this person: add an email to the record.",
+      rcNoPhone: "No phone for this person: add a phone to the record.",
+      rcAttachNote: "Attach the PDF you have just downloaded.",
+      rcShared: "Receipt ready to send."
     }
   };
 
