@@ -573,13 +573,22 @@ function saveBooking(b, prev) {
   const batch = writeBatch(db);
   Object.keys(old).forEach(id => { if (!(id in next)) { batch.delete(doc(db, 'bookings', id)); batch.delete(doc(db, 'busy', id)); } });
   Object.entries(next).forEach(([id, data]) => { batch.set(doc(db, 'bookings', id), data); batch.set(doc(db, 'busy', id), busyOf(data)); });
+  // telefono (facoltativo): documento a parte, nello stesso invio; si riscrive anche se la prenotazione si sposta
+  if (b.phone !== undefined) phoneWrite(batch, b, prev);
   return batch.commit();
 }
+// bkphone/{gid}: telefono di chi ha prenotato (solo staff e interessato; mai in "busy" né nelle prenotazioni lette dalla cassa)
+function phoneWrite(batch, b, prev) {
+  const ref = doc(db, 'bkphone', b.id);
+  if (b.phone) batch.set(ref, { gid: b.id, by: b.userId, phone: b.phone, date: b.date, from: b.from, courtId: b.courtId, at: Date.now() });
+  else if (b.phoneWas) batch.delete(ref);
+}
+function saveBkPhone(b) { const batch = writeBatch(db); phoneWrite(batch, b); return batch.commit(); }
 
 function deleteBooking(b) {
   const batch = writeBatch(db);
   Object.keys(slotDocs(b)).forEach(id => { batch.delete(doc(db, 'bookings', id)); batch.delete(doc(db, 'busy', id)); });
-  return batch.commit().then(() => deleteDoc(doc(db, 'bkplayers', b.id)).catch(() => {}));
+  return batch.commit().then(() => { deleteDoc(doc(db, 'bkplayers', b.id)).catch(() => {}); deleteDoc(doc(db, 'bkphone', b.id)).catch(() => {}); });
 }
 // Giocatori della prenotazione e reminder (bkplayers/{gid}); senza giocatori il documento resta per il reminder.
 function saveBkPlayers(d) { return setDoc(doc(db, 'bkplayers', d.gid), Object.assign({}, d, { updated: Date.now() })); }
@@ -589,7 +598,7 @@ function moveBkPlayers(gid, f) { return updateDoc(doc(db, 'bkplayers', gid), Obj
 let bpUnsubs = [];
 function listenBkPlayers() {
   bpUnsubs.forEach(f => f()); bpUnsubs = [];
-  Store.applyRemote('bkplayers', []); Store.applyRemote('bkpReady', false);
+  Store.applyRemote('bkplayers', []); Store.applyRemote('bkpReady', false); Store.applyRemote('bkphones', []);
   if (!user || !(staff() || member || adminMember)) return;
   const parts = {};
   const merge = () => { const all = {}; Object.values(parts).forEach(l => l.forEach(x => { all[x.id] = x; })); Store.applyRemote('bkplayers', Object.values(all)); refresh(); };
@@ -605,12 +614,22 @@ function listenBkPlayers() {
   if (staff()) on('all', query(collection(db, 'bkplayers'), where('date', '>=', yesterday())));
   on('by', query(collection(db, 'bkplayers'), where('by', '==', user.uid)));
   on('in', query(collection(db, 'bkplayers'), where('uids', 'array-contains', user.uid)));
+  // telefoni delle prenotazioni: admin e segreteria tutti (da ieri), l'utente solo i propri
+  const phParts = {};
+  const phOn = (k, q) => bpUnsubs.push(onSnapshot(q, snap => {
+    phParts[k] = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
+    const all = {}; Object.values(phParts).forEach(l => l.forEach(x => { all[x.id] = x; }));
+    Store.applyRemote('bkphones', Object.values(all)); refresh();
+  }, onError));
+  if (staff()) phOn('all', query(collection(db, 'bkphone'), where('date', '>=', yesterday())));
+  phOn('by', query(collection(db, 'bkphone'), where('by', '==', user.uid)));
 }
 
 // admin: dettaglio di una prenotazione (giocatori indicati da chi ha prenotato)
 async function bookingInfo(gid) {
   if (!staff()) return null;
   const out = { players: [] };
+  try { const ph = await getDoc(doc(db, 'bkphone', gid)); if (ph.exists()) out.phone = ph.data().phone || ''; } catch (e) { /* nessun telefono */ }
   const p = await getDoc(doc(db, 'bkplayers', gid));
   if (p.exists()) {
     const x = p.data();
@@ -1567,7 +1586,7 @@ window.Cloud = {
   decideSpot,
   setOccCancelled,
   setOccFree,
-  saveBkPlayers, moveBkPlayers, extraTrainingBlocks, setOccMembers,
+  saveBkPlayers, saveBkPhone, moveBkPlayers, extraTrainingBlocks, setOccMembers,
   recordPayment,
   voidReceipt,
   renumberReceipts,

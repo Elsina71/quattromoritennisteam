@@ -234,6 +234,28 @@ service cloud.firestore {
       allow delete: if isStaff() || (request.auth != null && resource.data.by == request.auth.uid);
     }
 
+    // bkphone/{gid}: telefono facoltativo lasciato da chi prenota (per le comunicazioni). Lo leggono solo admin,
+    // segreteria e chi ha prenotato (non la cassa, non gli altri utenti; nella parte pubblica "busy" non c'è mai).
+    // Chi prenota lo scrive solo per una prenotazione sua (il primo slot, dopo l'invio, è suo con lo stesso gid).
+    function phoneOk(p) { return p is string && p.size() >= 6 && p.size() <= 20 && p.matches('[+]?[0-9 ]+'); }
+    function ownsBookingAfter(d, gid) {
+      return existsAfter(bk(d.date + '_' + d.courtId + '_' + d.from))
+        && getAfter(bk(d.date + '_' + d.courtId + '_' + d.from)).data.userId == request.auth.uid
+        && getAfter(bk(d.date + '_' + d.courtId + '_' + d.from)).data.gid == gid;
+    }
+    match /bkphone/{gid} {
+      allow read: if isStaff() || (request.auth != null && resource.data.by == request.auth.uid);
+      allow write: if isStaff();
+      allow create, update: if canBook() && safeId(gid)
+        && (resource == null || resource.data.by == request.auth.uid)
+        && request.resource.data.keys().hasOnly(['gid', 'by', 'phone', 'date', 'from', 'courtId', 'at'])
+        && request.resource.data.gid == gid && request.resource.data.by == request.auth.uid
+        && phoneOk(request.resource.data.phone)
+        && request.resource.data.date is string && hm(request.resource.data.from) && safeId(request.resource.data.courtId)
+        && ownsBookingAfter(request.resource.data, gid);
+      allow delete: if request.auth != null && resource.data.by == request.auth.uid;
+    }
+
     // Parte pubblica: deve corrispondere alla prenotazione privata scritta nello stesso invio.
     match /busy/{id} {
       allow read: if true;

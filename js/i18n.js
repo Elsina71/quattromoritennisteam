@@ -1071,7 +1071,12 @@ const I18n = (() => {
       fpLevel_preago: "Preagonistica 11-14 anni",
       fpLevel_ago: "Agonistica 12-18 anni",
       fpLevel_adv: "Performance - Avanzato",
-      fpLevel_adult: "Tennis Adulti"
+      fpLevel_adult: "Tennis Adulti",
+      bkPhone: "Telefono (facoltativo)",
+      bkPhonePh: "es. 333 1234567",
+      bkPhoneHelp: "Per eventuali comunicazioni sulla prenotazione. Lo vedono solo l'amministrazione e la segreteria.",
+      phoneBad: "Numero di telefono non valido: usa solo cifre, spazi e il + iniziale (da 6 a 20 caratteri).",
+      bkPhoneSaved: "Telefono salvato."
     },
     en: {
       loginGoogle: "Continue with Google",
@@ -2143,7 +2148,12 @@ const I18n = (() => {
       fpLevel_preago: "Pre-competitive 11-14 years",
       fpLevel_ago: "Competitive 12-18 years",
       fpLevel_adv: "Performance - Advanced",
-      fpLevel_adult: "Adult tennis"
+      fpLevel_adult: "Adult tennis",
+      bkPhone: "Phone (optional)",
+      bkPhonePh: "e.g. +39 333 1234567",
+      bkPhoneHelp: "For any communication about the booking. Only the administration and the office can see it.",
+      phoneBad: "Invalid phone number: use only digits, spaces and a leading + (6 to 20 characters).",
+      bkPhoneSaved: "Phone saved."
     }
   };
 

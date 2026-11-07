@@ -622,6 +622,25 @@
   }
 
 
+  // ---------- telefono della prenotazione (facoltativo, per le comunicazioni) ----------
+  // Sta in bkphone/{gid}: lo leggono solo admin, segreteria e chi ha prenotato (non la cassa, non "busy").
+  const PHONE_RE = /^\+?[0-9 ]{6,20}$/;
+  const cleanPhone = v => String(v || '').replace(/[^0-9+ ]/g, '').replace(/\s+/g, ' ').trim().slice(0, 20);
+  const phoneOk = v => !v || (PHONE_RE.test(v) && v.replace(/\D/g, '').length >= 6);
+  const bkPhoneOf = gid => ((S().bkphones || []).find(x => x.id === gid) || {}).phone || '';
+  // ultimo numero usato da me (prenotazioni o richieste di allenamento privato), per precompilare
+  const lastPhone = () => { const me = myUid(); const l = (S().bkphones || []).filter(x => x.by === me && x.phone).concat((S().ptreqs || []).filter(x => x.uid === me && x.phone))
+    .sort((a, b) => (b.at || 0) - (a.at || 0)); return l.length ? l[0].phone : ''; };
+  const telLink = p => `<a href="tel:${esc(String(p).replace(/[^0-9+]/g, ''))}"><i class="ti ti-phone" aria-hidden="true"></i> ${esc(p)}</a>`;
+  function bkPhoneField(s, orig) {
+    const owner = bkOwnerOf(s, orig);
+    if (!owner || s.blocked) return '';
+    if (!admin() && owner !== myUid()) return '';
+    if (s.phone === undefined) s.phone = orig ? bkPhoneOf(orig.id) : (admin() ? '' : lastPhone());
+    return `<label class="bk-phone">${esc(t('bkPhone'))}<input type="tel" inputmode="tel" maxlength="20" autocomplete="tel" value="${esc(s.phone || '')}" data-change="bk-phone" placeholder="${esc(t('bkPhonePh'))}">
+      <small class="muted">${esc(t('bkPhoneHelp'))}</small></label>`;
+  }
+
   // per conto di chi è la prenotazione: utente registrato o nome scritto dall'admin (giocatore non registrato)
   const bkWho = b => (b.guest ? `${b.guest} (${t('bkGuestShort')})` : uidName(b.userId));
   // le mie prenotazioni future: quelle fatte da me e quelle in cui chi ha prenotato mi ha indicato tra i giocatori (inv)
@@ -721,7 +740,8 @@
     const orig = s.editId && (S().bookings || []).find(b => b.id === s.editId);
     const slotChanged = orig && (orig.courtId !== s.courtId || orig.date !== s.date || orig.from !== s.from || orig.to !== s.to || (orig.userId || '') !== (s.userId || '') || (orig.blocked || '') !== (s.blocked || '') || (orig.guest || '') !== (s.guest || ''));
     const plBox = bkPlayersBox(s, orig);
-    const changed = slotChanged || (orig && plBox && bkPlayersChanged(s, orig));
+    const phBox = bkPhoneField(s, orig);
+    const changed = slotChanged || (orig && plBox && bkPlayersChanged(s, orig)) || (orig && phBox && cleanPhone(s.phone) !== bkPhoneOf(orig.id));
     const canLonger = selFree(s.courtId, s.date, s.from, addMin(s.to, 30), s.editId);
     const mem = (S().members || []).slice().sort((a, b) => personLabel(a).localeCompare(personLabel(b)));
     const who = s.userId || (orig ? '' : uid);
@@ -731,7 +751,7 @@
       <label>${esc(t('bkGuest'))}<input value="${esc(s.guest || '')}" maxlength="60" data-change="bk-guest" placeholder="${esc(t('bkGuestPh'))}" autocomplete="off"></label>
       <label>${esc(t('bkBlockReason'))}<input value="${esc(s.blocked || '')}" maxlength="60" data-change="bk-blocked" placeholder="${esc(t('bkBlockPh'))}"></label>` : '';
     return `<h3><i class="ti ti-${orig ? 'pencil' : 'calendar-plus'}" aria-hidden="true"></i> ${esc(t(orig ? 'bkEditTitle' : 'bkSummary'))}</h3><div class="summary-body"><div>
-      ${orig ? `<p class="muted small">${esc(t('bkEditOf', { w: orig.blocked ? t('bkBlock') + ': ' + orig.blocked : bkWho(orig), b: bookingText(orig) }))}</p>` : ''}
+      ${orig ? `<p class="muted small">${esc(t('bkEditOf', { w: orig.blocked ? t('bkBlock') + ': ' + orig.blocked : bkWho(orig), b: bookingText(orig) }))}${admin() && bkPhoneOf(orig.id) ? ` · ${telLink(bkPhoneOf(orig.id))}` : ''}</p>` : ''}
       <dl class="summary">
         <dt>${esc(t('bkCourt'))}</dt><dd>${esc(courtName(s.courtId))} ${courtById(s.courtId) ? typeBadge(courtById(s.courtId)) : ''}</dd>
         <dt>${esc(t('bkDay'))}</dt><dd>${esc(longDate(s.date))}</dd>
@@ -745,6 +765,7 @@
         <button class="btn small" data-action="bk-longer" ${canLonger ? '' : 'disabled'}>+ 30 min</button>
       </div></div><div>
       ${adminFields}
+      ${phBox}
       ${plBox}
       <div class="btn-row">
         ${orig ? `<button class="btn primary" data-action="booking-confirm" ${changed ? '' : 'disabled'}><i class="ti ti-check" aria-hidden="true"></i> ${esc(t('bkSaveChanges'))}</button>
@@ -888,7 +909,7 @@
     const b = (S().bookings || []).concat(S().bookingsPast || []).find(x => x.id === id && (!date || x.date === date));
     if (!b || !admin() || !window.Cloud || !window.Cloud.bookingInfo) return;
     const head = `<h2><i class="ti ti-calendar-event" aria-hidden="true"></i> ${esc(courtName(b.courtId))} · ${esc(fmtDate(b.date))} ${esc(b.from)}–${esc(b.to)}</h2>
-      <p class="muted">${esc(t('bkInfoBooker'))}: <strong>${esc(bkWho(b) || '—')}</strong></p>`;
+      <p class="muted">${esc(t('bkInfoBooker'))}: <strong>${esc(bkWho(b) || '—')}</strong>${bkPhoneOf(b.id) ? ` · ${telLink(bkPhoneOf(b.id))}` : ''}</p>`;
     $dialog.innerHTML = `<div class="dialog-body bk-info">${head}<p class="muted">${esc(t('loading'))}</p></div>`;
     if (!$dialog.open) $dialog.showModal();
     let info;
@@ -913,7 +934,9 @@
           <div class="form-actions span-all"><button class="btn primary">${esc(t('save'))}</button></div></form></details>`;
       }
     }
-    $dialog.innerHTML = `<div class="dialog-body bk-info">${head}${body}<div class="form-actions"><button type="button" class="btn" data-action="close-dialog">${esc(t('close'))}</button></div></div>`;
+    const ph = (info && info.phone) || bkPhoneOf(b.id);
+    const head2 = ph && !bkPhoneOf(b.id) ? head.replace('</strong></p>', `</strong> · ${telLink(ph)}</p>`) : head;
+    $dialog.innerHTML = `<div class="dialog-body bk-info">${head2}${body}<div class="form-actions"><button type="button" class="btn" data-action="close-dialog">${esc(t('close'))}</button></div></div>`;
   }
   // Conferma (nuova prenotazione o modifica) con tutti i controlli; avvisi a titolare e amministratori.
   // ---------- giocatori della prenotazione e reminder ----------
@@ -994,16 +1017,24 @@
       if (same >= Number(cfg.maxPerDay)) return warn('bkMaxDay', { n: same, max: cfg.maxPerDay });
     }
     const guest = admin() && !s.blocked ? (s.guest || '').trim() : '';
+    const phone = cleanPhone(s.phone);
+    if (!phoneOk(phone)) return warn('phoneBad');
     const data = { id: orig ? orig.id : Store.uid('g'), courtId: s.courtId, date: s.date, from: s.from, to: s.to, userId: guest ? uid : owner, blocked: admin() ? (s.blocked || '').trim() : '' };
     if (guest) data.guest = guest;
+    // telefono: solo se il campo c'era (prenotazione per una persona, non un blocco)
+    if (s.phone !== undefined && !data.blocked) { data.phone = phone; data.phoneWas = orig ? bkPhoneOf(orig.id) : ''; }
+    const phoneChanged = data.phone !== undefined && data.phone !== data.phoneWas;
     const slotSame = orig && orig.courtId === data.courtId && orig.date === data.date && orig.from === data.from && orig.to === data.to && (orig.userId || '') === (data.userId || '') && (orig.blocked || '') === (data.blocked || '') && (orig.guest || '') === (data.guest || '');
     // l'elenco dei giocatori si riscrive solo per una nuova prenotazione o se chi modifica l'ha cambiato davvero:
     // se si sposta solo l'orario o il campo, i giocatori già indicati restano (niente elenchi vuoti per errore)
     const withPlayers = !!data.userId && !data.blocked && !data.guest && s.plInit && (!orig || !!s.plTouched);
     if (slotSame) {
       // cambiano solo i giocatori o il reminder
-      if (!withPlayers) { ui.bkSel = null; render(); return; }
-      return window.Cloud.saveBkPlayers(bkPlayersDoc(data, s)).then(() => { ui.bkSel = null; ui.flash = { text: t('bkPlayersSaved') }; render(); }).catch(e => warn('regError', { code: e.code || e.message }));
+      const jobs = [];
+      if (phoneChanged) jobs.push(window.Cloud.saveBkPhone(data));
+      if (withPlayers) jobs.push(window.Cloud.saveBkPlayers(bkPlayersDoc(data, s)));
+      if (!jobs.length) { ui.bkSel = null; render(); return; }
+      return Promise.all(jobs).then(() => { ui.bkSel = null; ui.flash = { text: t(withPlayers ? 'bkPlayersSaved' : 'bkPhoneSaved') }; render(); }).catch(e => warn('regError', { code: e.code || e.message }));
     }
     if (orig && !confirm(t('bkConfirmEdit', { a: bookingText(orig), b: bookingText(data) }))) return;
     window.Cloud.saveBooking(data, orig || null).then(() => {
@@ -4248,6 +4279,7 @@
       case 'bk-from': bkSetTime('from', el.value); break;
       case 'bk-to': bkSetTime('to', el.value); break;
       case 'bk-user': if (ui.bkSel) { ui.bkSel.userId = el.value || null; if (el.value) { ui.bkSel.blocked = ''; ui.bkSel.guest = ''; } render(); } break;
+      case 'bk-phone': if (ui.bkSel) { ui.bkSel.phone = cleanPhone(el.value); render(); } break;
       case 'bk-guest': if (ui.bkSel) { ui.bkSel.guest = el.value.trim(); if (ui.bkSel.guest) { ui.bkSel.userId = null; ui.bkSel.blocked = ''; } render(); } break;
       case 'bk-blocked': if (ui.bkSel) { ui.bkSel.blocked = el.value.trim(); if (ui.bkSel.blocked) { ui.bkSel.userId = null; ui.bkSel.guest = ''; } render(); } break;
       // cassa: prenotazione da scegliere per la quota del campo
