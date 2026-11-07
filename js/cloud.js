@@ -110,11 +110,14 @@ function setRole(uid, role, on, name) {
 // Ruolo unico scelto dal menu della pagina Utenti: 'user', 'coach', 'seg', 'cash', 'admin' (= roles.center).
 // L'allenatore è in coaches/{uid}; gli altri ruoli in roles/{uid}. Un invio solo, tutto o niente.
 function roleFlags(role) { return { center: role === 'admin', seg: role === 'seg', cash: role === 'cash' }; }
-function setUserRole(uid, role, name, wasCoach) {
+// alsoCoach: per admin, segreteria e cassa, se è anche allenatore (un admin può allenare: es. il presidente).
+// Passando a «Utente» smette di essere allenatore; diventando admin, segreteria o cassa resta allenatore se lo era.
+function setUserRole(uid, role, name, wasCoach, alsoCoach) {
   const batch = writeBatch(db);
   batch.set(doc(db, 'roles', uid), Object.assign(roleFlags(role), { name: name || '', updated: Date.now(), by: user.uid }));
-  if (role === 'coach' && !wasCoach) batch.set(doc(db, 'coaches', uid), { all: false, name: name || '' });
-  if (role !== 'coach' && wasCoach) batch.delete(doc(db, 'coaches', uid));
+  const coachNow = role === 'coach' || (role !== 'user' && (alsoCoach == null ? wasCoach : alsoCoach));
+  if (coachNow && !wasCoach) batch.set(doc(db, 'coaches', uid), { all: false, name: name || '' });
+  if (!coachNow && wasCoach) batch.delete(doc(db, 'coaches', uid));
   return batch.commit();
 }
 
@@ -384,8 +387,8 @@ async function adminCreateUser(d) {
   batch.set(doc(db, 'members', uid), { first: d.first, last: d.last, gender: d.gender, created: Date.now() });
   batch.set(doc(db, 'accounts', uid), { email, verified: false });
   batch.set(doc(db, 'verified', uid), { by: user.uid, at: Date.now() });
-  if (role === 'coach') batch.set(doc(db, 'coaches', uid), { all: false, name });
-  else if (role !== 'user') batch.set(doc(db, 'roles', uid), Object.assign(roleFlags(role), { name, updated: Date.now(), by: user.uid }));
+  if (role === 'coach' || (d.alsoCoach && role !== 'user')) batch.set(doc(db, 'coaches', uid), { all: false, name });
+  if (role !== 'user' && role !== 'coach') batch.set(doc(db, 'roles', uid), Object.assign(roleFlags(role), { name, updated: Date.now(), by: user.uid }));
   await batch.commit();
   return uid;
 }

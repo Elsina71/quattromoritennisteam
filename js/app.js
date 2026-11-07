@@ -452,6 +452,7 @@
           <label>${esc(t('userCreatePwd'))}<input name="password" type="text" required minlength="6" autocomplete="off"><small class="muted">${esc(t('userCreatePwdHelp'))}</small></label>
           <label>${esc(t('userRole'))}<select name="role" required>${rs.map(r => `<option value="${r}">${esc(t('role_' + r))}</option>`).join('')}</select>
             <small class="muted">${esc(t(fullAdmin() ? 'userRoleHelpAdmin' : 'userRoleHelpSeg'))}</small></label>
+          ${fullAdmin() ? `<label class="check span-all"><input type="checkbox" name="alsoCoach"> ${esc(t('userAlsoCoachNew'))}</label>` : ''}
           <div class="form-actions span-all"><button class="btn primary"><i class="ti ti-user-plus" aria-hidden="true"></i> ${esc(t('userCreateBtn'))}</button></div>
         </form></details>`;
   }
@@ -459,9 +460,13 @@
   function userRoleRow(m) {
     const r = roleOf(m.uid), rs = grantable();
     const can = fullAdmin() && r !== 'general' && m.uid !== myUid() && rs.includes(r);
-    if (!can) return `<span class="ban-row"><i class="ti ti-key" aria-hidden="true"></i> ${esc(t('userRole'))}: ${roleBadge(r)}</span>`;
+    const staffRole = ['general', 'admin', 'seg', 'cash'].includes(r), isC = !!coachOf(m.uid);
+    // admin, segreteria e cassa possono essere anche allenatori: casella «Anche allenatore» (solo l'admin la cambia)
+    const alsoCoach = staffRole ? (fullAdmin() ? `<label class="check ban-row"><input type="checkbox" data-change="user-also-coach" data-uid="${m.uid}" ${isC ? 'checked' : ''}> ${esc(t('userAlsoCoach'))}</label>`
+      : isC ? ` ${roleBadge('coach')}` : '') : '';
+    if (!can) return `<span class="ban-row"><i class="ti ti-key" aria-hidden="true"></i> ${esc(t('userRole'))}: ${roleBadge(r)}${staffRole && isC && !fullAdmin() ? alsoCoach : ''}</span>${staffRole && fullAdmin() ? alsoCoach : ''}`;
     return `<label class="ban-row role-pick"><span><i class="ti ti-key" aria-hidden="true"></i> ${esc(t('userRole'))}</span>
-      <select data-change="user-role" data-uid="${m.uid}" aria-label="${esc(t('userRole'))}">${rs.map(x => `<option value="${x}" ${x === r ? 'selected' : ''}>${esc(t('role_' + x))}</option>`).join('')}</select></label>`;
+      <select data-change="user-role" data-uid="${m.uid}" aria-label="${esc(t('userRole'))}">${rs.map(x => `<option value="${x}" ${x === r ? 'selected' : ''}>${esc(t('role_' + x))}</option>`).join('')}</select></label>${alsoCoach}`;
   }
   function viewUsers() {
     const f = L.norm(ui.userFilter || '');
@@ -1551,7 +1556,8 @@
   const trCoaches = tr => [tr && tr.coachUid, tr && tr.coach2Uid].filter(Boolean);
   const isMyTr = tr => !!tr && trCoaches(tr).includes(myUid());
   const trCoachNames = tr => trCoaches(tr).map(coachName).join(', ');
-  const visibleTrainings = () => (admin() || centerAdm() ? trainings() : coach() ? trainings().filter(tr => coach().all || isMyTr(tr)) : []);
+  const staffCoach = () => (admin() || centerAdm()) && !!coachOf(myUid());   // admin o segreteria che è anche allenatore
+  const visibleTrainings = () => (admin() || centerAdm() ? (staffCoach() && ui.trMine ? trainings().filter(isMyTr) : trainings()) : coach() ? trainings().filter(tr => coach().all || isMyTr(tr)) : []);
 
   // Descrizione degli allenamenti del piano (dagli allenamenti attuali; per quelli eliminati resta quella salvata).
   const trDesc = tr => [trTitle(tr), trLabel(tr), trCoachNames(tr)].filter(Boolean).join(' · ');
@@ -1577,7 +1583,9 @@
     }
     const tab = ui.trTab || 'day';
     const tabs = `<nav class="tabs">${[['day', 'trTabDay', 'calendar-check'], ['groups', 'trTabGroups', 'users-group']].map(([k, l, i]) =>
-      `<a href="#/train" class="${tab === k ? 'active' : ''}" data-action="tr-tab" data-tab="${k}"><i class="ti ti-${i}" aria-hidden="true"></i> ${esc(t(l))}</a>`).join('')}</nav>`;
+      `<a href="#/train" class="${tab === k ? 'active' : ''}" data-action="tr-tab" data-tab="${k}"><i class="ti ti-${i}" aria-hidden="true"></i> ${esc(t(l))}</a>`).join('')}</nav>`
+      + (staffCoach() ? `<div class="seg-toggle tr-mine" role="group" aria-label="${esc(t('trMineLabel'))}">${[[false, 'trMineAll'], [true, 'trMineOnly']].map(([v, l]) =>
+        `<button class="btn small ${!!ui.trMine === v ? 'primary' : ''}" data-action="tr-mine" data-v="${v ? 1 : 0}" aria-pressed="${!!ui.trMine === v}">${esc(t(l))}</button>`).join('')}</div>` : '');
     if (tab === 'day') return `${admin() ? trainingAlerts() : ''}<div class="page-head row"><h1><i class="ti ti-barbell" aria-hidden="true"></i> ${esc(t('navTrain'))}</h1>
         ${admin() ? `<span class="btn-row"><a class="btn small" href="#/report"><i class="ti ti-report-analytics" aria-hidden="true"></i> ${esc(t('rpTitle'))} →</a><a class="btn small" href="#/athletes"><i class="ti ti-id-badge-2" aria-hidden="true"></i> ${esc(t('athTitle'))} →</a></span>`
           : coach() ? `<a class="btn small" href="#/valutazioni"><i class="ti ti-chart-line" aria-hidden="true"></i> ${esc(t('evMyTrainees'))} →</a>` : ''}</div>${ptCta()}${tabs}${admin() ? myTrainingCard() : ''}${trainingDay()}`;
@@ -4175,6 +4183,7 @@
   const trActions = {
     'tr-month': el => { ui.trMonth = el.dataset.m; render(); },
     'tr-edit': el => { ui.trEdit = el.dataset.id; render(); },
+    'tr-mine': el => { ui.trMine = el.dataset.v === '1'; render(); },
     'tr-day-add': el => { const f = el.closest('form'), rows = readTrDays(f), last = rows[rows.length - 1] || { dow: 1, from: '18:00', to: '19:30' };
       ui.trDays = rows.concat([{ dow: last.dow % 7 + 1, from: last.from, to: last.to, coach2: last.coach2 || '' }]); keepTrDraft(f); render(); },
     'tr-day-del': el => { const f = el.closest('form'), rows = readTrDays(f); rows.splice(+el.dataset.i, 1); ui.trDays = rows; keepTrDraft(f); render(); },
@@ -4895,7 +4904,8 @@
     'enroll-send': f => enSend(f),
     'ptreq-confirm': f => ptConfirm(f),
     'user-create': f => {
-      const d = { first: f.first.value.trim(), last: f.last.value.trim(), gender: f.gender.value, email: f.email.value.trim(), password: f.password.value, role: f.role.value };
+      const d = { first: f.first.value.trim(), last: f.last.value.trim(), gender: f.gender.value, email: f.email.value.trim(), password: f.password.value, role: f.role.value,
+        alsoCoach: !!(f.alsoCoach && f.alsoCoach.checked) };
       if (!d.first || !d.last || !d.gender) return warn('errRegFields');
       if (!grantable().includes(d.role)) return warn('errPermission');
       const btn = f.querySelector('button.primary'); btn.disabled = true;
@@ -5107,13 +5117,23 @@
         if (bk) bk.hidden = el.value !== 'q_court';
         break;
       }
+      case 'user-also-coach': {
+        if (!fullAdmin()) return;
+        const uid = el.dataset.uid, m = memberByUid(uid), name = m ? personName(m) : '', on = el.checked;
+        const trs = (S().trainings || []).filter(tr => tr.coachUid === uid || tr.coach2Uid === uid);
+        if (!on && trs.length && !confirmed('roleCoachLeave', { n: name, k: trs.length })) { render(); return; }
+        window.Cloud.setCoach(uid, on ? { all: false, name } : null)
+          .then(() => { ui.flash = { text: t(on ? 'userCoachOn' : 'userCoachOff', { n: name }) }; render(); })
+          .catch(err => { warn('regError', { code: err.code || err.message }); });
+        break;
+      }
       case 'user-role': {
         // ruolo scelto dal menu (solo admin): un ruolo per persona
         if (!fullAdmin()) return;
         const uid = el.dataset.uid, m = memberByUid(uid), cur = roleOf(uid), role = el.value, name = m ? personName(m) : '';
         if (!grantable().includes(role) || !grantable().includes(cur)) { render(); return; }
         const trs = (S().trainings || []).filter(tr => tr.coachUid === uid || tr.coach2Uid === uid);
-        if (cur === 'coach' && trs.length && !confirmed('roleCoachLeave', { n: name, k: trs.length })) { render(); return; }
+        if (coachOf(uid) && role === 'user' && trs.length && !confirmed('roleCoachLeave', { n: name, k: trs.length })) { render(); return; }
         if (!confirmed('roleChangeConfirm', { n: name, a: t('role_' + cur), b: t('role_' + role) })) { render(); return; }
         window.Cloud.setUserRole(uid, role, name, !!coachOf(uid))
           .then(() => { ui.flash = { text: t('roleChanged', { n: name, r: t('role_' + role) }) }; render(); })

@@ -19,6 +19,10 @@ allenamenti, allenatori, cassa. Regole decise dal titolare: valgono per ogni mod
   «I miei corsisti» (`#/valutazioni`): solo nome e voti, niente dati della scheda corsista, contatti, pacchetti o pagamenti.
   Non vede certificati medici, contatti o note dei corsisti (solo admin e segreteria).
 - **Utente**: chiunque si registra; prenota i campi per sé.
+- **Admin, segreteria e cassa possono essere anche allenatori** (es. Carlo Porqueddu, admin e allenatore): casella
+  «Anche allenatore» nella scheda utente e in «Crea utente» (solo l'admin; crea/toglie `coaches/{uid}`), badge di entrambi i
+  ruoli. Cambiando ruolo resta allenatore, tranne passando a «Utente». Chi è staff e allenatore compare tra gli allenatori
+  dei moduli e in Allenamenti ha il filtro «Tutti gli allenamenti / I miei allenamenti» (`ui.trMine`, `staffCoach()`).
 
 ## Privacy e visibilità
 - La lista completa degli utenti la vedono solo admin e segreteria. Un elenco a scelta dentro un modulo va bene.
