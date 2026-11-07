@@ -180,6 +180,7 @@ onAuthStateChanged(auth, async u => {
   listenBkPlayers();
   listenReceipts();
   listenPtReq();
+  listenEnroll();
   authBusy = false;
   refresh();
 });
@@ -1604,6 +1605,29 @@ function rejectPtReq(req, noticeText) {
   return batch.commit();
 }
 
+// ---------- iscrizioni online dei minori (enroll) ----------
+// enroll/{id}: modulo pubblico (genitore, allievo, livello, consenso immagini, informativa). Solo creazione per tutti;
+// lettura, «gestita» e «archiviata» solo per admin e segreteria.
+function sendEnroll(d) { return setDoc(doc(collection(db, 'enroll')), Object.assign({}, d, { status: 'new', at: serverTimestamp() })); }
+function setEnroll(id, f) { return updateDoc(doc(db, 'enroll', id), Object.assign({}, f, { decidedBy: user.uid, decidedAt: Date.now() })); }
+// «Crea scheda corsista»: la scheda senza account e l'iscrizione segnata come gestita, nello stesso invio
+function createKidFromEnroll(a, enrollId) {
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'athletes', a.id), stripId(a));
+  batch.update(doc(db, 'enroll', enrollId), { status: 'done', athleteId: a.id, decidedBy: user.uid, decidedAt: Date.now() });
+  return batch.commit();
+}
+let enUnsub = null;
+function listenEnroll() {
+  if (enUnsub) { enUnsub(); enUnsub = null; }
+  Store.applyRemote('enrolls', []);
+  if (!user || !staff()) return;
+  enUnsub = onSnapshot(collection(db, 'enroll'), snap => {
+    Store.applyRemote('enrolls', snap.docs.map(d => { const x = d.data(); return Object.assign({ id: d.id }, x, { at: x.at && x.at.toMillis ? x.at.toMillis() : x.at || 0 }); }));
+    refresh();
+  }, onError);
+}
+
 window.Cloud = {
   saveEditorial,
   register,
@@ -1653,6 +1677,7 @@ window.Cloud = {
   decideSpot,
   setOccCancelled,
   setOccFree,
+  sendEnroll, setEnroll, createKidFromEnroll,
   sendPtReq, withdrawPtReq, confirmPtReq, rejectPtReq, ptreqId,
   saveBkPlayers, saveBkPhone, moveBkPlayers, extraTrainingBlocks, setOccMembers,
   recordPayment,

@@ -577,5 +577,36 @@ await test('nomi degli allenatori (pub/coaches): pubblici in lettura, li scrive 
   await assertFails(setDoc(doc(db('segr'), 'pub/altro'), { list: [], updated: 1 }));
 });
 
+// ---------- iscrizione online dei minori (enroll) ----------
+const enP = { first: 'Anna', last: 'Deiana', birthPlace: 'Cagliari', birthDate: '1985-03-02', city: "Quartu Sant'Elena", address: 'via Roma 1', zip: '09045', prov: 'CA',
+  phone: '333 1234567', email: 'anna@esempio.it', cf: 'DNEANN85C42B354X' };
+const enK = { first: 'Pietro', last: 'Deiana', gender: 'M', birthPlace: 'Cagliari', birthDate: '2016-03-02', city: "Quartu Sant'Elena", address: 'via Roma 1', zip: '09045', prov: 'CA', cf: 'DNEPTR16C02B354A' };
+const enroll = (o = {}) => Object.assign({ parent: enP, kid: enK, level: 'orange', images: false, privacy: true, season: '2026/27', status: 'new', at: serverTimestamp() }, o);
+await test('iscrizione online: un visitatore senza accesso la manda con i campi previsti', async () => {
+  await assertSucceeds(setDoc(doc(anon(), 'enroll/e1'), enroll()));
+  await assertSucceeds(setDoc(doc(anon(), 'enroll/e2'), enroll({ kid: Object.assign({}, enK, { phone: '347 000 1111', email: 'pietro@esempio.it' }), images: true })));
+});
+await test('iscrizione: campi in più, codice fiscale, consenso, livello, stato e lunghezze controllati', async () => {
+  const bad = [enroll({ extra: 1 }), enroll({ parent: Object.assign({}, enP, { cf: 'CORTO' }) }), enroll({ privacy: false }), enroll({ level: 'pro' }), enroll({ status: 'done' }),
+    enroll({ parent: Object.assign({}, enP, { first: 'x'.repeat(61) }) }), enroll({ kid: Object.assign({}, enK, { gender: 'X' }) }), enroll({ parent: Object.assign({}, enP, { phone: '' }) }),
+    enroll({ parent: Object.assign({}, enP, { email: 'non-email' }) }), enroll({ images: 'si' }), enroll({ kid: Object.assign({}, enK, { note: 'x' }) }), enroll({ at: 1 })];
+  let i = 0;
+  for (const e of bad) await assertFails(setDoc(doc(anon(), `enroll/bad${i++}`), e));
+});
+await test('iscrizioni: nessuna lettura pubblica; solo admin e segreteria leggono e gestiscono', async () => {
+  await assertFails(getDoc(doc(anon(), 'enroll/e1')));
+  await assertFails(getDoc(doc(db('mario'), 'enroll/e1')));
+  await assertFails(getDoc(doc(db('coach1'), 'enroll/e1')));
+  await assertFails(getDoc(doc(db('cassiere'), 'enroll/e1')));
+  await assertFails(updateDoc(doc(anon(), 'enroll/e1'), { status: 'done' }));
+  await assertSucceeds(getDocs(collection(db('segr'), 'enroll')));
+  await assertFails(updateDoc(doc(db('segr'), 'enroll/e1'), { level: 'ago' }));
+  const f = db('segr'), b = writeBatch(f);
+  b.set(doc(f, 'athletes/k-Enroll000001'), { noAccount: true, first: 'Pietro', last: 'Deiana', gender: 'M', parent: { name: 'Anna Deiana', phone: '333 1234567', email: 'anna@esempio.it' }, enrollId: 'e1' });
+  b.update(doc(f, 'enroll/e1'), { status: 'done', athleteId: 'k-Enroll000001', decidedBy: 'segr', decidedAt: 1 });
+  await assertSucceeds(b.commit());
+  await assertSucceeds(updateDoc(doc(db('capo'), 'enroll/e2'), { status: 'archived', decidedBy: 'capo', decidedAt: 2 }));
+});
+
 await env.cleanup();
 console.log(`prove delle regole: ${n} superate`);

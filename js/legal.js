@@ -1,7 +1,7 @@
 // Testi legali (in italiano, lingua di riferimento): informativa privacy, cookie policy, termini e condizioni.
 // I dati dell'associazione arrivano da js/club.js. Aggiornare la data e la versione quando si cambia un testo.
 const Legal = (() => {
-  const VERSION = '2026-11-06';
+  const VERSION = '2026-11-07';
   const ORG = {
     name: Club.legalName,
     kind: 'Associazione Sportiva Dilettantistica',
@@ -11,19 +11,21 @@ const Legal = (() => {
     rep: Club.president,
     repRole: 'Presidente e legale rappresentante pro tempore',
     email: Club.pec,
+    contact: Club.email,
     phone: Club.phone,
     site: 'https://' + Club.site
   };
   const mail = `<a href="mailto:${ORG.email}">${ORG.email}</a>`;
+  const mail2 = `<a href="mailto:${ORG.contact}">${ORG.contact}</a>`;
   const owner = `<p><strong>${ORG.name}</strong> (${ORG.kind})<br>${ORG.address}<br>Codice fiscale ${ORG.cf} · Partita IVA ${ORG.vat}<br>
-    in persona del ${ORG.repRole}, ${ORG.rep}<br>PEC per la privacy e per ogni richiesta: ${mail} · Telefono: ${ORG.phone}</p>`;
+    in persona del ${ORG.repRole}, ${ORG.rep}<br>PEC per la privacy e per ogni richiesta: ${mail} · Email: ${mail2} · Telefono: ${ORG.phone}</p>`;
   const when = VERSION.split('-').reverse().join('/');
 
   const privacy = `
     <p class="muted">Informativa ai sensi degli artt. 13 e 14 del Regolamento (UE) 2016/679 (GDPR) e del D.Lgs. 196/2003, relativa all'app ${Club.name} (<a href="${ORG.site}">${Club.site}</a>). Ultimo aggiornamento: ${when}.</p>
     <h2>1. Titolare del trattamento</h2>
     ${owner}
-    <p>L'associazione non ha nominato un Responsabile della protezione dei dati (DPO), non essendo obbligata; per ogni richiesta sulla privacy scrivi a ${mail}.</p>
+    <p>L'associazione non ha nominato un Responsabile della protezione dei dati (DPO), non essendo obbligata; per ogni richiesta sulla privacy scrivi a ${mail} (oppure a ${mail2}).</p>
 
     <h2>2. Quali dati trattiamo</h2>
     <ul>
@@ -33,6 +35,9 @@ const Legal = (() => {
       <li><strong>Allenamenti</strong>: gruppi, presenze, assenze, posti spot e recuperi. Il coach vede solo nomi e presenze dei propri allenamenti.</li>
       <li><strong>Scheda del corsista</strong> (solo per chi si allena con l'associazione): luogo e data di nascita, comune e indirizzo di residenza, codice fiscale, tesseramento della stagione e <em>data di scadenza</em> del certificato medico di idoneità sportiva. Non conserviamo il certificato: solo la data di scadenza, che è comunque un dato relativo alla salute (vedi punto 3).</li>
       <li><strong>Wrapped</strong>: il riepilogo periodico della tua attività (ore in campo, prenotazioni, presenze), calcolato dall'app e mostrato solo a te (puoi condividerne l'immagine se lo desideri).</li>
+      <li><strong>Telefono della prenotazione</strong> (facoltativo): se lo lasci quando prenoti, lo vedono solo gli amministratori e la segreteria, per comunicarti eventuali cambi.</li>
+      <li><strong>Richiesta di allenamento personalizzato</strong>: nome e cognome (o il tuo profilo), telefono, giorno, orario, durata, maestro preferito, livello e note. Puoi mandarla anche senza registrarti. La leggono solo gli amministratori e la segreteria; se la confermiamo, il maestro vede il tuo nome tra i suoi allenamenti (non il telefono) e possiamo scriverti su WhatsApp o chiamarti per la conferma.</li>
+      <li><strong>Iscrizione online dei minori alla Scuola Tennis</strong>: dati del genitore (nome, cognome, luogo e data di nascita, residenza, telefono, email, codice fiscale) e dell'allievo (gli stessi dati, con telefono ed email facoltativi, e il sesso), livello scelto, presa visione di questa informativa e l'eventuale <strong>consenso all'uso delle immagini</strong>. La leggono solo gli amministratori e la segreteria; se accolta diventa la scheda del corsista.</li>
       <li><strong>Pagamenti</strong>: importo, data, modalità (contanti, POS, bonifico) e ricevute emesse. Nell'app non si inseriscono dati di carte o conti bancari.</li>
       <li><strong>Dati tecnici</strong>: indirizzo IP e informazioni del browser registrati dai fornitori dei servizi (vedi punto 5) per farli funzionare e proteggerli.</li>
     </ul>
@@ -43,6 +48,8 @@ const Legal = (() => {
       <li><strong>Tesseramento, verifica dell'idoneità sportiva (scadenza del certificato) e gestione degli allenamenti</strong> — obblighi di legge e dei regolamenti sportivi, art. 6.1.c, ed esecuzione del rapporto, art. 6.1.b.</li>
       <li><strong>Registrazione dei pagamenti ed emissione delle ricevute</strong>, con codice fiscale e residenza — obblighi fiscali e contabili, art. 6.1.c.</li>
       <li><strong>Verifica dell'idoneità sportiva</strong>: la data di scadenza del certificato è un dato relativo alla salute (art. 9 GDPR), trattato solo per verificare l'idoneità richiesta dalla legge per la pratica sportiva (D.M. 24 aprile 2013 e norme federali) — art. 9.2.b e 9.2.g GDPR e art. 2-sexies D.Lgs. 196/2003. La vedono solo gli amministratori e il diretto interessato.</li>
+      <li><strong>Richieste di allenamento personalizzato e iscrizioni online</strong>: rispondere alla richiesta, organizzare la lezione o iscrivere il minore ai corsi, al tesseramento e alla gestione dei corsi — misure precontrattuali ed esecuzione del rapporto, art. 6.1.b, e obblighi dei regolamenti sportivi, art. 6.1.c. Per un minore il modulo lo compila e lo firma digitalmente (presa visione) il genitore o chi esercita la responsabilità genitoriale.</li>
+      <li><strong>Uso delle immagini</strong> (foto e video dell'allievo durante le attività, per i canali dell'associazione): solo con il <strong>consenso separato e facoltativo</strong> del genitore (art. 6.1.a GDPR, artt. 10 c.c. e 96-97 L. 633/1941). Il «no» non cambia nulla per l'iscrizione; il consenso si può <strong>revocare in ogni momento</strong> scrivendo a ${mail2} o ${mail}, senza effetti sulle pubblicazioni già fatte.</li>
       <li><strong>Sicurezza dell'app e prevenzione degli abusi</strong> — legittimo interesse, art. 6.1.f.</li>
     </ul>
     <p>Non usiamo i tuoi dati per pubblicità, marketing o profilazione e non li vendiamo a nessuno. Reward delle prenotazioni e Wrapped sono semplici conteggi della tua attività: non producono decisioni automatizzate con effetti giuridici o altrettanto significativi su di te (l'art. 22 GDPR non si applica).</p>
@@ -67,6 +74,9 @@ const Legal = (() => {
       <li><strong>Account e profilo</strong>: finché l'account è attivo; dopo la richiesta di cancellazione vengono eliminati, salvo quanto indicato sotto.</li>
       <li><strong>Prenotazioni e presenze</strong>: 24 mesi; l'associazione cancella periodicamente quelli più vecchi.</li>
       <li><strong>Scheda del corsista</strong>: 2 anni dopo la fine dell'ultima stagione di allenamenti.</li>
+      <li><strong>Telefono della prenotazione</strong>: insieme alla prenotazione (24 mesi).</li>
+      <li><strong>Richieste di allenamento personalizzato</strong>: 12 mesi dalla data richiesta; se diventano un allenamento restano con le presenze.</li>
+      <li><strong>Iscrizioni online</strong>: se accolte i dati passano nella scheda del corsista; quelle non accolte o archiviate si cancellano entro 12 mesi. Il consenso alle immagini resta valido fino alla revoca o alla fine dell'iscrizione.</li>
       <li><strong>Ricevute e dati fiscali</strong>: 10 anni, come previsto dalla legge (art. 2220 c.c.).</li>
     </ul>
     <p>Con la cancellazione dell'account eliminiamo profilo, accesso, scheda del corsista e i dati di attività. Restano solo le ricevute e i dati fiscali da conservare per legge.</p>
@@ -83,6 +93,7 @@ const Legal = (() => {
     <p>Alla registrazione chiediamo di confermare: «Ho almeno 14 anni; se ho meno di 18 anni mi iscrivo con l'assenso di un genitore».</p>
     <ul>
       <li><strong>Sotto i 14 anni</strong>: l'account non si crea da soli; l'iscrizione la fa un genitore o chi esercita la responsabilità genitoriale, anche presso la segreteria (art. 2-quinquies D.Lgs. 196/2003).</li>
+      <li><strong>Iscrizione online alla Scuola Tennis</strong>: il modulo lo compila il genitore, con i propri dati e quelli del minore.</li>
       <li><strong>Dai 14 ai 17 anni</strong>: il minore può dare da sé il consenso per i servizi dell'app (art. 2-quinquies D.Lgs. 196/2003); per le attività sportive (tesseramento, allenamenti) serve l'assenso di un genitore.</li>
     </ul>
 

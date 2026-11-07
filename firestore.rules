@@ -645,6 +645,35 @@ service cloud.firestore {
         && request.resource.data.status in ['pending', 'ok', 'no'];
       allow delete: if isStaff() || (request.auth != null && resource.data.get('uid', '') == request.auth.uid && resource.data.status == 'pending');
     }
+    // ---------- iscrizione online dei minori ----------
+    // enroll/{id}: modulo pubblico (anche senza accesso). Solo i campi previsti, con lunghezze massime: genitore e allievo
+    // (nome, cognome, luogo e data di nascita, residenza, telefono, email, codice fiscale di 16 caratteri; per l'allievo
+    // telefono ed email facoltativi, sesso), livello della lista, consenso alle immagini (sì/no), informativa letta,
+    // stato "new" e ora del server. Nessuna lettura pubblica: solo admin e segreteria, che la segnano gestita o archiviata.
+    function enStr(p, k, max) { return p[k] is string && p[k].size() > 0 && p[k].size() <= max; }
+    function enPerson(p, kid) {
+      return p is map
+        && p.keys().hasOnly(['first', 'last', 'gender', 'birthPlace', 'birthDate', 'city', 'address', 'zip', 'prov', 'phone', 'email', 'cf'])
+        && enStr(p, 'first', 60) && enStr(p, 'last', 60) && enStr(p, 'birthPlace', 60) && enStr(p, 'city', 60) && enStr(p, 'address', 80)
+        && p.birthDate is string && p.birthDate.matches('(19|20)[0-9]{2}-[01][0-9]-[0-3][0-9]')
+        && p.zip is string && p.zip.matches('[0-9]{5}') && p.prov is string && p.prov.matches('[A-Z]{2}')
+        && p.cf is string && p.cf.matches('[A-Z0-9]{16}')
+        && (kid ? p.gender in ['M', 'F'] : !('gender' in p))
+        && (kid && !('phone' in p) || phoneOk(p.get('phone', '')))
+        && (kid && !('email' in p) || (p.get('email', '') is string && p.get('email', '').size() <= 100 && p.get('email', '').matches('[^@ ]+@[^@ ]+[.][^@ ]+')));
+    }
+    match /enroll/{id} {
+      allow read, delete: if isStaff();
+      allow create: if request.resource.data.keys().hasOnly(['parent', 'kid', 'level', 'images', 'privacy', 'season', 'status', 'at'])
+        && enPerson(request.resource.data.parent, false) && enPerson(request.resource.data.kid, true)
+        && request.resource.data.level in ['mini', 'orange', 'green', 'perf', 'preago', 'ago', 'adv', 'adult']
+        && request.resource.data.images is bool && request.resource.data.privacy == true
+        && request.resource.data.season is string && request.resource.data.season.matches('20[0-9]{2}/[0-9]{2}')
+        && request.resource.data.status == 'new' && request.resource.data.at == request.time;
+      allow update: if isStaff()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'athleteId', 'decidedBy', 'decidedAt'])
+        && request.resource.data.status in ['new', 'done', 'archived'];
+    }
     // pub/coaches: nomi degli allenatori (pubblici, per scegliere il maestro nella richiesta); li scrive lo staff.
     match /pub/{id} {
       allow read: if true;

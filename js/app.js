@@ -65,7 +65,8 @@
       return;
     }
     const r = route();
-    const adminOnly = r[0] === 'messages' || r[0] === 'users' || r[0] === 'courts' || r[0] === 'athletes' || r[0] === 'payments' || r[0] === 'report';
+    if (r[0] !== 'iscrizione') ui.enDone = false;
+    const adminOnly = r[0] === 'iscrizioni' || r[0] === 'messages' || r[0] === 'users' || r[0] === 'courts' || r[0] === 'athletes' || r[0] === 'payments' || r[0] === 'report';
     if (adminOnly && !admin()) { location.hash = '#/'; return; }
     // campi e messaggi: solo l'admin (la segreteria no)
     if ((r[0] === 'courts' || r[0] === 'messages') && !fullAdmin()) { location.hash = '#/'; return; }
@@ -77,6 +78,9 @@
     else if (r[0] === 'train') { nav = 'train'; html = viewTraining(); }
     else if (r[0] === 'eval') { nav = 'train'; html = viewEval(r[1], r[2]); }
     else if (r[0] === 'ptreq') { nav = 'train'; html = viewPtReq(); }
+    else if (r[0] === 'club') { nav = 'home'; html = viewClub(); }
+    else if (r[0] === 'iscrizione') { nav = 'home'; html = viewEnroll(); }
+    else if (r[0] === 'iscrizioni' && admin()) { nav = 'train'; html = viewEnrolls(); }
     else if (r[0] === 'privacy' || r[0] === 'cookie' || r[0] === 'termini') { nav = 'settings'; html = viewLegal(r[0]); }
     else if (r[0] === 'athletes' && admin()) { nav = 'train'; html = viewAthletes(r[1] === 'cert'); }
     else if (r[0] === 'payments' && admin()) { nav = 'settings'; html = viewPayments(); }
@@ -292,10 +296,10 @@
   // ---------- prima pagina ----------
   // Avvisi, prossime prenotazioni e allenamenti dell'utente, collegamenti rapidi alle sezioni.
   function homeQuickLinks() {
-    const links = [['#/book', 'calendar-time', 'navBook'], ['#/train', 'barbell', 'navTrain']];
+    const links = [['#/club', 'building-community', 'clubTitle'], ['#/book', 'calendar-time', 'navBook'], ['#/train', 'barbell', 'navTrain'], ['#/ptreq', 'user-star', 'ptTitle']];
     if (member() || (admin() && window.Cloud && window.Cloud.adminMember)) links.push(['#/me', 'user', 'profile']);
     if (cashier()) links.push(['#/cassa', 'cash-register', 'navCassa']);
-    if (admin()) links.push(['#/users', 'users', 'usersTitle'], ['#/athletes', 'id-badge-2', 'athTitle']);
+    if (admin()) links.push(['#/users', 'users', 'usersTitle'], ['#/athletes', 'id-badge-2', 'athTitle'], ['#/iscrizioni', 'clipboard-list', 'enStaffTitle']);
     if (fullAdmin()) links.push(['#/courts', 'layout-grid', 'courtsManage']);
     links.push(['#/settings', 'settings', 'navSettings']);
     return `<section class="feat-block"><div class="page-head row"><h2><i class="ti ti-bolt" aria-hidden="true"></i> ${esc(t('homeQuick'))}</h2></div>
@@ -321,6 +325,7 @@
         <div class="msg-text">${esc(t('homonymWarn'))}</div><a class="btn small" href="#/users">${esc(t('usersOpen'))} →</a></div>` : ''}
       ${privacyAlert()}
       ${ptAlert()}
+      ${enAlert()}
       ${messageAlerts()}
       ${wrappedAlert()}
       ${trainingAlerts()}
@@ -1224,6 +1229,179 @@
   // Moduli a scomparsa che restano aperti anche se la pagina si ridisegna (aggiornamenti dal database).
   const keepOpen = key => ((ui.keep || {})[key] ? 'open' : '');
   // ====================================================================
+  // IL CIRCOLO (#/club, pubblica) e ISCRIZIONE ONLINE DEI MINORI (#/iscrizione, pubblica)
+  // ====================================================================
+  const mapsUrl = () => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${Club.courtsAddress}, ${Club.courtsCity}`)}`;
+  // stagione della scuola tennis: dal 15 settembre al 15 giugno (agonisti fino al 31 luglio)
+  const schoolYear = d => { d = d || todayStr(); const y = +d.slice(0, 4), mo = +d.slice(5, 7); return mo >= 9 ? y : y - 1; };
+  const schoolDates = d => { const a = schoolYear(d); return { from: `${a}-${Club.school.from}`, to: `${a + 1}-${Club.school.to}`, agoTo: `${a + 1}-${Club.school.agoTo}`, season: `${a}/${String((a + 1) % 100).padStart(2, '0')}` }; };
+  const teamRole = r => { const k = 'teamRole_' + String(r).replace(/[^A-Za-z0-9]/g, ''), x = t(k); return x === k ? r : x; };
+  function whereCard() {
+    return `<section class="card club-where" id="dove"><h2><i class="ti ti-map-pin" aria-hidden="true"></i> ${esc(t('clubWhere'))}</h2>
+      <p><strong>${esc(t('clubCourts'))}</strong><br>${esc(Club.courtsAddress)}, ${esc(Club.courtsCity)}</p>
+      <p class="muted small">${esc(t('clubSeat'))}: ${esc(Club.address)}, ${esc(Club.city)}</p>
+      <p class="small"><a href="mailto:${esc(Club.email)}"><i class="ti ti-mail" aria-hidden="true"></i> ${esc(Club.email)}</a> · <a href="tel:+39${esc(Club.phone.replace(/\D/g, ''))}"><i class="ti ti-phone" aria-hidden="true"></i> ${esc(Club.phone)}</a></p>
+      <div class="btn-row"><a class="btn primary" href="${esc(mapsUrl())}" target="_blank" rel="noopener"><i class="ti ti-map-2" aria-hidden="true"></i> ${esc(t('clubMap'))}</a></div></section>`;
+  }
+  function viewClub() {
+    const sd = schoolDates();
+    const facts = ['clubFact1', 'clubFact2', 'clubFact3', 'clubFact4', 'clubFact5'];
+    return `<div class="page-head"><h1><i class="ti ti-building-community" aria-hidden="true"></i> ${esc(t('clubTitle'))}</h1>
+        <p class="muted">${esc(Club.subtitle)}</p></div>
+      <section class="card club-about"><h2><i class="ti ti-ball-tennis" aria-hidden="true"></i> ${esc(t('clubAbout'))}</h2>
+        <p>${esc(t('clubAboutText', { y: Club.since }))}</p>
+        <ul class="plain-list club-facts">${facts.map(k => `<li><i class="ti ti-trophy" aria-hidden="true"></i> ${esc(t(k))}</li>`).join('')}</ul></section>
+      <section class="card club-team"><h2><i class="ti ti-school" aria-hidden="true"></i> ${esc(t('clubTeam'))}</h2>
+        <ul class="club-team-list">${(Club.team || []).map(p => `<li><span class="ph-avatar" aria-hidden="true">${esc(p.name.split(' ').map(x => x[0]).join('').slice(0, 2))}</span>
+          <span><strong>${esc(p.name)}</strong><br><small class="muted">${esc(teamRole(p.role))}</small></span></li>`).join('')}</ul>
+        <div class="btn-row"><a class="btn" href="#/ptreq"><i class="ti ti-user-star" aria-hidden="true"></i> ${esc(t('ptCtaBtn'))}</a></div></section>
+      <section class="card club-calendar"><h2><i class="ti ti-calendar-event" aria-hidden="true"></i> ${esc(t('clubCalendar'))}</h2>
+        <p>${esc(t('clubCalendarText', { a: fmtDate(sd.from), b: fmtDate(sd.to), c: fmtDate(sd.agoTo) }))}</p>
+        <div class="btn-row"><a class="btn primary" href="#/iscrizione"><i class="ti ti-clipboard-text" aria-hidden="true"></i> ${esc(t('enTitleShort', { s: sd.season }))}</a></div></section>
+      <section class="card club-values"><h2><i class="ti ti-heart-handshake" aria-hidden="true"></i> ${esc(t('clubValues'))}</h2>
+        <p>${esc(t('clubValuesText'))}</p></section>
+      <section class="card club-sponsor"><h2><i class="ti ti-speakerphone" aria-hidden="true"></i> ${esc(t('clubSponsor'))}</h2>
+        <p>${esc(t('clubSponsorText'))}</p>
+        <ul class="plain-list">${['clubSponsor1', 'clubSponsor2', 'clubSponsor3'].map(k => `<li><i class="ti ti-check" aria-hidden="true"></i> ${esc(t(k))}</li>`).join('')}</ul>
+        <div class="btn-row"><a class="btn primary" href="mailto:${esc(Club.email)}?subject=${encodeURIComponent(t('clubSponsorSubject'))}"><i class="ti ti-mail" aria-hidden="true"></i> ${esc(t('clubSponsorMail'))}</a>
+          <a class="btn" href="tel:+39${esc(Club.phone.replace(/\D/g, ''))}"><i class="ti ti-phone" aria-hidden="true"></i> ${esc(Club.phone)}</a></div></section>
+      ${whereCard()}`;
+  }
+
+  // ---------- iscrizione online dei minori ----------
+  // enroll/{id}: modulo pubblico (anche senza accesso): genitore e allievo, livello, consenso alle immagini (facoltativo),
+  // presa visione dell'informativa (obbligatoria). Lo leggono solo admin e segreteria; «Crea scheda corsista» crea la
+  // scheda SENZA ACCOUNT (athletes/k-…) con il genitore come contatto e segna l'iscrizione come gestita.
+  const CF_RE = /^[A-Z]{6}[0-9LMNPQRSTUV]{2}[A-Z][0-9LMNPQRSTUV]{2}[A-Z][0-9LMNPQRSTUV]{3}[A-Z]$/;
+  const EN_WAIT = 3 * 60000;
+  const PROVS = /^[A-Z]{2}$/;
+  function enPersonFields(p, kid) {
+    const f = k => `${p}_${k}`;
+    const req = kid ? '' : 'required';
+    return `<label>${esc(t('firstName'))}<input name="${f('first')}" required maxlength="60" autocomplete="off"></label>
+      <label>${esc(t('lastName'))}<input name="${f('last')}" required maxlength="60" autocomplete="off"></label>
+      ${kid ? `<label>${esc(t('gender'))}<select name="${f('gender')}" required><option value="">—</option><option value="M">${esc(t('male'))}</option><option value="F">${esc(t('female'))}</option></select></label>` : ''}
+      <label>${esc(t('enBirthPlace'))}<input name="${f('birthPlace')}" required maxlength="60" autocomplete="off"></label>
+      <label>${esc(t('athBirthDate'))}<input type="date" name="${f('birthDate')}" required max="${todayStr()}"></label>
+      <label>${esc(t('enCity'))}<input name="${f('city')}" required maxlength="60" autocomplete="off"></label>
+      <label>${esc(t('athAddress'))}<input name="${f('address')}" required maxlength="80" placeholder="${esc(t('athAddressPh'))}" autocomplete="off"></label>
+      <label>${esc(t('enZip'))}<input name="${f('zip')}" required maxlength="5" inputmode="numeric" pattern="[0-9]{5}" autocomplete="off"></label>
+      <label>${esc(t('enProv'))}<input name="${f('prov')}" required maxlength="2" placeholder="CA" autocomplete="off" style="text-transform:uppercase"></label>
+      <label>${esc(t(kid ? 'enPhoneOpt' : 'ptPhone'))}<input type="tel" name="${f('phone')}" ${req} maxlength="20" inputmode="tel" autocomplete="off"></label>
+      <label>${esc(t(kid ? 'enEmailOpt' : 'enEmail'))}<input type="email" name="${f('email')}" ${req} maxlength="100" autocomplete="off"></label>
+      <label>${esc(t('athCf'))}<input name="${f('cf')}" required maxlength="16" minlength="16" autocomplete="off" style="text-transform:uppercase"></label>`;
+  }
+  function viewEnroll() {
+    const sd = schoolDates();
+    if (ui.enDone) return `<div class="page-head"><h1><i class="ti ti-clipboard-check" aria-hidden="true"></i> ${esc(t('enTitle', { s: sd.season }))}</h1></div>
+      <div class="card"><p class="note ok"><i class="ti ti-circle-check" aria-hidden="true"></i> ${esc(t('enSent'))}</p>
+      <div class="btn-row"><a class="btn" href="#/club">${esc(t('clubTitle'))} →</a></div></div>`;
+    return `<div class="page-head"><a class="back" href="#/club">← ${esc(t('clubTitle'))}</a><h1><i class="ti ti-clipboard-text" aria-hidden="true"></i> ${esc(t('enTitle', { s: sd.season }))}</h1>
+        <p class="muted">${esc(t('enIntro', { a: fmtDate(sd.from), b: fmtDate(sd.to) }))}</p></div>
+      <form class="card grid-form en-form" data-form="enroll-send">
+        <h2 class="span-all"><i class="ti ti-user-heart" aria-hidden="true"></i> ${esc(t('enParent'))}</h2>
+        ${enPersonFields('p', false)}
+        <h2 class="span-all"><i class="ti ti-ball-tennis" aria-hidden="true"></i> ${esc(t('enKid'))}</h2>
+        ${enPersonFields('k', true)}
+        <label class="span-all">${esc(t('trLevel'))}<select name="level" required><option value="">—</option>${LEVELS.map(l => `<option value="${l}">${esc(levelLabel(l))}</option>`).join('')}</select></label>
+        <fieldset class="span-all en-images"><legend>${esc(t('enImages'))}</legend>
+          <p class="muted small">${esc(t('enImagesHelp'))}</p>
+          <label class="check"><input type="radio" name="images" value="yes"> ${esc(t('enImagesYes'))}</label>
+          <label class="check"><input type="radio" name="images" value="no" checked> ${esc(t('enImagesNo'))}</label></fieldset>
+        <label class="check span-all"><input type="checkbox" name="privacy" required> <span>${t('enPrivacy')}</span></label>
+        <div class="form-actions span-all"><button class="btn primary"><i class="ti ti-send" aria-hidden="true"></i> ${esc(t('enSend'))}</button></div>
+      </form>`;
+  }
+  function enRead(f, p, kid) {
+    const v = k => String((f[`${p}_${k}`] || {}).value || '').trim();
+    const o = { first: v('first').slice(0, 60), last: v('last').slice(0, 60), birthPlace: v('birthPlace').slice(0, 60), birthDate: v('birthDate'), city: v('city').slice(0, 60),
+      address: v('address').slice(0, 80), zip: v('zip'), prov: v('prov').toUpperCase(), phone: cleanPhone(v('phone')), email: v('email').toLowerCase().slice(0, 100), cf: v('cf').toUpperCase().replace(/\s/g, '') };
+    if (kid) o.gender = v('gender');
+    return o;
+  }
+  function enCheck(o, kid) {
+    if (!o.first || !o.last || !o.birthPlace || !o.city || !o.address) return 'errRegFields';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(o.birthDate) || o.birthDate > todayStr()) return 'enBadBirth';
+    if (!/^\d{5}$/.test(o.zip)) return 'enBadZip';
+    if (!PROVS.test(o.prov)) return 'enBadProv';
+    if (!CF_RE.test(o.cf)) return 'enBadCf';
+    if (kid && !['M', 'F'].includes(o.gender)) return 'errRegFields';
+    if ((!kid || o.phone) && !phoneOk(o.phone)) return 'phoneBad';
+    if (!kid && !o.phone) return 'phoneBad';
+    if ((!kid || o.email) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(o.email)) return 'enBadEmail';
+    return '';
+  }
+  function enSend(f) {
+    const parent = enRead(f, 'p', false), kid = enRead(f, 'k', true), level = f.level.value;
+    const e = enCheck(parent, false) || enCheck(kid, true);
+    if (e) return warn(e);
+    if (!LEVELS.includes(level)) return warn('ptNeedLevel');
+    if (!f.privacy.checked) return warn('registerPrivacyNeeded');
+    if (!kid.phone) delete kid.phone;
+    if (!kid.email) delete kid.email;
+    let last = 0; try { last = Number(localStorage.getItem('qm-enroll-at')) || 0; } catch (x) { /* ignore */ }
+    if (Date.now() - Math.max(last, ui.enAt || 0) < EN_WAIT) return warn('ptWait');
+    const d = { parent, kid, level, images: (f.querySelector('[name=images]:checked') || {}).value === 'yes', privacy: true, season: schoolDates().season };
+    const btn = f.querySelector('button.primary'); btn.disabled = true;
+    window.Cloud.sendEnroll(d).then(() => {
+      ui.enAt = Date.now(); try { localStorage.setItem('qm-enroll-at', String(ui.enAt)); } catch (x) { /* ignore */ }
+      ui.enDone = true; render(); window.scrollTo(0, 0);
+    }).catch(x => { btn.disabled = false; warn('regError', { code: x.code || x.message }); });
+  }
+  // admin e segreteria: iscrizioni ricevute
+  const enPending = () => (S().enrolls || []).filter(x => x.status === 'new');
+  const enPersonLine = p => [p.birthPlace && p.birthDate ? t('enBornLine', { p: p.birthPlace, d: fmtDate(p.birthDate) }) : '', `${p.address || ''}, ${p.zip || ''} ${p.city || ''} (${p.prov || ''})`, p.cf].filter(Boolean).join(' · ');
+  function enrollCard(x) {
+    const k = x.kid || {}, p = x.parent || {};
+    return `<div class="card en-card"><div class="ch-head"><span class="badge ${x.status === 'new' ? 'warn-b' : 'st-done'}">${esc(t('enSt_' + x.status))}</span> ${lvlBadge(x.level)}
+        <span class="badge ${x.images ? 'st-done' : ''}"><i class="ti ti-camera${x.images ? '' : '-off'}" aria-hidden="true"></i> ${esc(t(x.images ? 'enImagesOkShort' : 'enImagesNoShort'))}</span></div>
+      <h3>${esc(`${k.last || ''} ${k.first || ''}`)} <small class="muted">${esc(k.gender === 'F' ? t('female') : t('male'))}</small></h3>
+      <p class="small">${esc(enPersonLine(k))}${k.phone ? ` · ${telLink(k.phone)}` : ''}${k.email ? ` · <a href="mailto:${esc(k.email)}">${esc(k.email)}</a>` : ''}</p>
+      <p class="small"><i class="ti ti-user-heart" aria-hidden="true"></i> <strong>${esc(`${p.last || ''} ${p.first || ''}`)}</strong> · ${telLink(p.phone || '')} · <a href="mailto:${esc(p.email || '')}">${esc(p.email || '')}</a><br>
+        <small class="muted">${esc(enPersonLine(p))}</small></p>
+      <p class="muted small">${esc(t('ptSentAt', { d: x.at ? new Date(x.at).toLocaleString(I18n.locale(), { dateStyle: 'medium', timeStyle: 'short' }) : '—' }))} · ${esc(t('enSeason', { s: x.season || '' }))}</p>
+      ${x.status === 'new' ? `<div class="btn-row"><button class="btn small primary" data-action="enroll-create" data-id="${esc(x.id)}"><i class="ti ti-id-badge-2" aria-hidden="true"></i> ${esc(t('enCreate'))}</button>
+        <button class="btn small" data-action="enroll-archive" data-id="${esc(x.id)}"><i class="ti ti-archive" aria-hidden="true"></i> ${esc(t('enArchive'))}</button></div>`
+      : x.athleteId ? `<p class="note ok small"><i class="ti ti-id-badge-2" aria-hidden="true"></i> ${esc(t('enCreatedInfo'))} <a href="#/athletes">${esc(t('athTitle'))} →</a></p>` : ''}</div>`;
+  }
+  function viewEnrolls() {
+    const tab = ui.enTab || 'new', all = (S().enrolls || []).slice().sort((a, b) => (b.at || 0) - (a.at || 0));
+    const list = all.filter(x => (tab === 'new' ? x.status === 'new' : x.status !== 'new'));
+    return `<div class="page-head"><a class="back" href="#/athletes">← ${esc(t('athTitle'))}</a><h1><i class="ti ti-clipboard-list" aria-hidden="true"></i> ${esc(t('enStaffTitle'))}</h1>
+        <p class="muted">${esc(t('enStaffHelp'))}</p></div>
+      <nav class="tabs">${['new', 'done'].map(k => `<a href="#/iscrizioni" class="${tab === k ? 'active' : ''}" data-action="en-tab" data-tab="${k}">${esc(t('enTab_' + k))} <small>${all.filter(x => (k === 'new' ? x.status === 'new' : x.status !== 'new')).length}</small></a>`).join('')}</nav>
+      ${list.length ? `<div class="tr-grid">${list.map(enrollCard).join('')}</div>` : `<div class="empty"><i class="ti ti-clipboard" aria-hidden="true"></i> ${esc(t('enNone'))}</div>`}`;
+  }
+  function enAlert() {
+    const n = admin() ? enPending().length : 0;
+    return n ? `<div class="msg-alert" role="alert"><div class="msg-head"><strong><i class="ti ti-clipboard-list" aria-hidden="true"></i> ${esc(t('enAlert', { n }))}</strong></div>
+      <a class="btn small" href="#/iscrizioni">${esc(t('enStaffTitle'))} →</a></div>` : '';
+  }
+  const enActions = {
+    'en-tab': el => { ui.enTab = el.dataset.tab; render(); },
+    'enroll-archive': el => {
+      if (!confirmed('enArchiveConfirm')) return;
+      window.Cloud.setEnroll(el.dataset.id, { status: 'archived' }).then(() => { ui.flash = { text: t('enArchived') }; render(); }).catch(e => warn('regError', { code: e.code || e.message }));
+    },
+    'enroll-create': el => {
+      const x = (S().enrolls || []).find(y => y.id === el.dataset.id);
+      if (!x || x.status !== 'new') return;
+      const k = x.kid || {}, p = x.parent || {};
+      const id = window.Cloud.newKidId();
+      const notes = [t('enNoteLevel', { l: levelLabel(x.level) }), t(x.images ? 'enImagesOkShort' : 'enImagesNoShort')].join(' · ');
+      const a = { id, noAccount: true, first: k.first, last: k.last, gender: k.gender || 'M', birthDate: k.birthDate || '', birthPlace: k.birthPlace || '',
+        city: `${k.zip || ''} ${k.city || ''} (${k.prov || ''})`.trim(), address: k.address || '', cf: k.cf || '', level: x.level || '', images: !!x.images,
+        parent: { name: `${p.first || ''} ${p.last || ''}`.trim(), phone: p.phone || '', email: p.email || '', cf: p.cf || '', birthPlace: p.birthPlace || '', birthDate: p.birthDate || '',
+          city: `${p.zip || ''} ${p.city || ''} (${p.prov || ''})`.trim(), address: p.address || '' },
+        notes: notes.slice(0, 300), enrollId: x.id, created: Date.now() };
+      if (k.phone) a.phone = k.phone;
+      if (k.email) a.email = k.email;
+      window.Cloud.createKidFromEnroll(a, x.id).then(() => { ui.flash = { text: t('enCreated', { n: `${k.last} ${k.first}` }) }; render(); })
+        .catch(e => warn('regError', { code: e.code || e.message }));
+    }
+  };
+
+  // ====================================================================
   // PRIVACY E TERMINI: pagine legali, presa visione, dati personali (diritti GDPR artt. 15-22).
   // ====================================================================
   function viewLegal(kind) {
@@ -1544,6 +1722,7 @@
     return `
       <div class="page-head row"><h1><i class="ti ti-id-badge-2" aria-hidden="true"></i> ${esc(t('athTitle'))}</h1>
         <span class="btn-row"><button class="btn small" data-action="pack-sync" ${ui.packSyncing ? 'disabled' : ''} title="${esc(t('packSyncHelp'))}"><i class="ti ti-refresh" aria-hidden="true"></i> ${esc(t(ui.packSyncing ? 'packSyncing' : 'packSync'))}</button>
+        <a class="btn small" href="#/iscrizioni"><i class="ti ti-clipboard-list" aria-hidden="true"></i> ${esc(t('enStaffTitle'))}${enPending().length ? ` <span class="badge warn-b">${enPending().length}</span>` : ''}</a>
         <a class="btn small" href="#/train"><i class="ti ti-barbell" aria-hidden="true"></i> ${esc(t('navTrain'))} →</a></span></div>
       ${certOnly ? `<div class="note warn cert-only"><span><i class="ti ti-heart-exclamation" aria-hidden="true"></i> <strong>${esc(t('certOnlyTitle', { n: list.length }))}</strong></span> <a class="btn small" href="#/athletes">${esc(t('certShowAll'))}</a></div>`
         : warnN ? certSummary('note') : ''}
@@ -1694,8 +1873,8 @@
       <label>${esc(t('priceSpot'))}<input type="number" name="spot" min="0" step="0.01" value="${p.spot != null ? p.spot : ''}" inputmode="decimal"></label>
       <h3 class="span-all">${esc(t('priceCourseTitle'))}</h3>
       <p class="muted small span-all">${esc(t('priceCourseHelp'))}</p>
-      <label>${esc(t('priceCourseFrom'))}<input type="date" name="courseFrom" value="${esc(p.courseFrom || '')}"></label>
-      <label>${esc(t('priceCourseTo'))}<input type="date" name="courseTo" value="${esc(p.courseTo || '')}"></label>
+      <label>${esc(t('priceCourseFrom'))}<input type="date" name="courseFrom" value="${esc(p.courseFrom || (p.courseTo ? '' : schoolDates().from))}"></label>
+      <label>${esc(t('priceCourseTo'))}<input type="date" name="courseTo" value="${esc(p.courseTo || (p.courseFrom ? '' : schoolDates().to))}"></label>
       ${[1, 2].map(n => `<label>${esc(t('priceCourse', { n }))}<input type="number" name="c${n}" min="0" step="0.01" value="${p['c' + n] != null ? p['c' + n] : ''}" inputmode="decimal"></label>`).join('')}
       <h3 class="span-all">${esc(t('fitpTitle'))}</h3>
       <label>${esc(t('priceFitp'))}<input type="number" name="fitp" min="0" step="0.01" value="${p.fitp != null ? p.fitp : ''}" inputmode="decimal"></label>
@@ -2120,7 +2299,7 @@
       <label>${esc(t('ptDay'))}<input type="date" name="date" required min="${todayStr()}" max="${ptMaxDate()}" value="${esc(dr.date || '')}"></label>
       <label>${esc(t('ptStart'))}<select name="from" required>${ptStarts().map(h => `<option ${h === (dr.from || '17:00') ? 'selected' : ''}>${h}</option>`).join('')}</select></label>
       <fieldset class="span-all pt-durs"><legend>${esc(t('bkDuration'))}</legend><div class="segmented wrap">${PT_DURS.map(n => `<label class="seg-radio"><input type="radio" name="dur" value="${n}" ${n === (Number(dr.dur) || 60) ? 'checked' : ''}><span>${esc(durText('00:00', fromMin(n)))}</span></label>`).join('')}</div></fieldset>
-      <label>${esc(t('ptCoach'))}<select name="coach"><option value="">${esc(t('ptCoachAny'))}</option>${coaches.map(c => `<option value="${esc(c.v)}" ${dr.coach === c.v ? 'selected' : ''}>${esc(c.name)}${c.role ? ' — ' + esc(c.role) : ''}</option>`).join('')}</select></label>
+      <label>${esc(t('ptCoach'))}<select name="coach"><option value="">${esc(t('ptCoachAny'))}</option>${coaches.map(c => `<option value="${esc(c.v)}" ${dr.coach === c.v ? 'selected' : ''}>${esc(c.name)}${c.role ? ' — ' + esc(teamRole(c.role)) : ''}</option>`).join('')}</select></label>
       <label>${esc(t('trLevel'))}<select name="level" required><option value="">—</option>${LEVELS.map(l => `<option value="${l}" ${dr.level === l ? 'selected' : ''}>${esc(levelLabel(l))}</option>`).join('')}</select></label>
       <label class="span-all">${esc(t('ptPhone'))}<input type="tel" name="phone" required maxlength="20" inputmode="tel" autocomplete="tel" value="${esc(phone)}" placeholder="${esc(t('bkPhonePh'))}">
         <small class="muted">${esc(t('ptPhoneHelp'))}</small></label>
@@ -2659,7 +2838,9 @@
   const payState = p => planPaid(p) ? 'paid' : (todayStr() > `${p.month}-10` ? 'late' : 'due');
   const quarterMonths = m => [m, shiftMonth(m, 1), shiftMonth(m, 2)];
   // CORSO INTERO: prezzo per 1 o 2 allenamenti a settimana e date del corso nel listino; copre tutti i mesi del corso
-  const courseInfo = () => { const p = S().prices || {}; return /^\d{4}-\d{2}-\d{2}$/.test(p.courseFrom || '') && /^\d{4}-\d{2}-\d{2}$/.test(p.courseTo || '') && p.courseFrom <= p.courseTo ? { from: p.courseFrom, to: p.courseTo } : null; };
+  // corso intero: date scelte dall'admin nel listino; di serie il calendario della scuola (15 settembre – 15 giugno)
+  const courseInfo = () => { const p = S().prices || {}; if (!p.courseFrom && !p.courseTo) { const sd = schoolDates(); return { from: sd.from, to: sd.to }; }
+    return /^\d{4}-\d{2}-\d{2}$/.test(p.courseFrom || '') && /^\d{4}-\d{2}-\d{2}$/.test(p.courseTo || '') && p.courseFrom <= p.courseTo ? { from: p.courseFrom, to: p.courseTo } : null; };
   const courseMonths = () => { const c = courseInfo(), out = []; if (!c) return out; for (let m = c.from.slice(0, 7); m <= c.to.slice(0, 7) && out.length < 24; m = shiftMonth(m, 1)) out.push(m); return out; };
   const coursePrice = n => { const v = (S().prices || {})['c' + n]; return (n === 1 || n === 2) && v != null && v !== '' ? Number(v) : null; };
   const causaleCourse = () => { const c = courseInfo(); return `Quota sociale allenamenti - corso intero dal ${itDate(c.from)} al ${itDate(c.to)}`; };
@@ -4175,7 +4356,7 @@
   // ---------- azioni ----------
   const confirmed = (key, p) => confirm(t(key, p));
 
-  const actions = Object.assign({}, ptActions, trActions, occActions, evActions, payActions, statActions, privacyActions, reportActions, cassaActions, {
+  const actions = Object.assign({}, enActions, ptActions, trActions, occActions, evActions, payActions, statActions, privacyActions, reportActions, cassaActions, {
     'user-reset': el => {
       const m = memberByUid(el.dataset.uid), email = (S().accounts || {})[el.dataset.uid];
       if (!canEditUser(el.dataset.uid)) return;
@@ -4331,6 +4512,7 @@
 
   const forms = Object.assign({}, trForms, occForms, payForms, cassaForms, {
     'ptreq-send': f => ptSend(f),
+    'enroll-send': f => enSend(f),
     'ptreq-confirm': f => ptConfirm(f),
     'user-create': f => {
       const d = { first: f.first.value.trim(), last: f.last.value.trim(), gender: f.gender.value, email: f.email.value.trim(), password: f.password.value, role: f.role.value };
@@ -4453,7 +4635,7 @@
   // Admin Centro: allenamenti (vede tutti, annulla una giornata, elimina)
   const CENTER_ACTIONS = new Set(['tr-delete', 'occ-cancel', 'occ-remove', 'occ-restore', 'occ-copy-group', 'tr-edit', 'tr-edit-cancel', 'tr-copy', 'grp-remove', 'att-force']);
   const CENTER_FORMS = new Set(['tr-save', 'grp-add', 'occ-copy']);
-  const PUBLIC_FORMS = new Set(['login', 'register', 'complete-profile', 'ptreq-send']);
+  const PUBLIC_FORMS = new Set(['login', 'register', 'complete-profile', 'ptreq-send', 'enroll-send']);
   // solo admin (non la segreteria): impostazioni dei campi, regole di prenotazione, listino, avvisi, articoli, messaggi
   const ADMIN_FORMS = new Set(['court-save', 'recurring-add', 'booking-settings', 'book-rewards-save', 'msg-send', 'nick-save', 'editorial-save', 'notice-save', 'prices-save']);
   const ADMIN_ACTIONS = new Set(['court-open', 'court-close', 'court-delete', 'recurring-delete', 'court-copy', 'msg-delete', 'msg-target', 'editorial-edit', 'editorial-clear', 'notice-edit', 'notice-clear']);
