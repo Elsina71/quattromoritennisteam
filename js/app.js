@@ -1448,6 +1448,8 @@
       giocatoriNellePrenotazioni: (S().bkplayers || []).filter(b => b.by === uid || (b.uids || []).includes(uid))
         .map(b => ({ data: b.date, dalle: b.from, alle: b.to, campo: b.courtName, prenotatoDaMe: b.by === uid })),
       pacchetti: (S().packs || []).filter(mine),
+      telefoniPrenotazioni: (S().bkphones || []).filter(x => x.by === uid).map(x => ({ data: x.date, dalle: x.from, telefono: x.phone })),
+      richiesteAllenamentoPrivato: (S().ptreqs || []).filter(mine).map(x => ({ giorno: x.date, ora: x.from, durataMinuti: x.dur, telefono: x.phone, livello: x.level, note: x.notes, stato: x.status })),
       messaggiRicevuti: (S().messages || []).filter(x => (x.to || []).includes(uid) || x.all).map(x => ({ titolo: x.title || '', testo: x.text || '', data: x.created ? new Date(x.created).toISOString() : null })),
       avvisi: (S().notices || []).filter(x => x.to === uid).map(x => ({ testo: x.text, data: x.at ? new Date(x.at).toISOString() : null })),
       limitazioni: (S().bans || {})[uid] || null
@@ -2283,7 +2285,7 @@
   const ptWaLink = r => `https://wa.me/${waNumber(r.phone)}?text=${encodeURIComponent(ptWaText(r))}`;
   const ptStatusBadge = r => `<span class="badge ${r.status === 'ok' ? 'st-done' : r.status === 'no' ? 'st-full' : 'warn-b'}">${esc(t('ptSt_' + r.status))}</span>`;
   const ptPending = () => (S().ptreqs || []).filter(r => r.status === 'pending');
-  const ptWhen = r => `${longDate(r.date)} · ${r.from}–${ptEnd(r)} (${durText(r.from, ptEnd(r))})`;
+  const ptWhen = r => { const d = longDate(r.date); return `${d.charAt(0).toUpperCase() + d.slice(1)} · ${r.from}–${ptEnd(r)} (${durText(r.from, ptEnd(r))})`; };
 
   function ptForm() {
     const m = member() || (admin() && window.Cloud && window.Cloud.adminMember) || null;
@@ -2314,7 +2316,7 @@
     const list = (S().ptreqs || []).filter(r => r.uid === me && r.date >= addDays(todayStr(), -7)).sort((a, b) => (a.date + a.from).localeCompare(b.date + b.from));
     if (!me || !list.length) return '';
     return `<div class="card" id="my-ptreq"><h2><i class="ti ti-user-star" aria-hidden="true"></i> ${esc(t('ptMine'))}</h2>
-      <ul class="reg-list">${list.map(r => `<li><span class="reg-names"><strong class="cap">${esc(ptWhen(r))}</strong> ${ptStatusBadge(r)}<br>
+      <ul class="reg-list">${list.map(r => `<li><span class="reg-names"><strong>${esc(ptWhen(r))}</strong> ${ptStatusBadge(r)}<br>
         <small class="muted">${esc(levelLabel(r.level))} · ${esc(t('ptCoach'))}: ${esc(ptCoachLabel(r))}${r.status === 'ok' && r.courtId ? ` · ${esc(courtName(r.courtId))}` : ''}</small></span>
         ${r.status === 'pending' ? `<button class="btn small" data-action="ptreq-withdraw" data-id="${esc(r.id)}">${esc(t('ptWithdraw'))}</button>` : ''}</li>`).join('')}</ul></div>`;
   }
@@ -2324,7 +2326,7 @@
     const accCoaches = (S().coaches || []).slice().sort((a, b) => coachName(a.id).localeCompare(coachName(b.id)));
     const head = `<div class="ch-head">${ptStatusBadge(r)} <span class="badge ${r.kind === 'user' ? 'role-user' : ''}"><i class="ti ti-${r.kind === 'user' ? 'user-check' : 'user-question'}" aria-hidden="true"></i> ${esc(t(r.kind === 'user' ? 'ptKindUser' : 'ptKindGuest'))}</span> ${lvlBadge(r.level)}</div>
       <h3>${esc(r.name || '—')}</h3>
-      <p class="cap"><i class="ti ti-calendar" aria-hidden="true"></i> ${esc(ptWhen(r))}</p>
+      <p><i class="ti ti-calendar" aria-hidden="true"></i> ${esc(ptWhen(r))}</p>
       <p class="small">${telLink(r.phone)} · <i class="ti ti-school" aria-hidden="true"></i> ${esc(t('ptCoachAsked'))}: ${esc(ptCoachLabel(r))}</p>
       ${r.notes ? `<p class="note small">${esc(r.notes)}</p>` : ''}
       <p class="muted small">${esc(t('ptSentAt', { d: r.at ? new Date(r.at).toLocaleString(I18n.locale(), { dateStyle: 'medium', timeStyle: 'short' }) : '—' }))}</p>`;
@@ -2425,7 +2427,7 @@
   function ptDoneDialog(r) {
     const wa = r.kind === 'user';
     $dialog.innerHTML = `<div class="dialog-body pt-done"><h2><i class="ti ti-circle-check" aria-hidden="true"></i> ${esc(t('ptDoneTitle'))}</h2>
-      <p><strong>${esc(r.name)}</strong> · <span class="cap">${esc(ptWhen(r))}</span><br><small class="muted">${esc(courtName(r.courtId))}${r.coachUid ? ' · ' + esc(coachName(r.coachUid)) : ''}</small></p>
+      <p><strong>${esc(r.name)}</strong> · <span>${esc(ptWhen(r))}</span><br><small class="muted">${esc(courtName(r.courtId))}${r.coachUid ? ' · ' + esc(coachName(r.coachUid)) : ''}</small></p>
       ${wa ? `<p class="muted small">${esc(t('ptWaHelp'))}</p><blockquote class="note">${esc(ptWaText(r))}</blockquote>
         <div class="btn-row"><a class="btn primary" id="pt-wa" href="${esc(ptWaLink(r))}" target="_blank" rel="noopener"><i class="ti ti-brand-whatsapp" aria-hidden="true"></i> ${esc(t('ptWaOpen'))}</a></div>
         <p class="muted small">${esc(t('ptWaInApp'))}</p>`

@@ -1634,7 +1634,7 @@ li.is-void { opacity: .6; }
 .pt-card h3 { margin: 6px 0 4px; }
 .pt-card p { margin: 4px 0; }
 .pt-card.is-no { opacity: .75; }
-.pt-confirm { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 10px; }
+.pt-confirm { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 10px; grid-template-columns: 1fr; }
 .pt-done blockquote { margin: 8px 0; }
 
 /* ---------- pagina Il circolo e iscrizione online ---------- */
