@@ -286,26 +286,151 @@ await test('scheda di valutazione: la leggono admin, segreteria e l\'allenatore,
   await assertFails(getDoc(doc(db('coach2'), 'evals/t1_2030-05-06_mario')));
 });
 
-// ---------- pacchetti: scalo nell'app (niente Cloud Functions) ----------
-const use = by => ({ pack: 'k1', uid: 'mario', tid: 't1', date: '2030-05-06', at: 1, by });
-await test('la segreteria scala un pacchetto: packuse e used insieme', async () => {
+// ---------- schede senza account (ragazzi non registrati) ----------
+const KID = 'k-ragazzo0001';
+const kid = { noAccount: true, first: 'Pietro', last: 'Deiana', gender: 'M', birthDate: '2016-03-02', parent: { name: 'Anna Deiana', phone: '3331234567', email: '' },
+  notes: 'allergico alle api', certType: 'nonagon', certExp: '2031-01-01', tess: {}, created: 1 };
+await test('scheda senza account: la crea la segreteria (ID k-…), non utenti né allenatori', async () => {
+  await assertSucceeds(setDoc(doc(db('segr'), `athletes/${KID}`), kid));
+  await assertFails(setDoc(doc(db('luca'), 'athletes/k-furbo00001'), kid));
+  await assertFails(setDoc(doc(db('coach1'), 'athletes/k-furbo00001'), kid));
+  await assertFails(setDoc(doc(db('mario'), 'athletes/k-furbo00001'), kid));
+});
+await test('scheda senza account: ID e segno noAccount devono corrispondere', async () => {
+  await assertFails(setDoc(doc(db('segr'), 'athletes/pippo'), kid));                                   // noAccount con un ID da utente
+  await assertFails(setDoc(doc(db('segr'), 'athletes/k-senzasegno1'), Object.assign({}, kid, { noAccount: false })));
+  await assertFails(setDoc(doc(db('segr'), 'athletes/k-x'), kid));                                     // codice troppo corto
+});
+await test('scheda senza account: la leggono solo admin e segreteria (non allenatore, cassa, utenti)', async () => {
+  await assertSucceeds(getDoc(doc(db('segr'), `athletes/${KID}`)));
+  await assertSucceeds(getDoc(doc(db('capo'), `athletes/${KID}`)));
+  await assertFails(getDoc(doc(db('coach1'), `athletes/${KID}`)));
+  await assertFails(getDoc(doc(db('cassiere'), `athletes/${KID}`)));
+  await assertFails(getDoc(doc(db('luca'), `athletes/${KID}`)));
+});
+await test('il ragazzo senza account entra nel gruppo e nel piano del mese (solo staff)', async () => {
+  await assertSucceeds(setDoc(doc(db('segr'), 'groups/t1_2030-05'), { tid: 't1', month: '2030-05', uids: ['mario', 'sara', KID], names: { [KID]: 'Deiana Pietro' }, coachUid: 'coach1' }));
+  await assertSucceeds(setDoc(doc(db('segr'), `plans/${KID}_2030-05`), { uid: KID, month: '2030-05', tids: ['t1'], n: 1, price: 50 }));
+  await assertFails(getDoc(doc(db('coach1'), `plans/${KID}_2030-05`)));
+  await assertFails(setDoc(doc(db('coach1'), `plans/${KID}_2030-06`), { uid: KID, month: '2030-06', tids: ['t1'], n: 1, price: 0 }));
+});
+await test('l\'allenatore segna presente il ragazzo senza account e lo valuta', async () => {
+  const f = db('coach1'), b = writeBatch(f);
+  b.set(doc(f, `att/t1_2030-05-06_${KID}`), att(KID, 'in'));
+  b.update(doc(f, 'occ/t1_2030-05-06'), { p: 2 });
+  await assertSucceeds(b.commit());
+  await assertSucceeds(setDoc(doc(db('coach1'), `evals/t1_2030-05-06_${KID}`), ev('coach1', { tec: 6, att: 8 }, { uid: KID })));
+  await assertFails(setDoc(doc(db('coach2'), `evals/t1_2030-05-06_${KID}`), ev('coach2', { tec: 6 }, { uid: KID })));
+});
+
+// ---------- pacchetti: contatore senza prezzi (packcount) e scalo subito dall'allenatore ----------
+await env.withSecurityRulesDisabled(async c => {
+  const f = c.firestore();
+  await setDoc(doc(f, 'packcount/k1'), { uid: 'mario', n: 2, used: 0, from: '2030-01-01', created: 1, coachUids: ['coach1'] });
+  await setDoc(doc(f, `packs/kk`), { uid: KID, n: 1, used: 0, price: 25, from: '2030-05-01' });
+  await setDoc(doc(f, `packcount/kk`), { uid: KID, n: 1, used: 0, from: '2030-05-01', created: 1, coachUids: ['coach1'] });
+});
+const use = (by, extra) => Object.assign({ pack: 'k1', uid: 'mario', tid: 't1', date: '2030-05-06', at: 1, by }, extra || {});
+await test('la segreteria scala un pacchetto: packuse e contatore insieme', async () => {
   const f = db('segr'), b = writeBatch(f);
-  b.set(doc(f, 'packuse/t1_2030-05-06_mario'), use('segr')); b.update(doc(f, 'packs/k1'), { used: 1 });
+  b.set(doc(f, 'packuse/t1_2030-05-06_mario'), use('segr')); b.update(doc(f, 'packcount/k1'), { used: 1 });
   await assertSucceeds(b.commit());
 });
-await test('il pacchetto non scende sotto zero lezioni rimaste', async () => {
-  await assertFails(updateDoc(doc(db('capo'), 'packs/k1'), { used: 3 }));
-  await assertFails(updateDoc(doc(db('capo'), 'packs/k1'), { used: -1 }));
+await test('il contatore non va sotto zero né oltre il numero del pacchetto', async () => {
+  await assertFails(updateDoc(doc(db('capo'), 'packcount/k1'), { used: 3 }));
+  await assertFails(updateDoc(doc(db('capo'), 'packcount/k1'), { used: -1 }));
 });
-await test('allenatore e corsista non scalano i pacchetti', async () => {
-  await assertFails(setDoc(doc(db('coach1'), 'packuse/t1_2030-05-07_mario'), Object.assign(use('coach1'), { date: '2030-05-07' })));
-  await assertFails(updateDoc(doc(db('mario'), 'packs/k1'), { used: 0 }));
-  await assertFails(setDoc(doc(db('mario'), 'packuse/t1_2030-05-07_mario'), Object.assign(use('mario'), { date: '2030-05-07' })));
+await test('il contatore non contiene prezzi o pagamenti', async () => {
+  await assertFails(setDoc(doc(db('segr'), 'packcount/kx'), { uid: 'mario', n: 2, used: 0, from: '2030-01-01', created: 1, coachUids: [], price: 40 }));
+});
+await test('l\'allenatore legge il contatore dei suoi corsisti, non pacchetti né piani', async () => {
+  await assertSucceeds(getDoc(doc(db('coach1'), 'packcount/k1')));
+  await assertSucceeds(getDocs(query(collection(db('coach1'), 'packcount'), where('coachUids', 'array-contains', 'coach1'))));
+  await assertFails(getDoc(doc(db('coach2'), 'packcount/k1')));
+  await assertFails(getDoc(doc(db('coach1'), 'packs/k1')));
+  await assertFails(getDoc(doc(db('coach1'), 'packs/kk')));
+  await assertFails(getDocs(query(collection(db('coach1'), 'plans'), where('uid', '==', 'mario'))));
+  await assertFails(getDoc(doc(db('luca'), 'packcount/k1')));
+  await assertSucceeds(getDoc(doc(db('mario'), 'packcount/k1')));
+});
+// presenza segnata dall'allenatore e scalo (+1) in un'unica scrittura
+function coachMark(coach, uid, date, { pack = 'kk', used = 1, occ = { p: 1 }, status = 'in', forced = true, withUse = true, newOcc = true } = {}) {
+  const f = db(coach), b = writeBatch(f), id = `t1_${date}_${uid}`;
+  b.set(doc(f, 'att', id), Object.assign(att(uid, status), { date, by: coach }, forced ? {} : { forced: false }));
+  if (newOcc) b.set(doc(f, 'occ', `t1_${date}`), Object.assign({ tid: 't1', date, p: 0, a: 0, s: 0, cancelled: false }, occ));
+  else b.update(doc(f, 'occ', `t1_${date}`), occ);
+  if (withUse) b.set(doc(f, 'packuse', id), use(coach, { pack, uid, date }));
+  if (used != null) b.update(doc(f, 'packcount', pack), { used, last: id });
+  return b.commit();
+}
+await test('allenatore: presenza + scalo del pacchetto subito (ragazzo senza account)', async () => {
+  await assertSucceeds(coachMark('coach1', KID, '2030-05-13'));
+});
+await test('allenatore: non oltre il numero del pacchetto', async () => {
+  await assertFails(coachMark('coach1', KID, '2030-05-20', { used: 2 }));   // pacchetto da 1 già usato: 2 su 1 no
+});
+await test('allenatore: niente +1 senza packuse, niente +2, niente packuse senza +1', async () => {
+  await assertFails(coachMark('coach1', 'mario', '2030-05-14', { pack: 'k1', used: 2, withUse: false }));
+  await assertFails(coachMark('coach1', 'mario', '2030-05-14', { pack: 'k1', used: 3 }));
+  await assertFails(coachMark('coach1', 'mario', '2030-05-14', { pack: 'k1', used: null }));
+});
+await test('allenatore: non scala senza presenza segnata o con "assente"', async () => {
+  await assertFails(coachMark('coach1', 'mario', '2030-05-14', { pack: 'k1', used: 2, status: 'out', occ: { a: 1 } }));
+  await assertFails(coachMark('coach1', 'mario', '2030-05-14', { pack: 'k1', used: 2, forced: false }));
+});
+await test('allenatore: non scala per allenamenti di altri', async () => {
+  await assertFails(coachMark('coach2', 'mario', '2030-05-14', { pack: 'k1', used: 2 }));
+  await assertFails(setDoc(doc(db('coach2'), 'packuse/t1_2030-05-14_mario'), use('coach2', { date: '2030-05-14' })));
+});
+await test('allenatore: scala il pacchetto di mario (il mese non è pagato)', async () => {
+  await assertSucceeds(coachMark('coach1', 'mario', '2030-05-14', { pack: 'k1', used: 2 }));
+});
+await test('allenatore: togliendo la presenza l\'allenamento torna nel pacchetto (-1)', async () => {
+  const f = db('coach1'), b = writeBatch(f), id = `t1_2030-05-13_${KID}`;
+  b.update(doc(f, 'att', id), { status: 'out' }); b.update(doc(f, 'occ', 't1_2030-05-13'), { p: 0, a: 1 });
+  b.delete(doc(f, 'packuse', id)); b.update(doc(f, 'packcount', 'kk'), { used: 0, last: id });
+  await assertSucceeds(b.commit());
+  // un ripristino senza togliere la presenza "presente" non è ammesso
+  const g = db('coach1'), c = writeBatch(g), id2 = 't1_2030-05-14_mario';
+  c.delete(doc(g, 'packuse', id2)); c.update(doc(g, 'packcount', 'k1'), { used: 1, last: id2 });
+  await assertFails(c.commit());
+});
+await test('allenatore: niente scalo se il mese è già pagato (la presenza sì)', async () => {
+  await env.withSecurityRulesDisabled(c => setDoc(doc(c.firestore(), `plans/${KID}_2030-05`), { uid: KID, month: '2030-05', tids: ['t1'], n: 1, price: 50, paid: { date: '2030-05-01', method: 'cash', amount: 50 } }));
+  await assertFails(coachMark('coach1', KID, '2030-05-27'));
+  await assertSucceeds(coachMark('coach1', KID, '2030-05-27', { withUse: false, used: null }));
+});
+await test('allenatore: niente scalo prima dell\'inizio del pacchetto', async () => {
+  await env.withSecurityRulesDisabled(c => setDoc(doc(c.firestore(), 'groups/t1_2030-04'), { tid: 't1', month: '2030-04', uids: [KID], names: {}, coachUid: 'coach1' }));
+  await env.withSecurityRulesDisabled(c => deleteDoc(doc(c.firestore(), `plans/${KID}_2030-05`)));
+  await assertFails(coachMark('coach1', KID, '2030-04-29'));
+  // controllo: con l'inizio del pacchetto spostato prima, lo stesso scalo passa
+  await env.withSecurityRulesDisabled(c => updateDoc(doc(c.firestore(), 'packcount/kk'), { from: '2030-04-01' }));
+  await assertSucceeds(coachMark('coach1', KID, '2030-04-29'));
+});
+await test('corsista e utenti non toccano contatori e packuse', async () => {
+  await assertFails(updateDoc(doc(db('mario'), 'packcount/k1'), { used: 0 }));
+  await assertFails(setDoc(doc(db('mario'), 'packuse/t1_2030-05-07_mario'), use('mario', { date: '2030-05-07' })));
+  await assertFails(updateDoc(doc(db('luca'), 'packcount/kk'), { used: 1, last: 'x' }));
 });
 await test('il corsista vede il proprio pacchetto e le lezioni scalate', async () => {
   await assertSucceeds(getDoc(doc(db('mario'), 'packs/k1')));
   await assertSucceeds(getDoc(doc(db('mario'), 'packuse/t1_2030-05-06_mario')));
   await assertFails(getDoc(doc(db('luca'), 'packuse/t1_2030-05-06_mario')));
+});
+await test('la risposta del corsista non cambia una presenza segnata dall\'allenatore', async () => {
+  // risposta "ci sarò" di mario (presenze del 22: nessuna)
+  const r = (st, p, a) => { const f = db('mario'), b = writeBatch(f);
+    b.set(doc(f, 'att/t1_2030-05-22_mario'), { tid: 't1', date: '2030-05-22', uid: 'mario', status: st, at: 1, coachUid: 'coach1' });
+    b.set(doc(f, 'occ/t1_2030-05-22'), { tid: 't1', date: '2030-05-22', p, a, s: 0, cancelled: false }); return b.commit(); };
+  await assertSucceeds(r('in', 1, 0));
+  const f = db('coach1'), b = writeBatch(f);
+  b.set(doc(f, 'att/t1_2030-05-22_mario'), Object.assign(att('mario', 'out'), { date: '2030-05-22' })); b.update(doc(f, 'occ/t1_2030-05-22'), { p: 0, a: 1 });
+  await assertSucceeds(b.commit());
+  const g = db('mario'), c = writeBatch(g);
+  c.set(doc(g, 'att/t1_2030-05-22_mario'), { tid: 't1', date: '2030-05-22', uid: 'mario', status: 'in', at: 2, coachUid: 'coach1' }); c.update(doc(g, 'occ/t1_2030-05-22'), { p: 1, a: 0 });
+  await assertFails(c.commit());
+  await assertFails(deleteDoc(doc(db('mario'), 'att/t1_2030-05-22_mario')));
 });
 
 await env.cleanup();

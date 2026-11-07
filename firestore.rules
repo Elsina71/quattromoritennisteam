@@ -275,9 +275,15 @@ service cloud.firestore {
     }
     // scheda del corsista (dati personali, certificato, tesseramento, pagamenti): solo admin, segreteria e interessato.
     // L'allenatore non la legge.
+    // Scheda SENZA ACCOUNT (ragazzo non registrato): ID "k-" + codice casuale (mai uguale a un UID di accesso) e
+    // noAccount = true, con i dati del genitore. La crea e la vede solo lo staff; il suo ID si usa come un UID in
+    // gruppi, presenze, piani, pacchetti, valutazioni e ricevute.
+    function kidId(uid) { return uid.matches('k-[A-Za-z0-9]{8,40}'); }
     match /athletes/{uid} {
       allow get: if (request.auth != null && request.auth.uid == uid) || isStaff();
-      allow list, write: if isStaff();
+      allow list, delete: if isStaff();
+      allow create, update: if isStaff()
+        && (request.resource.data.get('noAccount', false) == true) == kidId(uid);
     }
     match /groups/{id} {
       allow read: if isCenter() || (isCoach() && (get(coachDoc()).data.get('all', false) == true || resource.data.coachUid == request.auth.uid));
@@ -293,28 +299,84 @@ service cloud.firestore {
       allow read: if isCenter() || (request.auth != null && resource.data.uid == request.auth.uid);
       allow write: if isCenter();
     }
-    // packs/{id}: pacchetto di lezioni (numero, prezzo, usati): admin, segreteria e interessato (in lettura).
-    // L'allenatore non lo legge (ci sono prezzo e pagamento).
+    // packs/{id}: pacchetto di lezioni (numero, prezzo, pagamento): admin, segreteria e interessato (in lettura).
+    // L'allenatore non lo legge (ci sono prezzo e pagamento). Il contatore degli allenamenti usati sta in packcount
+    // ("used" qui resta solo dai pacchetti di prima, per il passaggio al contatore).
     match /packs/{id} {
       allow read: if isCenter() || (request.auth != null && resource.data.uid == request.auth.uid);
-      // admin e segreteria; "used" non supera mai il numero di allenamenti del pacchetto
       allow create, update: if isStaff() && request.resource.data.get('used', 0) is int
         && request.resource.data.get('used', 0) >= 0 && request.resource.data.get('used', 0) <= request.resource.data.n;
       allow delete: if isStaff();
     }
-    // packuse/{tid_data_uid}: allenamento scalato dal pacchetto per una presenza. Sul piano Spark non ci sono le
-    // Cloud Functions: lo scrive l'app di admin e segreteria, nella stessa transazione che cambia "used" del pacchetto.
+    // packcount/{id del pacchetto}: contatore senza dati economici { uid, n, used, from, created, coachUids, last }.
+    // coachUids = allenatori degli allenamenti del corsista (lo tiene aggiornato l'app di admin e segreteria): solo loro
+    // lo leggono. L'allenatore cambia solo "used" di +1 o -1, e solo insieme alla creazione (o cancellazione) del
+    // packuse indicato in "last", nella stessa scrittura: le regole di packuse controllano il resto.
+    function pcP(id) { return /databases/$(database)/documents/packcount/$(id); }
+    function puP(id) { return /databases/$(database)/documents/packuse/$(id); }
+    function attD(id) { return /databases/$(database)/documents/att/$(id); }
+    match /packcount/{pid} {
+      allow read: if isStaff() || (request.auth != null && (resource.data.uid == request.auth.uid
+        || (isCoach() && request.auth.uid in resource.data.get('coachUids', []))));
+      allow create, update: if isStaff()
+        && request.resource.data.keys().hasOnly(['uid', 'n', 'used', 'from', 'created', 'coachUids', 'last'])
+        && request.resource.data.n is int && request.resource.data.used is int
+        && request.resource.data.used >= 0 && request.resource.data.used <= request.resource.data.n
+        && request.resource.data.get('coachUids', []) is list;
+      allow delete: if isStaff();
+      allow update: if isCoach()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['used', 'last'])
+        && request.resource.data.last is string
+        && ((request.resource.data.used == resource.data.used + 1 && request.resource.data.used <= resource.data.n
+              && !exists(puP(request.resource.data.last)) && existsAfter(puP(request.resource.data.last))
+              && getAfter(puP(request.resource.data.last)).data.pack == pid)
+          || (request.resource.data.used == resource.data.used - 1 && request.resource.data.used >= 0
+              && exists(puP(request.resource.data.last)) && !existsAfter(puP(request.resource.data.last))
+              && get(puP(request.resource.data.last)).data.pack == pid));
+    }
+    // mese già coperto dal piano pagato (mensile, trimestrale, corso intero): la presenza non scala il pacchetto
+    function monthPaid(tid, date, uid) {
+      let pl = /databases/$(database)/documents/plans/$(uid + '_' + date[0:7]);
+      let ath = /databases/$(database)/documents/athletes/$(uid);
+      return exists(pl)
+        && (get(/databases/$(database)/documents/trainings/$(tid)).data.get('date', '') != '' || get(pl).data.get('tids', []).hasAny([tid]))
+        && (get(pl).data.get('paid', null) != null
+            || (exists(ath) && get(ath).data.get('prepaid', {}).get(date[0:7], null) != null));
+    }
+    // packuse/{tid_data_uid}: allenamento scalato dal pacchetto per una presenza (senza Cloud Functions).
+    // Lo scrivono admin e segreteria (anche con "Ricalcola") e l'allenatore di quell'allenamento quando segna
+    // "presente": in un'unica transazione con la presenza e con il contatore (+1).
     match /packuse/{id} {
-      allow read: if (request.auth != null && resource.data.uid == request.auth.uid) || isStaff();
+      allow get: if isStaff() || (request.auth != null && (resource == null ? coachOfTr(id.split('_')[0])
+        : (resource.data.uid == request.auth.uid || coachOfTr(resource.data.tid))));
+      allow list: if isStaff() || (request.auth != null && resource.data.uid == request.auth.uid);
       allow create, update: if isStaff()
         && request.resource.data.keys().hasOnly(['pack', 'uid', 'tid', 'date', 'at', 'by'])
         && id == request.resource.data.tid + '_' + request.resource.data.date + '_' + request.resource.data.uid
         && request.resource.data.by == request.auth.uid
-        && exists(/databases/$(database)/documents/packs/$(request.resource.data.pack))
-        && getAfter(/databases/$(database)/documents/packs/$(request.resource.data.pack)).data.uid == request.resource.data.uid
-        && getAfter(/databases/$(database)/documents/packs/$(request.resource.data.pack)).data.get('used', 0)
-           <= getAfter(/databases/$(database)/documents/packs/$(request.resource.data.pack)).data.n;
+        && existsAfter(pcP(request.resource.data.pack))
+        && getAfter(pcP(request.resource.data.pack)).data.uid == request.resource.data.uid;
       allow delete: if isStaff();
+      // allenatore: presenza "segnata" (forced) del suo allenamento, pacchetto del corsista già iniziato con allenamenti
+      // rimasti, giornata non annullata, mese non coperto dal piano pagato
+      allow create: if isCoach()
+        && request.resource.data.keys().hasOnly(['pack', 'uid', 'tid', 'date', 'at', 'by'])
+        && request.resource.data.by == request.auth.uid
+        && request.resource.data.date is string && request.resource.data.date.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && id == request.resource.data.tid + '_' + request.resource.data.date + '_' + request.resource.data.uid
+        && coachOfTr(request.resource.data.tid)
+        && existsAfter(attD(id)) && getAfter(attD(id)).data.status == 'in' && getAfter(attD(id)).data.get('forced', false) == true
+        && getAfter(pcP(request.resource.data.pack)).data.uid == request.resource.data.uid
+        && getAfter(pcP(request.resource.data.pack)).data.used == get(pcP(request.resource.data.pack)).data.used + 1
+        && getAfter(pcP(request.resource.data.pack)).data.last == id
+        && get(pcP(request.resource.data.pack)).data.from <= request.resource.data.date
+        && getAfter(occP(request.resource.data.tid + '_' + request.resource.data.date)).data.get('cancelled', false) == false
+        && !monthPaid(request.resource.data.tid, request.resource.data.date, request.resource.data.uid);
+      // allenatore: presenza tolta o cambiata in assente → l'allenamento torna nel pacchetto (-1)
+      allow delete: if coachOfTr(resource.data.tid)
+        && getAfter(pcP(resource.data.pack)).data.used == get(pcP(resource.data.pack)).data.used - 1
+        && getAfter(pcP(resource.data.pack)).data.last == id
+        && !(existsAfter(attD(id)) && getAfter(attD(id)).data.status == 'in');
     }
 
     // ---------- presenze e spot ----------
@@ -404,7 +466,9 @@ service cloud.firestore {
         && (inGroup(request.resource.data.tid, request.resource.data.date, request.resource.data.uid)
             || request.resource.data.uid in get(occP(request.resource.data.tid + '_' + request.resource.data.date)).data.get('members', []));
       allow delete: if coachOfTr(resource.data.tid);
+      // risposta del corsista ("ci sarò" / "non ci sarò"): non cambia una presenza già segnata dall'allenatore o dallo staff
       allow create, update: if isMember() && verified()
+        && (resource == null || resource.data.get('forced', false) != true)
         && request.resource.data.keys().hasOnly(['tid', 'date', 'uid', 'status', 'at', 'coachUid'])
         && request.resource.data.uid == request.auth.uid
         && id == request.resource.data.tid + '_' + request.resource.data.date + '_' + request.auth.uid
@@ -419,6 +483,7 @@ service cloud.firestore {
         && occCountsOk(request.resource.data.tid + '_' + request.resource.data.date);
       // il corsista toglie la propria risposta (torna "senza risposta"), con i contatori aggiornati nello stesso invio
       allow delete: if isMember() && verified() && resource.data.uid == request.auth.uid
+        && resource.data.get('forced', false) != true
         && id == resource.data.tid + '_' + resource.data.date + '_' + request.auth.uid
         && occCountsOk(resource.data.tid + '_' + resource.data.date);
     }
