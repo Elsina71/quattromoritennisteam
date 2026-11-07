@@ -489,7 +489,7 @@ const I18n = (() => {
       trKindWeekly: "si ripete ogni settimana",
       trKindExtra: "recupero in una sola data",
       trExtraBadge: "Recupero allenamento",
-      trExtraDate: "Data del recupero",
+      trExtraDate: "Data",
       trExtraEditTitle: "Modifica recupero allenamento",
       trCopyFrom: "Copia i corsisti dall'allenamento",
       trCopyNone: "— nessuno (li aggiungo io) —",
@@ -1238,7 +1238,14 @@ const I18n = (() => {
       rcNoEmail: "Nessuna email per questa persona: aggiungi un'email alla scheda.",
       rcNoPhone: "Nessun telefono per questa persona: aggiungi un telefono alla scheda.",
       rcAttachNote: "Allega il PDF appena scaricato.",
-      rcShared: "Ricevuta pronta da inviare."
+      rcShared: "Ricevuta pronta da inviare.",
+      mhOption: "Intestatario a mano (non registrato)",
+      mhTitle: "Intestatario a mano",
+      mhHelp: "Obbligatori solo nome e cognome. I dati lasciati vuoti nella ricevuta restano righe da compilare a penna. Si salvano solo nella ricevuta.",
+      mhParent: "Genitore (se minore): nome e cognome",
+      mhNeedName: "Per l'intestatario a mano servono nome e cognome.",
+      mhAthlete: "Il corsista",
+      optional: "facoltativo"
     },
     en: {
       loginGoogle: "Continue with Google",
@@ -1728,7 +1735,7 @@ const I18n = (() => {
       trKindWeekly: "repeats every week",
       trKindExtra: "make-up on one date only",
       trExtraBadge: "Make-up training",
-      trExtraDate: "Make-up date",
+      trExtraDate: "Date",
       trExtraEditTitle: "Edit make-up training",
       trCopyFrom: "Copy athletes from training",
       trCopyNone: "— none (I'll add them) —",
@@ -2477,7 +2484,14 @@ const I18n = (() => {
       rcNoEmail: "No email for this person: add an email to the record.",
       rcNoPhone: "No phone for this person: add a phone to the record.",
       rcAttachNote: "Attach the PDF you have just downloaded.",
-      rcShared: "Receipt ready to send."
+      rcShared: "Receipt ready to send.",
+      mhOption: "Manual holder (not registered)",
+      mhTitle: "Manual holder",
+      mhHelp: "Only first and last name are required. Data left empty stay as blank lines on the receipt, to fill in by hand. Saved only in the receipt.",
+      mhParent: "Parent (if a minor): full name",
+      mhNeedName: "A manual holder needs first and last name.",
+      mhAthlete: "The athlete",
+      optional: "optional"
     }
   };
 

@@ -4,7 +4,8 @@
 //   admin.prova@esempio.it (admin), elena.sanna@esempio.it (segreteria), giulia.serra@esempio.it (cassa),
 //   marco.pinna@esempio.it (allenatore), andrea.melis@esempio.it, sara.murru@esempio.it, luca.porcu@esempio.it,
 //   chiara.loi@esempio.it (utenti e corsisti); in più due ragazzi SENZA ACCOUNT (Pietro Deiana e Giorgia Floris,
-//   schede k-… con il genitore), Pietro con un pacchetto di 4 lezioni
+//   schede k-… con il genitore), Pietro con un pacchetto di 4 lezioni; campi Campo 1, 2, 3 (tennis) e Padel 1, 2;
+//   due richieste di allenamento privato in attesa (Matteo e un esterno) e un'iscrizione online da gestire
 // Porte diverse da quelle di serie: EMU_FS=8180 EMU_AU=9199 node tests/seed-emulator.mjs (e nell'app ?emu=1&fs=8180&au=9199)
 const PROJECT = 'quattromoritennisteam-d3258';
 const FSP = process.env.EMU_FS || '8080', AUP = process.env.EMU_AU || '9099';
@@ -25,6 +26,7 @@ const season = (() => { const y = +today.slice(0, 4), mo = +today.slice(5, 7), a
 function val(v) {
   if (v === null || v === undefined) return { nullValue: null };
   if (typeof v === 'boolean') return { booleanValue: v };
+  if (v instanceof Date) return { timestampValue: v.toISOString() };
   if (Number.isInteger(v)) return { integerValue: String(v) };
   if (typeof v === 'number') return { doubleValue: v };
   if (Array.isArray(v)) return { arrayValue: { values: v.map(val) } };
@@ -63,7 +65,7 @@ await put(`coaches/${uid.Marco}`, { all: false, name: nm('Marco') });
 
 // impostazioni: campi da tennis e da padel, regole di prenotazione (da 1 h a 2 h), listino, avviso
 const hours = (from, to) => Object.fromEntries([1, 2, 3, 4, 5, 6, 7].map(d => [d, { open: true, from, to }]));
-const courts = [{ id: 'centrale', name: 'Centrale', type: 'tennis', visible: true, hours: hours('08:00', '23:00') }, { id: 'campo2', name: 'Campo 2', type: 'tennis', visible: true, hours: hours('08:00', '23:00') },
+const courts = [{ id: 'campo1', name: 'Campo 1', type: 'tennis', visible: true, hours: hours('08:00', '23:00') }, { id: 'campo2', name: 'Campo 2', type: 'tennis', visible: true, hours: hours('08:00', '23:00') },
   { id: 'campo3', name: 'Campo 3', type: 'tennis', visible: true, hours: hours('08:00', '21:00') }, { id: 'padel1', name: 'Padel 1', type: 'padel', visible: true, hours: hours('09:00', '23:00') },
   { id: 'padel2', name: 'Padel 2', type: 'padel', visible: true, hours: hours('09:00', '23:00') }];
 const settings = { notice: 'Sabato il Campo 3 è chiuso per manutenzione fino alle 12.', noticeUntil: plus(10), nicks: {}, courts,
@@ -71,10 +73,10 @@ const settings = { notice: 'Sabato il Campo 3 è chiuso per manutenzione fino al
   prices: { w1: 50, w2: 80, w3: 100, w4: 120, q1: 140, q2: 220, spot: 15, c1: 380, c2: 600, courseFrom: `${today.slice(0, 4)}-09-15`, courseTo: `${+today.slice(0, 4) + 1}-06-15`, fitp: 30 } };
 await put('data/settings', { json: JSON.stringify(settings), updated: Date.now(), minMinutes: 60, maxMinutes: 120 });
 
-// allenamento settimanale del giorno di oggi (17:00–18:30, Centrale) con il suo blocco ricorrente; un allenamento di padel domani
-const tr = { name: 'Agonisti Under 14', dow: dowOf(today), from: '17:00', to: '18:30', level: 'inter', max: 6, coachUid: uid.Marco, courts: ['centrale'], reason: 'Allenamenti · Agonisti Under 14 · Pinna Marco', created: Date.now(), sizes: { [month]: 6 } };
+// allenamento settimanale del giorno di oggi (17:00–18:30, Campo 1) con il suo blocco ricorrente; un allenamento di padel domani
+const tr = { name: 'Agonisti Under 14', dow: dowOf(today), from: '17:00', to: '18:30', level: 'inter', max: 6, coachUid: uid.Marco, courts: ['campo1'], reason: 'Allenamenti · Agonisti Under 14 · Pinna Marco', created: Date.now(), sizes: { [month]: 6 } };
 const tr2 = { name: 'Padel principianti', dow: dowOf(plus(1)), from: '19:00', to: '20:00', level: 'start', max: 4, coachUid: uid.Marco, courts: ['padel1'], reason: 'Allenamenti · Padel principianti · Pinna Marco', created: Date.now(), sizes: { [month]: 2 } };
-for (const [id, t, c] of [['t1', tr, 'centrale'], ['t2', tr2, 'padel1']]) {
+for (const [id, t, c] of [['t1', tr, 'campo1'], ['t2', tr2, 'padel1']]) {
   await put(`trainings/${id}`, t);
   await put(`recurring/t_${id}_${c}`, { courtId: c, dow: t.dow, from: t.from, to: t.to, reason: t.reason, trid: id, created: Date.now() });
   for (let x = t.from; x < t.to; x = addMin(x, 30)) await put(`weekly/${c}_${t.dow}_${x}`, { courtId: c, dow: t.dow, start: x, from: t.from, to: t.to, rid: `t_${id}_${c}` });
@@ -134,7 +136,21 @@ async function booking(gid, courtId, date, from, to, userId, blocked = '') {
 await booking('gluca1', 'campo2', plus(1), '18:00', '19:00', uid.Luca);
 await put('bkplayers/gluca1', { gid: 'gluca1', by: uid.Luca, ownerName: 'Porcu Luca', date: plus(1), from: '18:00', to: '19:00', courtId: 'campo2', courtName: 'Campo 2', uids: [uid.Chiara], guests: {}, names: { [uid.Chiara]: 'Loi Chiara' }, remind: 60, updated: Date.now() });
 await booking('gandrea1', 'padel1', plus(2), '10:00', '11:30', uid.Andrea);
+await put('bkphone/gandrea1', { gid: 'gandrea1', by: uid.Andrea, phone: '347 1234567', date: plus(2), from: '10:00', courtId: 'padel1', at: Date.now() });
 await booking('gblock1', 'campo3', plus(3), '08:00', '12:00', null, 'Manutenzione');
+
+// richieste di allenamento privato in attesa: un utente registrato (Matteo) e un esterno senza account.
+// Il Campo 1 è già occupato all'ora richiesta da Matteo: alla conferma il campo scelto da solo è il Campo 2.
+await booking('gsara1', 'campo1', plus(2), '18:00', '19:00', uid.Sara);
+const ptId = r => `${r.phone.replace(/\D/g, '')}_${r.date}_${r.from.replace(':', '')}`;
+const pt1 = { kind: 'user', uid: uid.Matteo, name: nm('Matteo'), phone: '349 1112233', date: plus(2), from: '18:00', dur: 60, coachUid: uid.Marco, level: 'adult', notes: 'Vorrei lavorare sul servizio', status: 'pending', at: new Date() };
+const pt2 = { kind: 'guest', first: 'Giovanni', last: 'Esposito', name: 'Esposito Giovanni', phone: '+39 320 4455667', date: plus(3), from: '10:00', dur: 90, coachUid: '', coachName: 'Carlo Porqueddu', level: 'adv', notes: '', status: 'pending', at: new Date(), privacy: true };
+for (const r of [pt1, pt2]) await put(`ptreq/${ptId(r)}`, r);
+await put('pub/coaches', { list: [{ uid: uid.Marco, name: 'Marco Pinna' }], updated: Date.now() });
+// un'iscrizione online da gestire
+await put('enroll/e1', { parent: { first: 'Laura', last: 'Mereu', birthPlace: 'Cagliari', birthDate: '1984-05-10', city: "Quartu Sant'Elena", address: 'via Dante 8', zip: '09045', prov: 'CA', phone: '340 2223344', email: 'laura.mereu@esempio.it', cf: 'MRELRA84E50B354K' },
+  kid: { first: 'Tommaso', last: 'Mereu', gender: 'M', birthPlace: 'Cagliari', birthDate: '2017-02-14', city: "Quartu Sant'Elena", address: 'via Dante 8', zip: '09045', prov: 'CA', cf: 'MRETMS17B14B354Q' },
+  level: 'orange', images: true, privacy: true, season: '2026/27', status: 'new', at: new Date() });
 
 // cassa: un incasso con ricevuta
 await put(`counters/receipts-${today.slice(0, 4)}`, { last: 1, updated: Date.now() });

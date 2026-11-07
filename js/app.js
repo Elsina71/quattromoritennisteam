@@ -2890,7 +2890,9 @@
       <label>${esc(t('payMethod'))}<select name="method">${PAY_METHODS.map(x => `<option value="${x}">${esc(t('pay_' + x))}</option>`).join('')}</select></label>
       <label>${esc(t('payAmount'))}<input type="number" name="amount" min="0" step="0.01" required value="${amount != null ? amount : ''}" inputmode="decimal"></label>
       ${rcChecks()}
-      ${miss.length ? `<p class="note warn span-all">${esc(t('payNeedData'))} ${t('athDataNote')}</p>
+      <label class="span-all">${esc(t('caHolder'))}<select name="holder"><option value="">${esc(memberByUid(uid) ? personName(memberByUid(uid)) : t('mhAthlete'))}</option>${manualOpt(false)}</select></label>
+      ${manualFields()}
+      ${miss.length ? `<p class="note warn span-all mh-hide">${esc(t('payNeedData'))} ${t('athDataNote')}</p>
         <label>${esc(t('athBirthPlace'))}<input name="birthPlace" maxlength="60" value="${esc(a.birthPlace || '')}"></label>
         <label>${esc(t('athBirthDate'))}<input type="date" name="birthDate" value="${esc(a.birthDate || '')}"></label>
         <label>${esc(t('athCity'))}<input name="city" maxlength="60" value="${esc(a.city || '')}"></label>
@@ -2937,11 +2939,15 @@
     pdf.text(`RICEVUTA N. ${rcNum(r)} del ${itDate(r.issued)}`, L, y);
     pdf.setFont('helvetica', 'normal'); pdf.setFontSize(11.5);
     if (C) { pdf.setFontSize(9.5); pdf.text('Ricevuta non fiscale', 188, y, { align: 'right' }); pdf.setFontSize(11.5); }
-    y += 13; pdf.text(named ? `Si attesta che ${F ? 'la Sig.ra' : 'il Sig.'}:` : 'Si attesta che il/la Sig./Sig.ra:', L, y);
+    y += 13; pdf.text(named && !p.manual ? `Si attesta che ${F ? 'la Sig.ra' : 'il Sig.'}:` : 'Si attesta che il/la Sig./Sig.ra:', L, y);
     const blank = '______________________________';
-    const rows = named ? [['Nome e Cognome', p.name], [F ? 'Nata a' : 'Nato a', p.birthPlace || p.birthDate ? `${p.birthPlace || ''} il ${itDate(p.birthDate)}` : ''], ['Residente a', p.city || p.address ? `${p.city || ''}, ${p.address || ''}` : ''], ['Codice Fiscale', p.cf || '']]
+    const line = (v, n) => (v ? String(v) : '_'.repeat(n || 30));
+    const rows = p.manual ? [['Nome e Cognome', p.name], ['Nato/a a', `${line(p.birthPlace, 24)} il ${p.birthDate ? itDate(p.birthDate) : '____________'}`],
+      ['Residente a', `${line(p.city, 22)}${p.prov ? ` (${p.prov})` : ' (____)'} CAP ${line(p.zip, 8)}`], ['Indirizzo', line(p.address, 40)], ['Codice Fiscale', line(p.cf, 32)]]
+      : named ? [['Nome e Cognome', p.name], [F ? 'Nata a' : 'Nato a', p.birthPlace || p.birthDate ? `${p.birthPlace || ''} il ${itDate(p.birthDate)}` : ''], ['Residente a', p.city || p.address ? `${p.city || ''}, ${p.address || ''}` : ''], ['Codice Fiscale', p.cf || '']]
       : [['Nome e Cognome', blank], ['Codice Fiscale', blank]];
     if (named && p.parent) rows.push(['Genitore (o chi ne fa le veci)', p.parent]);
+    if (p.manual && !p.parent && p.birthDate && new Date(r.issued || todayStr()) - new Date(p.birthDate) < 18 * 365.25 * 86400000) rows.push(['Genitore (o chi ne fa le veci)', line('', 36)]);
     rows.forEach(([k, v]) => { y += 8; pdf.text('•', L + 3, y); pdf.setFont('helvetica', 'bold'); pdf.text(`${k}:`, L + 8, y); const w = pdf.getTextWidth(`${k}: `); pdf.setFont('helvetica', 'normal'); pdf.text(String(v || ''), L + 8 + w, y); });
     y += 13; pdf.text(`ha versato in data ${itDate(r.payDate)} la somma complessiva di:`, L, y);
     y += 8; pdf.text('•', L + 3, y); pdf.setFont('helvetica', 'bold'); pdf.text(`Euro ${euroIt(r.amount)}`, L + 8, y); pdf.setFont('helvetica', 'normal');
@@ -2990,13 +2996,14 @@
   // Telefono: scheda del corsista (o del genitore per le schede senza account), poi l'ultimo telefono lasciato nelle
   // prenotazioni o nelle richieste. Email: account dell'utente (solo staff) o scheda/genitore.
   function rcContact(r) {
+    if (r.person && r.person.manual) return { phone: r.person.phone || '', email: r.person.email || '' };
     const uid = r.uid || '', a = athleteOf(uid) || {}, pa = a.parent || {};
     const known = (S().bkphones || []).filter(x => x.by === uid).concat((S().ptreqs || []).filter(x => x.uid === uid)).sort((x, y) => (y.at || 0) - (x.at || 0));
     const phone = (isKid(uid) ? pa.phone || a.phone : a.phone || pa.phone) || (known[0] || {}).phone || '';
     const email = (isKid(uid) ? pa.email || a.email : (S().accounts || {})[uid] || a.email || pa.email) || '';
     return { phone: String(phone || '').trim(), email: String(email || '').trim() };
   }
-  const rcSurname = r => { const m = memberByUid(r.uid); const n = m && m.last ? m.last : String((r.person || {}).name || '').trim().split(/\s+/).pop() || ''; return latinName(n); };
+  const rcSurname = r => { if (r.person && r.person.manual) return latinName(r.person.last || ''); const m = memberByUid(r.uid); const n = m && m.last ? m.last : String((r.person || {}).name || '').trim().split(/\s+/).pop() || ''; return latinName(n); };
   const rcShareName = r => `Ricevuta_${rcNum(r).replace(/\//g, '-')}${rcSurname(r) ? '_' + rcSurname(r) : ''}.pdf`;
   const rcTextOf = r => t('rcShareText', { n: rcNum(r), d: fmtDate(r.issued || r.payDate), c: Club.name });
   const canShareFiles = () => { try { return !!(navigator.canShare && navigator.share && navigator.canShare({ files: [new File(['x'], 'x.pdf', { type: 'application/pdf' })] })); } catch (e) { return false; } };
@@ -3202,10 +3209,12 @@
       }
       // ricevuta: solo se richiesta (di base no)
       const receipt = wantReceipt(f);
-      if (amount > 0 && receipt && missingPerson(a).length) return warn('payNeedData');
+      let manual = null;
+      if (f.holder && f.holder.value === MANUAL) { const m = readManual(f); if (m.err) return warn(m.err); manual = m.person; }
+      if (amount > 0 && receipt && !manual && missingPerson(a).length) return warn('payNeedData');
       const course = kind === 'month' && f.period && f.period.value === 'course' && courseMonths().includes(obj.month);
       const quarter = course || (kind === 'month' && f.period && f.period.value === 'quarter');
-      const p = { kind, ref, uid, amount, receipt, method: f.method.value, payDate: f.payDate.value, issued: todayStr(), person: personOf(uid, a), athlete,
+      const p = { kind, ref, uid, amount, receipt, method: f.method.value, payDate: f.payDate.value, issued: todayStr(), person: manual || personOf(uid, a), athlete,
         causale: course ? causaleCourse() : quarter ? causaleQuarter(obj.month) : kind === 'month' ? causaleMonth(obj.month) : kind === 'pack' ? causalePack(obj) : kind === 'fitp' ? causaleFitp(obj.season) : causaleSpot(obj.date), month: obj.month || '', spotDate: obj.date || '' };
       if (kind === 'fitp') p.season = obj.season;
       if (quarter) {
@@ -3236,12 +3245,40 @@
   const isTess = (uid, date) => tessFor(date).some(x => x.id === uid);
   const caBookings = () => (S().bookings || []).filter(b => b.userId && !b.blocked && !(S().bkpaid || {})[b.id]).sort((a, b) => (a.date + a.from).localeCompare(b.date + b.from));
   // nuovo incasso: qualsiasi utente registrato (i non tesserati vengono segnati con ★ nelle ricevute)
-  const caMemberOpts = () => `<option value="">— ${esc(t('caNoHolder'))} —</option>${traineePeople().sort((a, b) => personName(a).localeCompare(personName(b))).map(m => `<option value="${m.uid}">${esc(personName(m))}${esc(kidTag(m))}${isTess(m.uid) ? '' : ' ★'}</option>`).join('')}`;
+  // ---------- intestatario scritto a mano (non registrato) ----------
+  // Solo nome e cognome obbligatori; gli altri dati facoltativi. Si salvano solo nella ricevuta e nell'incasso
+  // (non creano utenti né schede). Nel PDF i dati mancanti restano righe vuote da compilare a penna.
+  const MANUAL = '__manual';
+  const MH_FIELDS = [['first', 60, 'firstName'], ['last', 60, 'lastName'], ['cf', 16, 'athCf'], ['birthDate', 10, 'athBirthDate'], ['birthPlace', 60, 'enBirthPlace'],
+    ['address', 80, 'athAddress'], ['zip', 5, 'enZip'], ['city', 60, 'enCity'], ['prov', 2, 'enProv'], ['phone', 20, 'ptPhone'], ['email', 100, 'enEmail'], ['parent', 120, 'mhParent']];
+  const manualOpt = sel => `<option value="${MANUAL}" ${sel ? 'selected' : ''}>${esc(t('mhOption'))}</option>`;
+  function manualFields(p) {
+    p = p && p.manual ? p : {};
+    return `<fieldset class="span-all mh-fields"><legend>${esc(t('mhTitle'))}</legend><p class="muted small">${esc(t('mhHelp'))}</p><div class="grid-form">
+      ${MH_FIELDS.map(([k, max, lbl]) => `<label>${esc(t(lbl))}${k === 'first' || k === 'last' ? '' : ` <small class="muted">(${esc(t('optional'))})</small>`}<input name="mh_${k}" ${k === 'birthDate' ? 'type="date"' : k === 'email' ? 'type="email"' : k === 'phone' ? 'type="tel" inputmode="tel"' : ''} maxlength="${max}" value="${esc(p[k] || '')}" autocomplete="off"${k === 'cf' || k === 'prov' ? ' style="text-transform:uppercase"' : ''}></label>`).join('')}</div></fieldset>`;
+  }
+  // dati scritti a mano → persona della ricevuta (o un codice di avviso)
+  function readManual(f) {
+    const v = k => String((f['mh_' + k] || {}).value || '').trim();
+    const p = { manual: true, gender: '' };
+    MH_FIELDS.forEach(([k, max]) => { p[k] = v(k).slice(0, max); });
+    p.cf = p.cf.toUpperCase().replace(/\s/g, ''); p.prov = p.prov.toUpperCase(); p.phone = cleanPhone(p.phone); p.email = p.email.toLowerCase();
+    if (!p.first || !p.last) return { err: 'mhNeedName' };
+    if (p.cf && !CF_RE.test(p.cf)) return { err: 'enBadCf' };
+    if (p.zip && !/^\d{5}$/.test(p.zip)) return { err: 'enBadZip' };
+    if (p.prov && !PROVS.test(p.prov)) return { err: 'enBadProv' };
+    if (p.phone && !phoneOk(p.phone)) return { err: 'phoneBad' };
+    if (p.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(p.email)) return { err: 'enBadEmail' };
+    if (p.birthDate && !/^\d{4}-\d{2}-\d{2}$/.test(p.birthDate)) return { err: 'enBadBirth' };
+    p.name = `${p.first} ${p.last}`;
+    return { person: p };
+  }
+  const caMemberOpts = () => `<option value="">— ${esc(t('caNoHolder'))} —</option>${manualOpt(false)}${traineePeople().sort((a, b) => personName(a).localeCompare(personName(b))).map(m => `<option value="${m.uid}">${esc(personName(m))}${esc(kidTag(m))}${isTess(m.uid) ? '' : ' ★'}</option>`).join('')}`;
   // ricevuta intestata a una persona non tesserata nella stagione della ricevuta
   const rcNotTess = r => !r.void && !!r.uid && !!(r.person && r.person.name) && !isTess(r.uid, r.issued);
   const notTessReceipts = () => (S().receipts || []).filter(rcNotTess).sort((a, b) => (b.issued || '').localeCompare(a.issued || ''));
   const tessStar = r => (rcNotTess(r) ? ` <span class="tess-star" title="${esc(t('rcNotTessTip', { s: seasonOf(r.issued) }))}" aria-label="${esc(t('rcNotTessTip', { s: seasonOf(r.issued) }))}">★</span>` : '');
-  const caHolderOpts = (date, sel) => `<option value="">— ${esc(t('caNoHolder'))} —</option>${tessFor(date).map(x => `<option value="${esc(x.id)}" ${x.id === sel ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}`;
+  const caHolderOpts = (date, sel, man) => `<option value="">— ${esc(t('caNoHolder'))} —</option>${manualOpt(man)}${tessFor(date).map(x => `<option value="${esc(x.id)}" ${x.id === sel ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}`;
   function caLineRow() {
     const bks = caBookings();
     return `<div class="ca-line">
@@ -3281,6 +3318,7 @@
         <div class="span-all"><button type="button" class="btn small" data-action="ca-addline"><i class="ti ti-plus" aria-hidden="true"></i> ${esc(t('caAddLine'))}</button></div>
         <label class="span-all">${esc(t('caHolder'))}<select name="holder">${caMemberOpts()}</select>
           <small class="muted">${esc(t('caHolderTessOnly', { s: seasonOf(todayStr()) }))}</small></label>
+        ${manualFields()}
         ${rcChecks()}
         ${admin() ? `<details class="span-all"><summary>${esc(t('caInsertTitle'))}</summary><p class="muted small">${esc(t('caInsertHelp'))}</p>
           <label>${esc(t('caInsertN'))}<input type="number" name="insN" min="1" step="1" inputmode="numeric"></label></details>` : ''}
@@ -3314,7 +3352,8 @@
   function caHolderForm(r) {
     if (!r) return '';
     return `<form class="inline-form ca-holder" data-form="ca-holder" data-id="${esc(r.id)}">
-      <label class="small">${esc(t('caHolder'))}<select name="holder">${caHolderOpts(r.issued, r.uid)}</select></label>
+      <label class="small">${esc(t('caHolder'))}<select name="holder">${caHolderOpts(r.issued, r.uid, !!(r.person && r.person.manual))}</select></label>
+      ${manualFields(r.person)}
       <button class="btn small primary">${esc(t('save'))}</button><button type="button" class="btn small" data-action="ca-holder-close">${esc(t('cancel'))}</button>
       ${(r.holderLog || []).length ? `<small class="muted span-all">${esc(t('caHolderLog'))}: ${(r.holderLog || []).map(h => `${fmtDate(new Date(h.at).toLocaleDateString('sv'))} «${h.from || '—'}» → «${h.to || '—'}»`).map(esc).join(' · ')}</small>` : ''}</form>`;
   }
@@ -3355,9 +3394,12 @@
     const method = f.method.value, date = f.date.value;
     const want = wantReceipt(f);
     // intestatario: un tesserato scelto, oppure chi ha prenotato il campo (se tesserato); altrimenti senza nome
-    let uid = f.holder.value;
-    if (!uid) { const b = rows.map(x => x.cat === 'q_court' && bkById(x.bk)).find(Boolean); if (b && b.userId) uid = b.userId; }
-    const person = caPerson(uid);
+    let uid = f.holder.value, person;
+    if (uid === MANUAL) { const m = readManual(f); if (m.err) return warn(m.err); uid = ''; person = m.person; }
+    else {
+      if (!uid) { const b = rows.map(x => x.cat === 'q_court' && bkById(x.bk)).find(Boolean); if (b && b.userId) uid = b.userId; }
+      person = caPerson(uid);
+    }
     const p = { date, method, lines, uid, person, receipt: { Q: want, C: want }, causale: { Q: caCausale('Q', lines.filter(l => l.series === 'Q')), C: caCausale('C', lines.filter(l => l.series === 'C')) } };
     const tq = round2(lines.filter(l => l.series === 'Q').reduce((s, l) => s + l.amount, 0)), tc = round2(lines.filter(l => l.series === 'C').reduce((s, l) => s + l.amount, 0));
     const insN = f.insN && f.insN.value ? parseInt(f.insN.value, 10) : 0;
@@ -3410,7 +3452,9 @@
     'ca-holder': f => {
       const r = receiptById(f.dataset.id);
       if (!r) return;
-      const uid = f.holder.value, person = caPerson(uid);
+      let uid = f.holder.value, person;
+      if (uid === MANUAL) { const m = readManual(f); if (m.err) return warn(m.err); uid = ''; person = m.person; }
+      else person = caPerson(uid);
       if (uid && !isTess(uid, r.issued)) return warn('caNotTess');
       window.Cloud.setReceiptHolder(r, uid, person).then(() => { ui.caHolder = null; ui.flash = { text: t('caHolderSaved') }; render(); }).catch(trErr);
     }

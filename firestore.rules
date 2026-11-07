@@ -543,11 +543,27 @@ service cloud.firestore {
 
     // ---------- ricevute ----------
     // Ricevute: serie Q (quote sociali) e C (commerciali). La cassa le emette; correggerle o annullarle spetta ad admin e segreteria.
+    // Intestatario scritto a mano (non registrato): person.manual = true, solo i campi previsti, nome e cognome
+    // obbligatori, il resto facoltativo con lunghezze massime (resta solo nella ricevuta; nessun utente né scheda).
+    function mhStr(p, k, max) { return !(k in p) || (p[k] is string && p[k].size() <= max); }
+    function holderOk(p) {
+      return !(p is map) || p.get('manual', false) != true || (
+        p.keys().hasOnly(['manual', 'name', 'gender', 'first', 'last', 'cf', 'birthDate', 'birthPlace', 'address', 'zip', 'city', 'prov', 'phone', 'email', 'parent'])
+        && p.first is string && p.first.size() > 0 && p.first.size() <= 60
+        && p.last is string && p.last.size() > 0 && p.last.size() <= 60
+        && p.name is string && p.name.size() <= 121
+        && mhStr(p, 'gender', 1) && mhStr(p, 'cf', 16) && mhStr(p, 'birthDate', 10) && mhStr(p, 'birthPlace', 60) && mhStr(p, 'address', 80)
+        && mhStr(p, 'zip', 5) && mhStr(p, 'city', 60) && mhStr(p, 'prov', 2) && mhStr(p, 'phone', 20) && mhStr(p, 'email', 100) && mhStr(p, 'parent', 120)
+        && (p.get('cf', '') == '' || p.cf.matches('[A-Z0-9]{16}'))
+        && (p.get('phone', '') == '' || phoneOk(p.phone)));
+    }
     match /receipts/{id} {
       allow read: if isCash() || (request.auth != null && resource.data.uid == request.auth.uid);
       allow create: if isCash() && request.resource.data.by == request.auth.uid
-        && request.resource.data.series in ['Q', 'C'] && request.resource.data.void == false;
-      allow update, delete: if isStaff();
+        && request.resource.data.series in ['Q', 'C'] && request.resource.data.void == false
+        && holderOk(request.resource.data.get('person', null));
+      allow update: if isStaff() && holderOk(request.resource.data.get('person', null));
+      allow delete: if isStaff();
     }
     // incassi/{id}: registro di tutti gli incassi (anche senza ricevuta) per il resoconto mensile.
     match /incassi/{id} {

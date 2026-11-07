@@ -608,5 +608,27 @@ await test('iscrizioni: nessuna lettura pubblica; solo admin e segreteria leggon
   await assertSucceeds(updateDoc(doc(db('capo'), 'enroll/e2'), { status: 'archived', decidedBy: 'capo', decidedAt: 2 }));
 });
 
+// ---------- ricevuta con intestatario scritto a mano ----------
+const rcBase = { year: 2030, n: 901, series: 'Q', issued: '2030-01-10', payDate: '2030-01-10', amount: 20, method: 'cash', uid: '', causale: 'Quota', void: false, created: 1, by: 'cassiere' };
+const mh = (o = {}) => Object.assign({ manual: true, gender: '', first: 'Rosa', last: 'Fadda', name: 'Rosa Fadda', cf: '', birthDate: '', birthPlace: '', address: '', zip: '', city: '', prov: '', phone: '', email: '', parent: '' }, o);
+await test('ricevuta intestata a mano: solo nome e cognome obbligatori, il resto facoltativo', async () => {
+  await assertSucceeds(setDoc(doc(db('cassiere'), 'receipts/rm1'), Object.assign({}, rcBase, { person: mh() })));
+  await assertSucceeds(setDoc(doc(db('cassiere'), 'receipts/rm2'), Object.assign({}, rcBase, { n: 902, person: mh({ cf: 'FDDRSO80A41B354X', birthDate: '1980-01-01', birthPlace: 'Cagliari', address: 'via Roma 1', zip: '09045', city: 'Quartu', prov: 'CA', phone: '333 1234567', email: 'rosa@esempio.it', parent: 'Mario Fadda' }) })));
+});
+await test('ricevuta intestata a mano: campi in più, nome mancante e lunghezze rifiutati', async () => {
+  await assertFails(setDoc(doc(db('cassiere'), 'receipts/rm3'), Object.assign({}, rcBase, { person: mh({ first: '' }) })));
+  await assertFails(setDoc(doc(db('cassiere'), 'receipts/rm4'), Object.assign({}, rcBase, { person: mh({ note: 'x' }) })));
+  await assertFails(setDoc(doc(db('cassiere'), 'receipts/rm5'), Object.assign({}, rcBase, { person: mh({ cf: 'CORTO' }) })));
+  await assertFails(setDoc(doc(db('cassiere'), 'receipts/rm6'), Object.assign({}, rcBase, { person: mh({ address: 'x'.repeat(81) }) })));
+  await assertFails(setDoc(doc(db('cassiere'), 'receipts/rm7'), Object.assign({}, rcBase, { person: mh({ phone: 'abc' }) })));
+  await assertFails(updateDoc(doc(db('segr'), 'receipts/rm1'), { person: mh({ last: 'x'.repeat(61) }) }));
+  await assertSucceeds(updateDoc(doc(db('segr'), 'receipts/rm1'), { person: mh({ phone: '347 0000000' }) }));
+});
+await test('ricevuta intestata a mano: la leggono solo staff e cassa', async () => {
+  await assertSucceeds(getDoc(doc(db('cassiere'), 'receipts/rm1')));
+  await assertFails(getDoc(doc(db('mario'), 'receipts/rm1')));
+  await assertFails(getDoc(doc(anon(), 'receipts/rm1')));
+});
+
 await env.cleanup();
 console.log(`prove delle regole: ${n} superate`);
