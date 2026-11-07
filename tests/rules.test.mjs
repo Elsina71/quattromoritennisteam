@@ -679,5 +679,31 @@ await test('contatti: li scrive admin o segreteria, li legge la cassa, nessun al
   await assertSucceeds(deleteDoc(doc(db('segr'), 'contatti/anna')));
 });
 
+// ---------- secondo allenatore ----------
+await env.withSecurityRulesDisabled(async c => {
+  const f = c.firestore();
+  await setDoc(doc(f, 'trainings/t3'), { name: 'Due allenatori', dow: 1, from: '18:00', to: '20:00', coachUid: 'coach1', coach2Uid: 'coach2' });
+  await setDoc(doc(f, 'groups/t3_2030-06'), { tid: 't3', month: '2030-06', uids: ['mario'], names: {}, coachUid: 'coach1', coach2Uid: 'coach2' });
+});
+await test('il secondo allenatore vede il gruppo, segna le presenze e compila la scheda come il primo', async () => {
+  await assertSucceeds(getDoc(doc(db('coach2'), 'groups/t3_2030-06')));
+  await assertSucceeds(getDocs(query(collection(db('coach2'), 'groups'), where('coach2Uid', '==', 'coach2'))));
+  const f = db('coach2'), b = writeBatch(f);
+  b.set(doc(f, 'att/t3_2030-06-03_mario'), { tid: 't3', date: '2030-06-03', uid: 'mario', status: 'in', at: 1, coachUid: 'coach1', coach2Uid: 'coach2', forced: true, by: 'coach2' });
+  b.set(doc(f, 'occ/t3_2030-06-03'), { tid: 't3', date: '2030-06-03', p: 1, a: 0, s: 0, cancelled: false });
+  await assertSucceeds(b.commit());
+  await assertSucceeds(getDocs(query(collection(db('coach2'), 'att'), where('coach2Uid', '==', 'coach2'))));
+  const e = { tid: 't3', date: '2030-06-03', uid: 'mario', coachUid: 'coach1', coach2Uid: 'coach2', by: 'coach2', v: { tec: 8 }, note: '', at: 1 };
+  await assertSucceeds(setDoc(doc(db('coach2'), 'evals/t3_2030-06-03_mario'), e));
+  await assertSucceeds(getDocs(query(collection(db('coach2'), 'evals'), where('coach2Uid', '==', 'coach2'))));
+  // il secondo allenatore copiato nel documento deve essere quello dell'allenamento
+  await assertFails(setDoc(doc(db('coach2'), 'evals/t3_2030-06-03_mario'), Object.assign({}, e, { coach2Uid: '' })));
+  await assertFails(setDoc(doc(db('coach1'), 'evals/t3_2030-06-03_mario'), Object.assign({}, e, { by: 'coach1', coach2Uid: 'coach1' })));
+});
+await test('chi non è allenatore di quell\'allenamento resta fuori', async () => {
+  await assertFails(getDoc(doc(db('luca'), 'groups/t3_2030-06')));
+  await assertFails(setDoc(doc(db('coach2'), 'att/t1_2030-05-06_mario'), Object.assign(att('mario', 'in'), { by: 'coach2', coach2Uid: 'coach2' })));
+});
+
 await env.cleanup();
 console.log(`prove delle regole: ${n} superate`);

@@ -61,6 +61,12 @@ allenamenti, allenatori, cassa. Regole decise dal titolare: valgono per ogni mod
   su più giorni è **una sola riga e una sola scheda** (`seriesCard`): un gruppo del mese (il corsista va in tutti i giorni;
   «solo lun, mer» se manca in qualche giorno), poi giorno per giorno prossima giornata, «Modifica questo giorno» ed
   «Elimina questo giorno». L'allenatore si vede sempre nelle informazioni.
+- **Secondo allenatore** (facoltativo, `coach2Uid` sull'allenamento, diverso dal primo): nel nuovo allenamento su più giorni
+  si sceglie riga per riga (es. lun Alessio + Marta, gio Alessio + Carlo); in «Modifica questo giorno» e nei recuperi/privati
+  c'è il menu «Secondo allenatore». Ha gli stessi permessi del primo su quell'allenamento: vede gruppo e corsisti, segna le
+  presenze (scala il pacchetto), compila la scheda di valutazione. `coach2Uid` si copia in `groups`, `att`, `spots`, `evals`
+  (le regole controllano che sia quello dell'allenamento: `trCoach2`, `co2Ok`, `coachOfTr` accetta primo o secondo) ed entra
+  in `packcount.coachUids` ed `evaccess.coachUids`. Nelle schede si vedono entrambi i nomi.
 - Tipi (badge nelle liste): **Allenamento settimanale**, **Recupero allenamento** (una data, `tr.date`),
   **Allenamento privato** (`type: 'private'`, una data, un allievo: utente, ragazzo senza account o esterno `x-…` con il solo nome, un maestro).
 - Livelli, in quest'ordine: Minitennis 4-6 anni, Scuola Tennis Orange 6-8 anni, Scuola Tennis Green 8-10 anni,

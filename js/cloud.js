@@ -730,7 +730,19 @@ function listenTraining() {
   if (coach) pcAdd('c', query(collection(db, 'packcount'), where('coachUids', 'array-contains', user.uid)));
   on(query(collection(db, 'xmem'), where('uid', '==', user.uid)), 'xmem');
   if (isCenter()) { on(collection(db, 'groups'), 'groups'); on(collection(db, 'plans'), 'plans'); on(collection(db, 'coaches'), 'coaches'); }
-  else if (coach) on(coach.all ? collection(db, 'groups') : query(collection(db, 'groups'), where('coachUid', '==', user.uid)), 'groups');
+  else if (coach) {
+    if (coach.all) on(collection(db, 'groups'), 'groups');
+    else {
+      // gruppi in cui è primo o secondo allenatore
+      const gp = {};
+      const gAdd = (k, field) => trUnsubs.push(onSnapshot(query(collection(db, 'groups'), where(field, '==', user.uid)), snap => {
+        gp[k] = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
+        const all = {}; Object.values(gp).forEach(l => l.forEach(x => { all[x.id] = x; }));
+        Store.applyRemote('groups', Object.values(all)); pcLoaded.add('groups'); refresh();
+      }, onError));
+      gAdd('a', 'coachUid'); gAdd('b', 'coach2Uid');
+    }
+  }
 }
 // Tesserati: copia ridotta delle schede (nome, sesso, nascita, residenza, codice fiscale, stagioni di tesseramento),
 // senza certificato né pagamenti, per gli intestatari delle ricevute. L'admin la tiene allineata alle schede.
@@ -828,7 +840,7 @@ function saveTraining(old, d, groups) {
   if (old) trainingBlocks(batch, old, true);
   trainingBlocks(batch, Object.assign({ id: ref.id }, d), false);
   if (old) batch.update(ref, d); else batch.set(ref, Object.assign({}, d, { created: Date.now() }));
-  if (old && old.coachUid !== d.coachUid) (groups || []).forEach(g => batch.update(doc(db, 'groups', g.id), { coachUid: d.coachUid || '' }));
+  if (old && (old.coachUid !== d.coachUid || (old.coach2Uid || '') !== (d.coach2Uid || ''))) (groups || []).forEach(g => batch.update(doc(db, 'groups', g.id), { coachUid: d.coachUid || '', coach2Uid: d.coach2Uid || '' }));
   return batch.commit().then(() => ref.id);
 }
 // Nuovo allenamento su più giorni: un documento per giorno, tutti nello stesso invio, con i loro blocchi dei campi.
@@ -915,7 +927,16 @@ function listenAttendance() {
   }, onError));
   // schede di valutazione: admin e segreteria tutte, l'allenatore quelle dei suoi allenamenti (il corsista nessuna)
   if (staff()) on(collection(db, 'evals'), 'evals');
-  else if (coach) on(query(collection(db, 'evals'), where('coachUid', '==', user.uid)), 'evals');
+  else if (coach) {
+    // schede degli allenamenti in cui è primo o secondo allenatore
+    const ep = {};
+    const eAdd = (k, field) => ocUnsubs.push(onSnapshot(query(collection(db, 'evals'), where(field, '==', user.uid)), snap => {
+      ep[k] = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
+      const all = {}; Object.values(ep).forEach(l => l.forEach(x => { all[x.id] = x; }));
+      Store.applyRemote('evals', Object.values(all)); refresh();
+    }, onError));
+    eAdd('a', 'coachUid'); eAdd('b', 'coach2Uid');
+  }
   ['att', 'spots'].forEach(k => {
     if (staff()) return on(query(collection(db, k), where('date', '>=', monthAgo())), k);
     if (coach || isCenter()) {
@@ -925,6 +946,7 @@ function listenAttendance() {
       const merge = () => { const all = {}; Object.values(parts).forEach(l => l.forEach(x => { all[x.id] = x; })); Store.applyRemote(k, Object.values(all)); refresh(); };
       const add = (key, src) => ocUnsubs.push(onSnapshot(src, snap => { parts[key] = snap.docs.map(d => Object.assign({ id: d.id }, d.data())); merge(); }, onError));
       add('c', isCenter() || coach.all ? query(collection(db, k), where('date', '>=', monthAgo())) : query(collection(db, k), where('coachUid', '==', user.uid)));
+      if (!(isCenter() || coach.all)) add('c2', query(collection(db, k), where('coach2Uid', '==', user.uid)));
       add('m', query(collection(db, k), where('uid', '==', user.uid)));
       return;
     }
@@ -948,6 +970,8 @@ async function withFreshToken(fn) {
     throw e;
   }
 }
+// secondo allenatore dell'allenamento (si copia in presenze, candidature e valutazioni: così le legge anche lui)
+const co2 = tid => (((Store.state.trainings || []).find(x => x.id === tid) || {}).coach2Uid) || '';
 function setAttendance(tid, date, uid, status, extra) {
   return withFreshToken(() => setAttendanceTx(tid, date, uid, status, extra));
 }
@@ -961,7 +985,7 @@ function setAttendanceTx(tid, date, uid, status, extra) {
     const p = (o.p || 0) + (after === 'in' ? 1 : 0) - (before === 'in' ? 1 : 0);
     const a = (o.a || 0) + (after === 'out' ? 1 : 0) - (before === 'out' ? 1 : 0);
     if (os.exists()) tr.update(oref, { p, a }); else tr.set(oref, Object.assign(occBase(tid, date), { p, a }));
-    if (status) tr.set(aref, Object.assign({ tid, date, uid, status, at: Date.now(), coachUid: (extra && extra.coachUid) || '' }, extra && extra.forced ? { forced: true, by: user.uid } : {}));
+    if (status) tr.set(aref, Object.assign({ tid, date, uid, status, at: Date.now(), coachUid: (extra && extra.coachUid) || '', coach2Uid: co2(tid) }, extra && extra.forced ? { forced: true, by: user.uid } : {}));
     else tr.delete(aref);
   });
 }
@@ -969,7 +993,7 @@ function setAttendanceTx(tid, date, uid, status, extra) {
 // Il pacchetto del corsista si scala SUBITO: admin e segreteria con syncPackUse; l'allenatore (che non vede prezzi né
 // piani) in un'unica transazione con presenza, packuse e contatore (packcount, senza dati economici).
 // Se le regole rifiutano lo scalo (es. mese già pagato con il piano) si salva solo la presenza.
-async function markAttendance(tid, date, uid, status, coachUid) {
+async function markAttendance(tid, date, uid, status, coachUid, coach2Uid) {
   if (staff()) {
     await setAttendance(tid, date, uid, status, { coachUid: coachUid || '', forced: true });
     return syncPackUse(tid, date, uid);
@@ -1000,7 +1024,7 @@ function coachMarkTx(tid, date, uid, status, coachUid, withPack) {
       const p = (o.p || 0) + (after === 'in' ? 1 : 0) - (before === 'in' ? 1 : 0);
       const ab = (o.a || 0) + (after === 'out' ? 1 : 0) - (before === 'out' ? 1 : 0);
       if (os.exists()) tx.update(oref, { p, a: ab }); else tx.set(oref, Object.assign(occBase(tid, date), { p, a: ab }));
-      if (status) tx.set(aref, { tid, date, uid, status, at: Date.now(), coachUid: coachUid || '', forced: true, by: user.uid });
+      if (status) tx.set(aref, { tid, date, uid, status, at: Date.now(), coachUid: coachUid || '', coach2Uid: co2(tid), forced: true, by: user.uid });
       else tx.delete(aref);
       wrote = true;
     }
@@ -1029,13 +1053,13 @@ function saveEvals(list) {
   list.forEach(e => {
     const ref = doc(db, 'evals', `${e.tid}_${e.date}_${e.uid}`);
     if (!Object.keys(e.v || {}).length && !e.note) batch.delete(ref);
-    else batch.set(ref, { tid: e.tid, date: e.date, uid: e.uid, coachUid: e.coachUid || '', by: user.uid, v: e.v, note: e.note || '', at: Date.now() });
+    else batch.set(ref, { tid: e.tid, date: e.date, uid: e.uid, coachUid: e.coachUid || '', coach2Uid: co2(e.tid), by: user.uid, v: e.v, note: e.note || '', at: Date.now() });
   });
   return batch.commit();
 }
 // Candidatura a un posto spot (utente registrato).
 function applySpot(d) { return withFreshToken(() => applySpotNow(d)); }
-function applySpotNow(d) { return setDoc(doc(db, 'spots', `${d.tid}_${d.date}_${user.uid}`), Object.assign({ uid: user.uid, status: 'pending', at: Date.now(), seen: false }, d)); }
+function applySpotNow(d) { return setDoc(doc(db, 'spots', `${d.tid}_${d.date}_${user.uid}`), Object.assign({ uid: user.uid, status: 'pending', at: Date.now(), seen: false }, d, { coach2Uid: co2(d.tid) })); }
 function withdrawSpot(id) { return deleteDoc(doc(db, 'spots', id)); }
 function seeSpot(id) { return updateDoc(doc(db, 'spots', id), { seen: true }); }
 // Admin: conferma o rifiuta (aggiorna il contatore degli spot confermati), oppure assegna un recupero.
@@ -1301,6 +1325,7 @@ function coachUidsFor(uid) {
   (s.groups || []).filter(g => months.includes(g.month) && (g.uids || []).includes(uid)).forEach(g => {
     const tr = (s.trainings || []).find(x => x.id === g.tid);
     if (tr && tr.coachUid) out.add(tr.coachUid);
+    if (tr && tr.coach2Uid) out.add(tr.coach2Uid);
   });
   return [...out].sort();
 }
@@ -1703,7 +1728,7 @@ function scheduleEaSync() {
     if (!staff() || !eaDocs || eaBusy || !pcLoaded.has('groups')) return;
     const d = new Date(); d.setMonth(d.getMonth() - 12); const from = d.toLocaleDateString('sv').slice(0, 7);
     const want = {};
-    (Store.state.groups || []).filter(g => g.month >= from && g.coachUid).forEach(g => (g.uids || []).forEach(u => { (want[u] = want[u] || new Set()).add(g.coachUid); }));
+    (Store.state.groups || []).filter(g => g.month >= from && (g.coachUid || g.coach2Uid)).forEach(g => (g.uids || []).forEach(u => { [g.coachUid, g.coach2Uid].filter(Boolean).forEach(c => (want[u] = want[u] || new Set()).add(c)); }));
     const batch = writeBatch(db); let n = 0;
     Object.entries(want).forEach(([u, set]) => { const list = [...set].sort(); if (JSON.stringify(list) !== JSON.stringify((eaDocs[u] || []).slice().sort())) { batch.set(doc(db, 'evaccess', u), { coachUids: list, updated: Date.now() }); n++; } });
     Object.keys(eaDocs).forEach(u => { if (!want[u]) { batch.delete(doc(db, 'evaccess', u)); n++; } });
