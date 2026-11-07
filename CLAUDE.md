@@ -22,7 +22,8 @@ allenamenti, allenatori, cassa. Regole decise dal titolare: valgono per ogni mod
 
 ## Privacy e visibilità
 - La lista completa degli utenti la vedono solo admin e segreteria. Un elenco a scelta dentro un modulo va bene.
-- Le email non sono mai visibili agli altri utenti.
+- Le email non sono mai visibili agli altri utenti. Eccezione decisa dal titolare: la **cassa vede i contatti**
+  (telefono ed email della persona o del genitore) per mandare le ricevute (raccolta `contatti`, vedi Tecnica).
 - Prenotazioni: i nomi li vedono solo admin, segreteria e chi ha prenotato; tutti gli altri vedono solo libero/occupato
   (collezione `busy` pubblica e senza nomi, `bookings` riservata).
 
@@ -33,7 +34,7 @@ allenamenti, allenatori, cassa. Regole decise dal titolare: valgono per ogni mod
 - Giorni avanti (`booking.daysAhead`, pagina Campi): fin quanti giorni dopo oggi si prenota; **0 = nessun limite**.
   Non c'è un preavviso minimo: si prenota anche all'ultimo momento, fino all'inizio della mezz'ora.
 - Telefono facoltativo nella prenotazione (precompilato con l'ultimo usato): `bkphone/{gid}`, lo leggono solo
-  admin, segreteria e chi ha prenotato (non la cassa, mai in `busy`).
+  admin, segreteria e chi ha prenotato (mai in `busy`); l'ultimo telefono lasciato finisce anche nei `contatti` della cassa.
 - Pagina Campi: ogni campo è una riga compatta (nome, tipo, orari in breve) con «Modifica» ed «Elimina campo» (con conferma);
   una sola scheda aperta alla volta; «Nuovo campo» in fondo. I **premi delle prenotazioni** sono chiusi in un details e
   si mostrano agli utenti solo se l'admin li attiva (`bookRewards.on`, di serie spenti).
@@ -107,6 +108,10 @@ allenamenti, allenatori, cassa. Regole decise dal titolare: valgono per ogni mod
   con la condivisione del dispositivo (`navigator.share` con il file) si sceglie WhatsApp o la posta con il PDF allegato;
   altrimenti si scarica il PDF e si apre `wa.me` (numero della scheda o del genitore, o quello scritto a mano) o `mailto:`
   (l'email si copia anche negli appunti), con la nota «Allega il PDF appena scaricato».
+- «Invia ricevuta» apre prima il riquadro **Numero WhatsApp** (già scritto se la scheda lo ha, altrimenti lo scrive
+  chi incassa, anche la cassa): con un numero si scarica il PDF e si apre la chat di quel numero (`wa.me`, 39 se manca
+  il prefisso); lasciato vuoto si usa la condivisione del dispositivo. Il numero scritto a mano non si salva.
+- Nella lista degli incassi, sotto il nome, telefono ed email della persona (per i ragazzi del genitore), cliccabili.
 
 ## Grafica
 - L'app deriva da Beach+ Arena (stessa grafica e stessi componenti): lo stile predefinito è il design **Erba**
@@ -159,7 +164,9 @@ allenamenti, allenatori, cassa. Regole decise dal titolare: valgono per ogni mod
   allenamenti, non se la giornata è annullata, prima di `from` o con il mese pagato (allora si salva solo la presenza).
   Scalano solo le presenze segnate (forced), non le risposte del corsista. Admin e segreteria: `syncPackUse`
   (subito), allineamento automatico, «Conferma la giornata» e «Ricalcola pacchetti» come rete di sicurezza.
-- Raccolte nuove: `bkphone/{gid}` (telefono della prenotazione), `ptreq/{id}` (richieste di allenamento privato),
+- Raccolte nuove: `contatti/{uid}` = { phone, email, parent: { name, phone, email } } (solo contatti, niente altro;
+  la legge la cassa, la scrive l'app di admin e segreteria: telefono della scheda, altrimenti l'ultimo di prenotazioni
+  e richieste, che resta finché non ne arriva uno nuovo; email dell'account o della scheda), `bkphone/{gid}` (telefono della prenotazione), `ptreq/{id}` (richieste di allenamento privato),
   `pub/coaches` (nomi degli allenatori con account, pubblico, aggiornato dall'app dello staff), `enroll/{id}` (iscrizioni
   online). Dati del circolo (indirizzi, email quattromoritennisteam@gmail.com, PEC, team, calendario) solo in `js/club.js`.
 - Login con Google: «Continua con Google» (`signInWithPopup`, `authDomain` di serie); al primo accesso si completa il profilo

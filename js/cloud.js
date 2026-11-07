@@ -231,6 +231,7 @@ function listenAccount() {
         .then(ids => { generalUids = ids.filter(Boolean); refresh(); });
       Store.applyRemote('accounts', map);
       Store.applyRemote('emailVerified', ver);
+      accLoaded = true; syncContacts();
       refresh();
     }, onError);
   }
@@ -624,7 +625,7 @@ function listenBkPlayers() {
   const phOn = (k, q) => bpUnsubs.push(onSnapshot(q, snap => {
     phParts[k] = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
     const all = {}; Object.values(phParts).forEach(l => l.forEach(x => { all[x.id] = x; }));
-    Store.applyRemote('bkphones', Object.values(all)); refresh();
+    Store.applyRemote('bkphones', Object.values(all)); syncContacts(); refresh();
   }, onError));
   if (staff()) phOn('all', query(collection(db, 'bkphone'), where('date', '>=', yesterday())));
   phOn('by', query(collection(db, 'bkphone'), where('by', '==', user.uid)));
@@ -680,6 +681,7 @@ let trUnsubs = [];
 function listenTraining() {
   trUnsubs.forEach(f => f()); trUnsubs = [];
   ['coaches', 'athletes', 'groups', 'plans', 'packs', 'packcount', 'packuse', 'xmem'].forEach(k => Store.applyRemote(k, []));
+  Store.applyRemote('contatti', []); ctDocs = null;
   pcLoaded.clear();
   if (!user) return;
   const on = (src, kind) => trUnsubs.push(onSnapshot(src, snap => {
@@ -694,12 +696,18 @@ function listenTraining() {
       Store.applyRemote('tesserati', snap.docs.map(d => Object.assign({ id: d.id }, d.data())));
       syncTess(); refresh();
     }, onError));
+    // contatti (telefono ed email della persona o del genitore): li leggono admin, segreteria e cassa
+    trUnsubs.push(onSnapshot(collection(db, 'contatti'), snap => {
+      ctDocs = Object.fromEntries(snap.docs.map(d => [d.id, d.data()]));
+      Store.applyRemote('contatti', snap.docs.map(d => Object.assign({ id: d.id }, d.data())));
+      syncContacts(); refresh();
+    }, onError));
   }
   if (staff()) {
     ['coaches', 'groups', 'plans', 'packs', 'packcount', 'packuse'].forEach(k => on(collection(db, k), k));
     trUnsubs.push(onSnapshot(collection(db, 'athletes'), snap => {
       Store.applyRemote('athletes', snap.docs.map(d => Object.assign({ id: d.id }, d.data())));
-      athLoaded = true; syncTess(); refresh();
+      athLoaded = true; syncTess(); syncContacts(); refresh();
     }, onError));
     return;
   }
@@ -749,6 +757,41 @@ function syncTess() {
   if (!n) return;
   tessSyncing = true;
   batch.commit().catch(onError).finally(() => { tessSyncing = false; });
+}
+
+// Contatti: copia dei soli telefoni ed email (della persona e, per i ragazzi, del genitore) per la cassa,
+// che non legge le schede né gli account. La tengono allineata l'app di admin e segreteria.
+let ctDocs = null, accLoaded = false, ctSyncing = false;
+// Telefono: quello della scheda, altrimenti l'ultimo lasciato in una prenotazione o in una richiesta di allenamento
+// (quelli di admin e segreteria si vedono solo per pochi giorni: una volta copiato, resta finché non ne arriva uno nuovo).
+function ctMirror(uid, a, email, known, old) {
+  const x = {}, str = v => String(v || '').trim();
+  const ph = str(a && a.phone) || str(known) || str(old && old.phone);
+  if (ph) x.phone = ph.slice(0, 30);
+  const em = str(email || (a && a.email));
+  if (em) x.email = em.slice(0, 120);
+  const pa = (a && a.parent) || {};
+  if (str(pa.name) || str(pa.phone) || str(pa.email)) x.parent = { name: str(pa.name).slice(0, 80), phone: str(pa.phone).slice(0, 30), email: str(pa.email).slice(0, 120) };
+  return Object.keys(x).length ? x : null;
+}
+function syncContacts() {
+  if (!staff() || !athLoaded || !accLoaded || !ctDocs || ctSyncing) return;
+  const want = {}, acc = Store.state.accounts || {};
+  const ath = Object.fromEntries((Store.state.athletes || []).map(a => [a.id, a]));
+  const known = {};
+  (Store.state.bkphones || []).map(p => ({ uid: p.by, phone: p.phone, at: p.at || 0 }))
+    .concat((Store.state.ptreqs || []).filter(r => r.uid).map(r => ({ uid: r.uid, phone: r.phone, at: r.at || 0 })))
+    .sort((p, q) => p.at - q.at).forEach(p => { if (p.uid && p.phone) known[p.uid] = p.phone; });
+  new Set(Object.keys(ath).concat(Object.keys(acc))).forEach(uid => { const x = ctMirror(uid, ath[uid], acc[uid], known[uid], ctDocs[uid]); if (x) want[uid] = x; });
+  const same = (x, y) => !!y && JSON.stringify(x) === JSON.stringify(y);
+  const ops = [];
+  Object.entries(want).forEach(([id, x]) => { if (!same(x, ctDocs[id])) ops.push(b => b.set(doc(db, 'contatti', id), x)); });
+  Object.keys(ctDocs).forEach(id => { if (!want[id]) ops.push(b => b.delete(doc(db, 'contatti', id))); });
+  if (!ops.length) return;
+  ctSyncing = true;
+  // a blocchi di 400 scritture (limite di un batch: 500)
+  const chunks = []; for (let i = 0; i < ops.length; i += 400) chunks.push(ops.slice(i, i + 400));
+  Promise.all(chunks.map(c => { const b = writeBatch(db); c.forEach(f => f(b)); return b.commit(); })).catch(onError).finally(() => { ctSyncing = false; });
 }
 
 // Blocchi dei campi di un allenamento: un blocco ricorrente per campo (motivo = nome dell'allenamento).
@@ -1424,7 +1467,7 @@ function deleteKid(uid, groups, planIds, packIds) {
   groups.filter(g => g.tr).forEach(g => batch.update(doc(db, 'trainings', g.data.tid), { ['sizes.' + g.data.month]: (g.data.uids || []).length }));
   planIds.forEach(id => batch.delete(doc(db, 'plans', id)));
   packIds.forEach(id => { batch.delete(doc(db, 'packs', id)); batch.delete(doc(db, 'packcount', id)); });
-  batch.delete(doc(db, 'athletes', uid)); batch.delete(doc(db, 'tesserati', uid));
+  batch.delete(doc(db, 'athletes', uid)); batch.delete(doc(db, 'tesserati', uid)); batch.delete(doc(db, 'contatti', uid));
   return batch.commit();
 }
 // Collega la scheda senza account (from = "k-…") all'account del ragazzo che si è registrato (to = UID):
@@ -1468,7 +1511,7 @@ async function linkKid(from, to, toName) {
   // vecchie valutazioni e scheda senza account: solo dopo che le copie sono salvate
   const b2 = writeBatch(db);
   evs.forEach(d => b2.delete(d.ref));
-  b2.delete(doc(db, 'athletes', from)); b2.delete(doc(db, 'tesserati', from));
+  b2.delete(doc(db, 'athletes', from)); b2.delete(doc(db, 'tesserati', from)); b2.delete(doc(db, 'contatti', from));
   await b2.commit();
   return groups.length + occs.length + [plans, packs, pcs, pus, atts, evs, spots, xm, rcs, incs].reduce((n, l) => n + l.length, 0) + 1;
 }
@@ -1491,7 +1534,7 @@ function deleteUser(uid, groups, planIds, packIds) {
   groups.filter(g => g.tr).forEach(g => batch.update(doc(db, 'trainings', g.data.tid), { ['sizes.' + g.data.month]: (g.data.uids || []).length }));
   planIds.forEach(id => batch.delete(doc(db, 'plans', id)));
   (packIds || []).forEach(id => { batch.delete(doc(db, 'packs', id)); batch.delete(doc(db, 'packcount', id)); });
-  ['members', 'accounts', 'athletes', 'tesserati', 'verified', 'bans', 'coaches'].forEach(c => batch.delete(doc(db, c, uid)));
+  ['members', 'accounts', 'athletes', 'tesserati', 'contatti', 'verified', 'bans', 'coaches'].forEach(c => batch.delete(doc(db, c, uid)));
   return batch.commit();
 }
 function setCoach(uid, data) { return data ? setDoc(doc(db, 'coaches', uid), data) : deleteDoc(doc(db, 'coaches', uid)); }
@@ -1562,6 +1605,7 @@ function listenPtReq() {
   const src = staff() ? query(collection(db, 'ptreq'), where('date', '>=', monthAgo())) : query(collection(db, 'ptreq'), where('uid', '==', user.uid));
   ptUnsub = onSnapshot(src, snap => {
     Store.applyRemote('ptreqs', snap.docs.map(d => { const x = d.data(); return Object.assign({ id: d.id }, x, { at: x.at && x.at.toMillis ? x.at.toMillis() : x.at || 0 }); }));
+    syncContacts();
     refresh();
   }, onError);
 }
