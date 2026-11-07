@@ -586,6 +586,16 @@ service cloud.firestore {
       allow read: if isCash();
       allow write: if isStaff();
     }
+    // contatti/{uid}: solo telefono ed email della persona (e del genitore, per i ragazzi senza account),
+    // per l'invio delle ricevute. La legge la cassa; la scrive l'app di admin e segreteria (copia delle schede).
+    match /contatti/{uid} {
+      allow read: if isCash();
+      allow delete: if isStaff();
+      allow create, update: if isStaff() && request.resource.data.keys().hasOnly(['phone', 'email', 'parent'])
+        && txt(request.resource.data.get('phone', ''), 30) && txt(request.resource.data.get('email', ''), 120)
+        && (!('parent' in request.resource.data) || (request.resource.data.parent is map
+          && request.resource.data.parent.keys().hasOnly(['name', 'phone', 'email'])));
+    }
     // bkpaid/{gid}: prenotazione del campo pagata (quota sociale).
     match /bkpaid/{gid} {
       allow read, create: if isCash();

@@ -665,5 +665,19 @@ await test('le scritture restano all\'allenatore di quell\'allenamento: chi legg
   await assertFails(deleteDoc(doc(db('coach2'), 'evals/tY_2030-02-02_ev1')));
 });
 
+await test('contatti: li scrive admin o segreteria, li legge la cassa, nessun altro', async () => {
+  const c = { phone: '333 1234567', email: 'anna@prova.it', parent: { name: 'Rita Mura', phone: '347 7654321', email: '' } };
+  await assertSucceeds(setDoc(doc(db('segr'), 'contatti/anna'), c));
+  await assertSucceeds(getDoc(doc(db('cassiere'), 'contatti/anna')));
+  await assertSucceeds(getDocs(collection(db('cassiere'), 'contatti')));
+  await assertFails(getDoc(doc(db('mario'), 'contatti/anna')));
+  await assertFails(getDoc(doc(db('anna'), 'contatti/anna')));
+  await assertFails(getDoc(doc(anon(), 'contatti/anna')));
+  await assertFails(setDoc(doc(db('cassiere'), 'contatti/anna'), c));
+  await assertFails(setDoc(doc(db('segr'), 'contatti/anna'), Object.assign({ cert: '2030-01-01' }, c)));
+  await assertFails(setDoc(doc(db('segr'), 'contatti/anna'), { parent: { name: 'x', notes: 'no' } }));
+  await assertSucceeds(deleteDoc(doc(db('segr'), 'contatti/anna')));
+});
+
 await env.cleanup();
 console.log(`prove delle regole: ${n} superate`);

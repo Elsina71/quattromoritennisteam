@@ -570,7 +570,7 @@
   const recurringReason = rid => { const r = (S().recurring || []).find(x => x.id === rid); return r ? r.reason : ''; };
   const bookingText = b => `${courtName(b.courtId)}, ${fmtDate(b.date)} ${esc(b.from)}–${esc(b.to)}`;
   // Ragazzo SENZA ACCOUNT (scheda athletes/k-…): si usa come un utente nei servizi (gruppi, presenze, pacchetti,
-  // valutazioni, cassa). La scheda la leggono solo admin e segreteria; la cassa ha solo il nome (tesserati).
+  // valutazioni, cassa). La scheda la leggono solo admin e segreteria; la cassa ha il nome (tesserati) e i contatti (contatti).
   const isKid = uid => /^k-/.test(uid || '');
   function kidMember(uid) {
     if (!isKid(uid)) return null;
@@ -3090,10 +3090,12 @@
   // prenotazioni o nelle richieste. Email: account dell'utente (solo staff) o scheda/genitore.
   function rcContact(r) {
     if (r.person && r.person.manual) return { phone: r.person.phone || '', email: r.person.email || '' };
-    const uid = r.uid || '', a = athleteOf(uid) || {}, pa = a.parent || {};
+    const uid = r.uid || '', ct = (S().contatti || []).find(x => x.id === uid) || {};
+    // scheda (admin e segreteria) oppure la copia dei contatti (cassa)
+    const a = athleteOf(uid) || ct, pa = a.parent || ct.parent || {};
     const known = (S().bkphones || []).filter(x => x.by === uid).concat((S().ptreqs || []).filter(x => x.uid === uid)).sort((x, y) => (y.at || 0) - (x.at || 0));
-    const phone = (isKid(uid) ? pa.phone || a.phone : a.phone || pa.phone) || (known[0] || {}).phone || '';
-    const email = (isKid(uid) ? pa.email || a.email : (S().accounts || {})[uid] || a.email || pa.email) || '';
+    const phone = (isKid(uid) ? pa.phone || a.phone : a.phone || pa.phone) || ct.phone || (known[0] || {}).phone || '';
+    const email = (isKid(uid) ? pa.email || a.email : (S().accounts || {})[uid] || ct.email || a.email || pa.email) || '';
     return { phone: String(phone || '').trim(), email: String(email || '').trim() };
   }
   const rcSurname = r => { if (r.person && r.person.manual) return latinName(r.person.last || ''); const m = memberByUid(r.uid); const n = m && m.last ? m.last : String((r.person || {}).name || '').trim().split(/\s+/).pop() || ''; return latinName(n); };
@@ -3143,6 +3145,14 @@
       ui.flash = { type: c.email ? 'ok' : 'warn', text: `${note} ${t('rcAttachNote')}`.trim() };
     }
     render();
+  }
+  // contatti della persona (telefono ed email; per i ragazzi quelli del genitore) nella lista degli incassi
+  function caContactLine(uid) {
+    if (!uid) return '';
+    const c = rcContact({ uid });
+    if (!c.phone && !c.email) return '';
+    const kidP = isKid(uid) ? t('caParentOf') + ' ' : '';
+    return `<br><small class="muted ca-contact">${kidP}${c.phone ? `<i class="ti ti-phone" aria-hidden="true"></i> <a href="tel:${esc(c.phone.replace(/[^\d+]/g, ''))}">${esc(c.phone)}</a>` : ''}${c.phone && c.email ? ' · ' : ''}${c.email ? `<i class="ti ti-mail" aria-hidden="true"></i> <a href="mailto:${esc(c.email)}">${esc(c.email)}</a>` : ''}</small>`;
   }
   // «Invia ricevuta»: prima si apre un riquadro con il numero WhatsApp (già scritto se lo conosciamo, altrimenti lo
   // scrive la cassa). Con un numero si scarica il PDF e si apre la chat di quel numero; senza numero si usa la
@@ -3455,6 +3465,7 @@
         ${list.length ? `<ul class="reg-list ca-list">${list.map(i => `<li class="${i.void ? 'is-void' : ''}"><span class="reg-names"><strong>${esc(fmtDate(i.date))} · ${esc(euro(i.total))}</strong> · ${esc(t('pay_' + i.method))}
             ${i.void ? ` <span class="badge st-full">${esc(t('caVoided'))}</span>` : ''}${i.name ? ` · ${esc(i.name)}` : ''}
             <br>${(i.lines || []).map(l => `<small class="muted">${esc(t('caCat_' + l.cat))}: ${esc(l.desc)} · ${esc(euro(l.amount))}</small>`).join('<br>')}
+            ${caContactLine(i.uid)}
             <br><span class="btn-row">${rcBtns(i) || `<small class="muted">${esc(t('caNoReceipt'))}</small>`}${i.by ? ` <small class="muted">${esc(t('caBy', { n: who(i.by) }))}</small>` : ''}</span></span>
           ${admin() && !i.void && !i.legacy ? `<button class="btn small danger" data-action="ca-void" data-id="${esc(i.id)}">${esc(t('caVoidBtn'))}</button>` : ''}
           ${Object.values(i.receipts || {}).some(r => r.id === ui.caHolder) ? caHolderForm(receiptById(ui.caHolder)) : ''}</li>`).join('')}</ul>`
