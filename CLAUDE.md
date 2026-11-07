@@ -31,8 +31,14 @@ allenamenti, allenatori, cassa. Regole decise dal titolare: valgono per ogni mod
 - La segreteria nel codice c'è (vedi Tecnica): non gestisce i campi né le regole di prenotazione.
 
 ## Corsisti e allenamenti
-- I corsisti sono schede gestite dalla segreteria (non account dell'app): dati, genitore/contatto, certificato medico
+- I corsisti sono schede gestite dalla segreteria: dati, genitore/contatto, note, certificato medico
   (agonistico / non agonistico, scadenza; avvisi a 30 e 7 giorni), FITP pagato/non pagato per l'anno in corso.
+- La scheda può essere **con account** (utente registrato) o **senza account** (ragazzo non registrato: nome, cognome, sesso,
+  nascita, genitore con telefono ed email facoltativa, note). Quella senza account si usa ovunque come le altre (gruppi,
+  recuperi, presenze, piani e quote, pacchetti, valutazioni, cassa e ricevute con il genitore indicato, report).
+  La vedono solo admin e segreteria; l'allenatore vede solo il nome. Se il ragazzo si registra, «Collega a un account».
+- Le **presenze le segna l'allenatore** di quell'allenamento (o admin e segreteria). Il corsista con account risponde solo
+  «ci sarò / non ci sarò» (serve per i posti spot) e non può cambiare una presenza già segnata.
 - Allenamenti: titolo, giorno, ora, durata, campo, allenatore, corsisti; si possono ripetere ogni settimana.
   Occupano il campo nel tabellone (gli altri vedono "Allenamento"). Per cambiare giorno/ora/campo si ricrea.
 
@@ -87,9 +93,20 @@ allenamenti, allenatori, cassa. Regole decise dal titolare: valgono per ogni mod
 - Quote: mensile, trimestrale, corso intero (listino `c1`/`c2`, `courseFrom`/`courseTo`: copre tutti i mesi del corso),
   singolo allenamento (spot), pacchetto di lezioni; tesseramento FITP a parte (`athletes.fitp[stagione]`, categoria di cassa
   `q_fitp`). Modalità: contanti, POS, bonifico.
-- Pacchetti senza Cloud Functions: lo scalo (`packuse` + `packs.used` nella stessa transazione) lo fa l'app di admin e
-  segreteria: subito quando segnano una presenza, da sola per le presenze date dal corsista o dall'allenatore (che non vede
-  i pacchetti), con «Conferma la giornata» e con «Ricalcola pacchetti» in Corsisti.
+- Schede senza account: `athletes/k-…` (ID "k-" + codice casuale, mai uguale a un UID) con `noAccount: true`,
+  `parent: { name, phone, email }`, `notes`, `gender`, `birthDate`; l'ID si usa come un UID in `groups.uids/names`, `att`, `plans`,
+  `packs`, `packcount`, `packuse`, `evals`, `spots`, `receipts.uid`, `incassi.uid`, `tesserati` (con `parent` per la ricevuta).
+  Regole: solo lo staff le crea e le legge (`kidId()`). Collegamento all'account: `Cloud.linkKid` sposta tutto sull'UID
+  (le valutazioni con `movedFrom`, ammesso dalle regole solo per lo staff e con gli stessi voti).
+- Pacchetti senza Cloud Functions: `packs` tiene prezzo e pagamento (solo staff e interessato); il contatore senza dati
+  economici è in `packcount/{idPacchetto}` = { uid, n, used, from, created, coachUids }. `coachUids` (allenatori dei gruppi
+  del corsista, mese scorso/corrente/prossimo) e i contatori dei pacchetti di prima li tiene aggiornati l'app di admin e
+  segreteria (`schedulePcSync`). Quando l'allenatore segna «presente» (`Cloud.markAttendance`) scala **subito** in una
+  transazione: `att` (forced) + `occ` + `packuse` + `packcount.used` +1 con `last` = id della presenza; togliendo la presenza
+  -1 e packuse cancellato. Le regole ammettono solo ±1 con il packuse nella stessa scrittura, mai oltre `n`, solo per i suoi
+  allenamenti, non se la giornata è annullata, prima di `from` o con il mese pagato (allora si salva solo la presenza).
+  Scalano solo le presenze segnate (forced), non le risposte del corsista. Admin e segreteria: `syncPackUse`
+  (subito), allineamento automatico, «Conferma la giornata» e «Ricalcola pacchetti» come rete di sicurezza.
 - Login con Google: «Continua con Google» (`signInWithPopup`, `authDomain` di serie); al primo accesso si completa il profilo
   (nome e cognome da Google, sesso, informativa). CSP in `firebase.json` con apis.google.com e accounts.google.com.
 - Prove: `npm test` (calcoli), `npm run test:rules` (regole, con l'emulatore), `npm run check` (sintassi). Le prime due

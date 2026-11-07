@@ -3,7 +3,8 @@
 // Poi apri http://localhost:5173/?emu=1 — password di tutti gli account di prova: prova123
 //   admin.prova@esempio.it (admin), elena.sanna@esempio.it (segreteria), giulia.serra@esempio.it (cassa),
 //   marco.pinna@esempio.it (allenatore), andrea.melis@esempio.it, sara.murru@esempio.it, luca.porcu@esempio.it,
-//   chiara.loi@esempio.it (utenti e corsisti)
+//   chiara.loi@esempio.it (utenti e corsisti); in più due ragazzi SENZA ACCOUNT (Pietro Deiana e Giorgia Floris,
+//   schede k-… con il genitore), Pietro con un pacchetto di 4 lezioni
 // Porte diverse da quelle di serie: EMU_FS=8180 EMU_AU=9199 node tests/seed-emulator.mjs (e nell'app ?emu=1&fs=8180&au=9199)
 const PROJECT = 'quattromoritennisteam-d3258';
 const FSP = process.env.EMU_FS || '8080', AUP = process.env.EMU_AU || '9099';
@@ -71,7 +72,7 @@ const settings = { notice: 'Sabato il Campo 3 è chiuso per manutenzione fino al
 await put('data/settings', { json: JSON.stringify(settings), updated: Date.now(), minMinutes: 60, maxMinutes: 120 });
 
 // allenamento settimanale del giorno di oggi (17:00–18:30, Centrale) con il suo blocco ricorrente; un allenamento di padel domani
-const tr = { name: 'Agonisti Under 14', dow: dowOf(today), from: '17:00', to: '18:30', level: 'inter', max: 6, coachUid: uid.Marco, courts: ['centrale'], reason: 'Allenamenti · Agonisti Under 14 · Pinna Marco', created: Date.now(), sizes: { [month]: 4 } };
+const tr = { name: 'Agonisti Under 14', dow: dowOf(today), from: '17:00', to: '18:30', level: 'inter', max: 6, coachUid: uid.Marco, courts: ['centrale'], reason: 'Allenamenti · Agonisti Under 14 · Pinna Marco', created: Date.now(), sizes: { [month]: 6 } };
 const tr2 = { name: 'Padel principianti', dow: dowOf(plus(1)), from: '19:00', to: '20:00', level: 'start', max: 4, coachUid: uid.Marco, courts: ['padel1'], reason: 'Allenamenti · Padel principianti · Pinna Marco', created: Date.now(), sizes: { [month]: 2 } };
 for (const [id, t, c] of [['t1', tr, 'centrale'], ['t2', tr2, 'padel1']]) {
   await put(`trainings/${id}`, t);
@@ -79,10 +80,24 @@ for (const [id, t, c] of [['t1', tr, 'centrale'], ['t2', tr2, 'padel1']]) {
   for (let x = t.from; x < t.to; x = addMin(x, 30)) await put(`weekly/${c}_${t.dow}_${x}`, { courtId: c, dow: t.dow, start: x, from: t.from, to: t.to, rid: `t_${id}_${c}` });
 }
 const g1 = ['Andrea', 'Sara', 'Luca', 'Chiara'];
+// ragazzi senza account (schede gestite dalla segreteria, ID "k-…"): stessi gruppi, piani, pacchetti e ricevute
+const kids = [
+  { id: 'k-PietroDeiana01', first: 'Pietro', last: 'Deiana', gender: 'M', birthDate: '2016-03-02', parent: { name: 'Anna Deiana', phone: '333 1234567', email: 'anna.deiana@esempio.it' }, notes: 'Allergico alle api', certType: 'nonagon', certExp: plus(90) },
+  { id: 'k-GiorgiaFloris1', first: 'Giorgia', last: 'Floris', gender: 'F', birthDate: '2015-09-21', parent: { name: 'Paolo Floris', phone: '347 7654321', email: '' }, notes: '', certType: 'agon', certExp: plus(25) }];
 const lastWeek = plus(-7), lwMonth = lastWeek.slice(0, 7);
 for (const mo of [...new Set([month, lwMonth])]) {
-  await put(`groups/t1_${mo}`, { tid: 't1', month: mo, uids: g1.map(n => uid[n]), names: Object.fromEntries(g1.map(n => [uid[n], nm(n)])), coachUid: uid.Marco, updated: Date.now() });
+  await put(`groups/t1_${mo}`, { tid: 't1', month: mo, uids: g1.map(n => uid[n]).concat(kids.map(k => k.id)),
+    names: Object.assign(Object.fromEntries(g1.map(n => [uid[n], nm(n)])), Object.fromEntries(kids.map(k => [k.id, `${k.last} ${k.first}`]))), coachUid: uid.Marco, updated: Date.now() });
 }
+for (const k of kids) {
+  const { id, ...data } = k;
+  await put(`athletes/${id}`, Object.assign({ noAccount: true, tess: { [season]: id === kids[0].id }, created: Date.now() }, data,
+    id === kids[0].id ? { birthPlace: 'Cagliari', city: 'Quartu Sant\'Elena', address: 'via Marconi 12', cf: 'DNEPTR16C02B354A' } : {}));
+  await put(`plans/${id}_${month}`, { uid: id, month, tids: ['t1'], desc: ['Agonisti Under 14'], n: 1, price: 50, manual: false, updated: Date.now() });
+}
+// pacchetto di Pietro (4 lezioni) con il suo contatore senza prezzi, letto anche dall'allenatore
+await put('packs/kpietro', { uid: kids[0].id, name: 'Deiana Pietro', n: 4, price: 70, used: 0, from: `${month}-01`, created: Date.now(), by: uid.Elena });
+await put('packcount/kpietro', { uid: kids[0].id, n: 4, used: 0, from: `${month}-01`, created: Date.now(), coachUids: [uid.Marco] });
 await put(`groups/t2_${month}`, { tid: 't2', month, uids: [uid.Matteo, uid.Chiara], names: { [uid.Matteo]: nm('Matteo'), [uid.Chiara]: nm('Chiara') }, coachUid: uid.Marco, updated: Date.now() });
 // certificati: Andrea scade tra 20 giorni, Sara tra 5, Luca è scaduto, Chiara e Matteo validi
 const certs = { Andrea: [plus(20), 'agon'], Sara: [plus(5), 'agon'], Luca: [plus(-10), 'nonagon'], Chiara: [plus(200), 'nonagon'], Matteo: [plus(120), 'nonagon'] };
@@ -98,7 +113,8 @@ for (const n of g1.concat(['Matteo'])) {
 }
 // pacchetto di 5 lezioni per Andrea (dal 1° del mese, non ancora usato)
 await put('packs/kandrea', { uid: uid.Andrea, name: nm('Andrea'), n: 5, price: 90, used: 0, from: `${month}-01`, created: Date.now(), by: uid.Paolo });
-// presenze di oggi: Chiara presente (risposta sua), Luca assente; Andrea e Sara senza risposta
+await put('packcount/kandrea', { uid: uid.Andrea, n: 5, used: 0, from: `${month}-01`, created: Date.now(), coachUids: [uid.Marco] });
+// risposte di oggi: Chiara «ci sarò», Luca «non ci sarò»; Andrea e Sara senza risposta (la presenza la segna l'allenatore)
 await put(`occ/t1_${today}`, { tid: 't1', date: today, p: 1, a: 1, s: 0, cancelled: false });
 await put(`att/t1_${today}_${uid.Chiara}`, { tid: 't1', date: today, uid: uid.Chiara, status: 'in', at: Date.now(), coachUid: uid.Marco });
 await put(`att/t1_${today}_${uid.Luca}`, { tid: 't1', date: today, uid: uid.Luca, status: 'out', at: Date.now(), coachUid: uid.Marco });

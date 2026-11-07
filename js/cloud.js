@@ -1224,6 +1224,13 @@ function coachUidsFor(uid) {
   });
   return [...out].sort();
 }
+// allenamenti già usati di un pacchetto senza contatore: il "used" di prima, o di più se ci sono più scali registrati
+// (packuse e spot confermati con quel pacchetto)
+function usedGuess(id, k) {
+  const s = Store.state;
+  const n = (s.packuse || []).filter(u => u.pack === id).length + (s.spots || []).filter(sp => sp.pack === id && sp.status === 'ok' && !sp.packBack).length;
+  return Math.min(Math.max(k.used || 0, n), k.n || 0);
+}
 // contatore di un pacchetto in una transazione; se manca (pacchetti di prima) si prepara dai dati del pacchetto
 async function pcRead(tx, id) {
   const s = await tx.get(doc(db, 'packcount', id));
@@ -1231,7 +1238,7 @@ async function pcRead(tx, id) {
   const k = await tx.get(doc(db, 'packs', id));
   if (!k.exists()) return null;
   const d = k.data();
-  return { id, exists: false, uid: d.uid, n: d.n || 0, used: Math.min(d.used || 0, d.n || 0), from: packStart(d), created: d.created || 0, coachUids: coachUidsFor(d.uid) };
+  return { id, exists: false, uid: d.uid, n: d.n || 0, used: usedGuess(id, d), from: packStart(d), created: d.created || 0, coachUids: coachUidsFor(d.uid) };
 }
 function pcWrite(tx, c, used) {
   const ref = doc(db, 'packcount', c.id);
@@ -1347,7 +1354,7 @@ function schedulePcSync() {
     (s.packs || []).forEach(k => {
       const want = { uid: k.uid, n: k.n || 0, from: packStart(k), created: k.created || 0, coachUids: coachUidsFor(k.uid) };
       const c = have.get(k.id);
-      if (!c) { batch.set(doc(db, 'packcount', k.id), Object.assign({ used: Math.min(k.used || 0, k.n || 0) }, want)); n++; return; }
+      if (!c) { batch.set(doc(db, 'packcount', k.id), Object.assign({ used: usedGuess(k.id, k) }, want)); n++; return; }
       const diff = Object.keys(want).filter(f => JSON.stringify(want[f]) !== JSON.stringify(c[f] == null ? (f === 'coachUids' ? [] : c[f]) : c[f]));
       if (diff.length) { batch.update(doc(db, 'packcount', k.id), Object.fromEntries(diff.map(f => [f, want[f]]))); n++; }
     });

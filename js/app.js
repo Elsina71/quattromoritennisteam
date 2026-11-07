@@ -1340,7 +1340,7 @@
     const od = nextOcc(tr, month), oc = od && occOf(tr.id, od);
     const rows = uids.map(uid => {
       const a = athleteOf(uid), at = od && attOf(tr.id, od, uid);
-      return `<li><span class="reg-names"><strong>${esc(names[uid] || coachName(uid))}</strong>${od && !(oc && oc.cancelled) ? ` ${attChip(at && at.status, od)}` : ''}
+      return `<li><span class="reg-names"><strong>${esc(names[uid] || coachName(uid))}</strong>${isKid(uid) && admin() ? ` <span class="badge kid-badge">${esc(t('kidBadge'))}</span>` : ''}${od && !(oc && oc.cancelled) ? ` ${attState(at, od)}` : ''}
         ${admin() ? `<br>${tessBadge(a)} ${certBadge(a)}` : ''}</span>
         ${centerAdm() ? `<button class="btn small danger" data-action="grp-remove" data-tid="${esc(tr.id)}" data-m="${month}" data-uid="${uid}" aria-label="${esc(t('remove'))}"><i class="ti ti-user-minus" aria-hidden="true"></i></button>` : ''}</li>`;
     }).join('');
@@ -1804,6 +1804,10 @@
   // stato della presenza: verde confermata, rosso assente, grigio in attesa, arancione no reply (scaduto il termine)
   const attChip = (st, date) => { const k = st === 'in' ? 'in' : st === 'out' ? 'out' : afterNoon(date) ? 'late' : 'wait';
     return `<span class="badge att-chip att-${k}">${esc(t({ in: 'attIn', out: 'attOut', wait: 'attNone', late: 'attNoneAbsent' }[k]))}</span>`; };
+  // stato: presenza segnata (verde/rosso) oppure solo la risposta del corsista (tratteggiato)
+  const attState = (a, date, mine) => (a && !a.forced && a.status
+    ? `<span class="badge att-chip att-resp">${esc(t(mine ? (a.status === 'in' ? 'attMyIn' : 'attMyOut') : (a.status === 'in' ? 'attWillIn' : 'attWillOut')))}</span>`
+    : attChip(a && a.status, date));
   // prossimo allenamento del mese mostrato (da oggi in poi; il 5° giorno del mese è solo spot)
   const nextOcc = (tr, month) => { if (isExtraTr(tr)) return tr.date.slice(0, 7) === month ? tr.date : null; let d = month === curMonth() ? todayStr() : month > curMonth() ? month + '-01' : null; if (!d) return null;
     for (; d.slice(0, 7) === month; d = addDays(d, 1)) if (dow(d) === tr.dow && !extraDay(d)) return d; return null; };
@@ -1873,7 +1877,7 @@
     return `<h4>${esc(t('myNext7'))}</h4>
       <ul class="reg-list">${list.map(({ tr, date }) => {
         const o = occOf(tr.id, date) || {}, a = attOf(tr.id, date, m.uid);
-        return `<li><span class="reg-names"><strong>${esc(occLabel(tr, date))}</strong><br>${o.cancelled ? `<span class="badge st-full">${esc(t('occCancelled'))}</span>` : attChip(a && a.status, date)}</span>
+        return `<li><span class="reg-names"><strong>${esc(occLabel(tr, date))}</strong><br>${o.cancelled ? `<span class="badge st-full">${esc(t('occCancelled'))}</span>` : attState(a, date, true)}</span>
           ${o.cancelled || (a && a.forced) ? '' : attButtons(tr, date, a && a.status)}</li>`;
       }).join('')}
       ${spots.map(sp => { const tr = trainingById(sp.tid); return tr ? `<li><span class="reg-names"><strong>${esc(occLabel(tr, sp.date))}</strong><br>
@@ -2170,7 +2174,7 @@
       const date = el.dataset.date, uid = el.dataset.uid, nm = (((groupOf(tr.id, date.slice(0, 7)) || {}).names || {})[uid]) || coachName(uid);
       el.disabled = true;
       window.Cloud.markAttendance(tr.id, date, uid, el.dataset.st || null, tr.coachUid || '')
-        .then(r => { if (r === 'used' || r === 'released') ui.flash = { text: t(r === 'used' ? 'packScaledOne' : 'packBackOne', { n: nm }) }; render(); })
+        .then(r => { ui.flash = r === 'used' || r === 'released' ? { text: t(r === 'used' ? 'packScaledOne' : 'packBackOne', { n: nm }) } : null; render(); })
         .catch(e => { el.disabled = false; trErr(e); });
     },
     'spot-apply': el => {

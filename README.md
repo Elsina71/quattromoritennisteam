@@ -10,9 +10,12 @@ L'app parte dal codice di Beach+ Arena (stessa grafica e stessi componenti), sen
 - **Prenota** (`#/book`): un riquadro per campo (badge Tennis o Padel, filtro Tutti/Tennis/Padel) con le mezz'ore;
   durate 1 h, 1 h 30 o 2 h; gli altri vedono solo libero/occupato.
 - **Campi** (`#/courts`, solo admin): campi con il tipo, orari, regole delle prenotazioni, blocchi ricorrenti, reward.
-- **Allenamenti** (`#/train`): presenze del giorno (le segna anche l'allenatore), «Conferma la giornata» che scala i pacchetti,
+- **Allenamenti** (`#/train`): presenze del giorno segnate dall'**allenatore** (o da admin e segreteria) con lo **scalo subito**
+  del pacchetto; il corsista risponde solo «ci sarò / non ci sarò»; «Conferma la giornata» riallinea i pacchetti,
   in fondo alla giornata la **Scheda di valutazione dell'allenamento** (`#/eval/…`: 7 voci da 1 a 10, 6 = sufficienza, nota del giorno).
-- **Corsisti** (`#/athletes`): certificato agonistico/non agonistico con avvisi a 30 e 7 giorni, tesseramento FITP pagato/non pagato,
+- **Corsisti** (`#/athletes`): schede **con account** o **senza account** (ragazzi non registrati, con genitore e telefono;
+  si possono poi collegare all'account se il ragazzo si registra), filtro Tutte / Con account / Senza account,
+  certificato agonistico/non agonistico con avvisi a 30 e 7 giorni, tesseramento FITP pagato/non pagato,
   quote (mensile, trimestrale, corso intero, pacchetti), medie delle valutazioni, «Ricalcola pacchetti».
 - **Pagamenti** (`#/payments`), **Report** (`#/report`).
 - **Cassa** (`#/cassa`): incassi, ricevute Q e C in PDF, prospetto Excel.
@@ -38,4 +41,5 @@ python3 -m http.server 5173   # poi apri http://localhost:5173/?emu=1
 ```
 Account di prova: admin.prova@esempio.it (admin), elena.sanna@esempio.it (segreteria), giulia.serra@esempio.it (cassa),
 marco.pinna@esempio.it (allenatore), andrea.melis@esempio.it, sara.murru@esempio.it, luca.porcu@esempio.it,
-chiara.loi@esempio.it, matteo.cocco@esempio.it (utenti e corsisti).
+chiara.loi@esempio.it, matteo.cocco@esempio.it (utenti e corsisti). In più due ragazzi senza account (Pietro Deiana con un
+pacchetto di 4 lezioni, Giorgia Floris), con il genitore.
