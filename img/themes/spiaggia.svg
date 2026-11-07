@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" preserveAspectRatio="xMidYMid slice">
+  <!-- Spiaggia: cielo, sole, mare turchese, sabbia e rete da beach volley. Disegno originale. -->
+  <defs>
+    <linearGradient id="cielo" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#7fd3f5"/><stop offset="1" stop-color="#d9f3fc"/></linearGradient>
+    <linearGradient id="mare" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#0f9fc6"/><stop offset="1" stop-color="#3fd3cf"/></linearGradient>
+    <pattern id="sabbia" width="16" height="16" patternUnits="userSpaceOnUse"><rect width="16" height="16" fill="#f3d9a4"/><circle cx="4" cy="5" r="1.1" fill="#dcbb7c"/><circle cx="12" cy="12" r="1" fill="#e6c88e"/></pattern>
+  </defs>
+  <rect width="1200" height="300" fill="url(#cielo)"/>
+  <circle cx="1060" cy="70" r="46" fill="#ffd34d"/><circle cx="1060" cy="70" r="70" fill="#ffd34d" opacity=".25"/>
+  <rect y="150" width="1200" height="70" fill="url(#mare)"/>
+  <path d="M0 160 q30 -10 60 0 t60 0 t60 0 t60 0 t60 0 t60 0 t60 0 t60 0 t60 0 t60 0 t60 0 t60 0 t60 0 t60 0 t60 0 t60 0 t60 0 t60 0 t60 0 t60 0" fill="none" stroke="#fff" stroke-width="3" opacity=".7"/>
+  <path d="M0 190 q40 -12 80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0" fill="none" stroke="#fff" stroke-width="2.5" opacity=".5"/>
+  <path d="M0 214 q60 -14 120 -2 t140 4 t160 -6 t160 6 t160 -4 t160 2 t160 -2 t140 0 L1200 300 L0 300 Z" fill="url(#sabbia)"/>
+  <path d="M0 214 q60 -14 120 -2 t140 4 t160 -6 t160 6 t160 -4 t160 2 t160 -2 t140 0" fill="none" stroke="#fff" stroke-width="5" opacity=".85"/>
+  <g stroke="#5b4a32" stroke-width="7" stroke-linecap="round"><path d="M430 270 V110"/><path d="M770 270 V110"/></g>
+  <rect x="430" y="118" width="340" height="52" fill="none" stroke="#fff" stroke-width="2"/>
+  <g stroke="#fff" stroke-width="1.4" opacity=".9">
+    <path d="M430 131 H770 M430 144 H770 M430 157 H770"/>
+    <path d="M447 118 V170 M464 118 V170 M481 118 V170 M498 118 V170 M515 118 V170 M532 118 V170 M549 118 V170 M566 118 V170 M583 118 V170 M600 118 V170 M617 118 V170 M634 118 V170 M651 118 V170 M668 118 V170 M685 118 V170 M702 118 V170 M719 118 V170 M736 118 V170 M753 118 V170"/>
+  </g>
+  <rect x="428" y="114" width="344" height="8" fill="#1e88e5"/>
+  <g transform="translate(860 82)"><g transform="scale(1.000)"><circle r="26" fill="#ffdf3d"/><g transform="rotate(0)"><path d="M0 0 C6 -10 17 -14 25 -6" fill="none" stroke="#1e88e5" stroke-width="3.2" stroke-linecap="round"/><path d="M-4 -10 C3 -18 14 -21 20 -16" fill="none" stroke="#1e88e5" stroke-width="3.2" stroke-linecap="round"/></g><g transform="rotate(120)"><path d="M0 0 C6 -10 17 -14 25 -6" fill="none" stroke="#1e88e5" stroke-width="3.2" stroke-linecap="round"/><path d="M-4 -10 C3 -18 14 -21 20 -16" fill="none" stroke="#1e88e5" stroke-width="3.2" stroke-linecap="round"/></g><g transform="rotate(240)"><path d="M0 0 C6 -10 17 -14 25 -6" fill="none" stroke="#1e88e5" stroke-width="3.2" stroke-linecap="round"/><path d="M-4 -10 C3 -18 14 -21 20 -16" fill="none" stroke="#1e88e5" stroke-width="3.2" stroke-linecap="round"/></g><circle r="26" fill="none" stroke="#1e88e5" stroke-width="1.9"/></g></g>
+  <path d="M800 112 q25 -14 40 -24 M806 128 q24 -10 38 -22" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity=".8"/>
+</svg>

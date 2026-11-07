@@ -1,211 +1,590 @@
 rules_version = '2';
 
-// Regole del database di Quattro Mori Tennis Team.
-//
-// users/{uid}      profilo: nome, cognome, telefono, email, ruolo. Lo leggono solo la persona stessa e lo staff.
-// courts/{id}      campi: nome, tipo, orari. Pubblici; li modifica solo l'admin.
-// bookings/{id}    prenotazioni con il nome di chi gioca. Le leggono solo lo staff e chi ha prenotato.
-// slots/{id}       una mezz'ora occupata, senza nomi: pubblica, così tutti vedono libero/occupato.
-//                  L'id è campo_data_ora: due prenotazioni sulla stessa mezz'ora scriverebbero lo stesso
-//                  documento, e la seconda viene rifiutata (le mezz'ore non si sovrascrivono mai).
-//
-// Staff = admin e segreteria. Il titolare è admin per la sua email (qui c'è solo l'impronta SHA-256).
-
+// Regole del database di Quattro Mori Tennis Team (derivate da quelle di Beach+ Arena, solo le parti usate).
+// Ruoli: ADMIN (admin generale + roles/{uid}.center), SEGRETERIA (roles/{uid}.seg), CASSA (roles/{uid}.cash),
+// ALLENATORE (coaches/{uid}), UTENTE (chiunque si registra).
+// Privacy: le prenotazioni hanno una parte pubblica senza nomi (busy) e una privata (bookings) che leggono solo
+// admin, segreteria, cassa e chi ha prenotato; le email (accounts) le leggono solo admin, segreteria e l'interessato.
+// La raccolta "admins" (ID documento = UID) si gestisce solo dalla console Firebase.
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    function signedIn() { return request.auth != null; }
-
+    // ADMIN GENERALE: il titolare, riconosciuto dall'email confermata (qui c'è solo l'impronta SHA-256, mai l'email),
+    // e gli eventuali altri inseriti nella raccolta "admins".
     function isOwner() {
-      return signedIn()
-        && request.auth.token.email_verified == true
+      return request.auth != null && request.auth.token.email_verified == true
+        && request.auth.token.email is string
         && hashing.sha256(request.auth.token.email.lower()).toHexString().lower()
            == 'a2de6b81796442dad657da768dcb08f740fe60afdbdb368e2f9a1604238913c1';
     }
-
-    function myDoc() { return /databases/$(database)/documents/users/$(request.auth.uid); }
-    function myRole() { return exists(myDoc()) ? get(myDoc()).data.role : ''; }
-    function isAdmin() { return isOwner() || (signedIn() && myRole() == 'admin'); }
-    function isStaff() { return isOwner() || (signedIn() && myRole() in ['admin', 'segreteria']); }
-
-    function str(v, max) { return v is string && v.size() <= max; }
-    function filled(v, max) { return str(v, max) && v.size() > 0; }
-    function isTime(t) { return t is string && t.matches('^([01][0-9]|2[0-4]):(00|30)$'); }
-    function hhmm(t) { return int(t[0:2]) * 60 + int(t[3:5]); }
-
-    // ---------- utenti ----------
-    function okProfile(d) {
-      return d.keys().hasOnly(['first', 'last', 'phone', 'email', 'role', 'lang', 'createdAt'])
-        && filled(d.first, 40) && str(d.last, 40) && str(d.phone, 30) && str(d.email, 120)
-        && d.role in ['admin', 'segreteria', 'allenatore', 'utente']
-        && (!('lang' in d) || d.lang in ['it', 'en']);
+    function isGeneral() {
+      return isOwner() || (request.auth != null && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
     }
-
-    match /users/{uid} {
-      allow read: if signedIn() && (request.auth.uid == uid || isStaff());
-
-      // ci si registra da soli, sempre come "utente"; solo il titolare nasce admin
-      allow create: if signedIn() && request.auth.uid == uid
-        && okProfile(request.resource.data)
-        && request.resource.data.email == request.auth.token.email
-        && (request.resource.data.role == 'utente' || (request.resource.data.role == 'admin' && isOwner()));
-
-      allow update: if signedIn() && okProfile(request.resource.data)
-        && request.resource.data.email == resource.data.email
-        && (
-          // la persona stessa: solo i suoi dati, non il ruolo
-          (request.auth.uid == uid
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['first', 'last', 'phone', 'lang']))
-          // l'admin: tutto, ruoli compresi
-          || isAdmin()
-          // la segreteria: i dati di utenti e allenatori, non i ruoli
-          || (isStaff() && resource.data.role in ['utente', 'allenatore']
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['first', 'last', 'phone']))
-        );
-
-      allow delete: if isAdmin() || (isStaff() && resource.data.role in ['utente', 'allenatore']);
+    // ADMIN: l'admin generale e chi ha il ruolo Admin (roles/{uid}.center), che ha tutti i suoi permessi
+    // tranne eliminare un admin generale e nominare o togliere un Admin (solo l'admin generale).
+    function isAdmin() { return isGeneral() || hasRole('center'); }
+    // SEGRETERIA: utenti e allenatori, prenotazioni di tutti, corsisti, allenamenti, pagamenti, cassa.
+    // Non cambia i ruoli e non gestisce i campi né le regole di prenotazione (data/settings).
+    function isSeg() { return hasRole('seg'); }
+    // STAFF: admin o segreteria
+    function isStaff() { return isAdmin() || isSeg(); }
+    // utente "semplice" (né admin generale né admin, segreteria o cassa): la segreteria modifica ed elimina solo questi
+    function plainUser(uid) {
+      return !generalUid(uid) && !(exists(/databases/$(database)/documents/roles/$(uid))
+        && (get(/databases/$(database)/documents/roles/$(uid)).data.get('center', false) == true
+          || get(/databases/$(database)/documents/roles/$(uid)).data.get('seg', false) == true
+          || get(/databases/$(database)/documents/roles/$(uid)).data.get('cash', false) == true));
     }
+    // l'utente uid è un admin generale (raccolta "admins" o email del titolare, dalla sua scheda accounts)
+    function generalUid(uid) {
+      return exists(/databases/$(database)/documents/admins/$(uid))
+        || (exists(/databases/$(database)/documents/accounts/$(uid))
+            && hashing.sha256(get(/databases/$(database)/documents/accounts/$(uid)).data.get('email', '').lower()).toHexString().lower()
+               == 'a2de6b81796442dad657da768dcb08f740fe60afdbdb368e2f9a1604238913c1');
+    }
+    // Ruoli assegnati dagli admin: roles/{uid} = { center: Admin, seg: segreteria, cash: cassa }.
+    function hasRole(r) {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/roles/$(request.auth.uid))
+        && get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.get(r, false) == true;
+    }
+    // allenamenti, gruppi e presenze: admin e segreteria
+    function isCenter() { return isStaff(); }
+    // CASSA: registra incassi ed emette ricevute (anche admin e segreteria).
+    function isCash() { return isStaff() || hasRole('cash'); }
+    function txt(v, max) { return v is string && v.size() <= max; }
 
-    // ---------- campi ----------
-    match /courts/{id} {
+    // data/settings: campi, orari, regole di prenotazione, listino, avviso; data/editorial1-2: articoli della prima pagina.
+    match /data/{docId} {
       allow read: if true;
-      allow delete: if isAdmin();
-      allow create, update: if isAdmin()
-        && request.resource.data.keys().hasOnly(['name', 'type', 'from', 'to', 'active', 'order'])
-        && filled(request.resource.data.name, 40)
-        && request.resource.data.type in ['tennis', 'padel']
-        && isTime(request.resource.data.from) && isTime(request.resource.data.to)
-        && hhmm(request.resource.data.from) < hhmm(request.resource.data.to)
-        && request.resource.data.active is bool
-        && request.resource.data.order is int;
+      allow write: if isAdmin() && docId in ['settings', 'editorial1', 'editorial2'];
     }
 
-    // ---------- prenotazioni ----------
-    function slotPath(courtId, date, t) {
-      return /databases/$(database)/documents/slots/$(courtId + '_' + date + '_' + t[0:2] + t[3:5]);
+    match /roles/{uid} {
+      allow get: if request.auth != null && (request.auth.uid == uid || isStaff());
+      allow list: if isStaff();
+      // i ruoli li cambia solo l'admin; nominare o togliere un Admin: solo l'admin generale
+      allow create: if isGeneral() || (isAdmin() && request.resource.data.get('center', false) == false);
+      allow update: if isGeneral() || (isAdmin() && request.resource.data.get('center', false) == resource.data.get('center', false));
+      allow delete: if isGeneral() || (isAdmin() && resource.data.get('center', false) == false);
     }
+
+    // ---------- utenti registrati e messaggi ----------
+    function isMember() {
+      return request.auth != null && exists(/databases/$(database)/documents/members/$(request.auth.uid));
+    }
+    // Email dell'account confermata (link ricevuto dopo la registrazione): serve per prenotare.
+    // ... oppure confermato a mano dall'admin (verified/{uid}), per chi non riceve l'email o è registrato dall'admin.
+    function verified() {
+      return request.auth != null && (request.auth.token.email_verified == true
+        || exists(/databases/$(database)/documents/verified/$(request.auth.uid)));
+    }
+    // Lista nera decisa dall'admin: bans/{uid} con book (prenotazioni dei campi).
+    function banned(uid, what) {
+      return exists(/databases/$(database)/documents/bans/$(uid))
+        && get(/databases/$(database)/documents/bans/$(uid)).data.get(what, false) == true;
+    }
+
+    // Profilo: nome, cognome, sesso. Lo scrive il titolare (o admin e segreteria); lo leggono solo l'interessato, admin, segreteria e cassa.
+    // Agli altri utenti serve solo l'elenco ridotto dei nomi (dir/members) per scegliere i giocatori nei moduli.
+    match /members/{uid} {
+      allow read: if isStaff() || isCash() || (request.auth != null && request.auth.uid == uid);
+      allow create, update: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['first', 'last', 'gender', 'created', 'privacyAt', 'privacyVer', 'deleteReq'])
+        && request.resource.data.first is string && request.resource.data.first.size() > 0 && request.resource.data.first.size() <= 60
+        && request.resource.data.last is string && request.resource.data.last.size() > 0 && request.resource.data.last.size() <= 60
+        && request.resource.data.gender in ['M', 'F'];
+      allow delete: if isAdmin() && (isGeneral() || !generalUid(uid));   // l'Admin non elimina un admin generale
+      allow delete: if isSeg() && plainUser(uid);                          // la segreteria: solo utenti e allenatori
+      // admin e segreteria registrano o correggono direttamente un utente (la segreteria: solo utenti e allenatori)
+      allow create, update: if (isAdmin() || (isSeg() && plainUser(uid)))
+        && request.resource.data.keys().hasOnly(['first', 'last', 'gender', 'created', 'privacyAt', 'privacyVer', 'deleteReq'])
+        && request.resource.data.gender in ['M', 'F'];
+    }
+
+
+    // dir/members: elenco dei nomi degli utenti registrati in un solo documento ({uid: {f, l, g}}), così chi usa l'app
+    // legge un documento invece di uno per utente. Ognuno scrive solo la propria voce, uguale al proprio profilo;
+    // l'admin lo tiene allineato a tutti i profili.
+    function dirEntryOk(uid) {
+      let e = request.resource.data[uid];
+      let m = getAfter(/databases/$(database)/documents/members/$(uid)).data;
+      return e.keys().hasOnly(['f', 'l', 'g']) && e.f == m.first && e.l == m.last && e.g == m.gender;
+    }
+    match /dir/{id} {
+      allow read: if id == 'members' && (isMember() || isCash());
+      allow write: if isStaff();
+      allow create: if id == 'members' && isMember() && request.resource.data.keys().hasOnly([request.auth.uid]) && dirEntryOk(request.auth.uid);
+      allow update: if id == 'members' && isMember()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([request.auth.uid]) && dirEntryOk(request.auth.uid);
+    }
+
+    // Conferma a mano dell'utente da parte dell'admin (vale come email confermata).
+    match /verified/{uid} {
+      allow read: if (request.auth != null && request.auth.uid == uid) || isStaff();
+      allow write: if isStaff();
+    }
+
+    // Messaggi dell'admin: li legge solo chi è tra i destinatari (o tutti gli utenti registrati se "all").
+    match /messages/{id} {
+      allow read: if isAdmin()
+        || (request.auth != null && request.auth.uid in resource.data.get('to', []))
+        || (resource.data.get('all', false) == true && isMember());
+      allow write: if isAdmin();
+    }
+
+    // Email dell'account: la vedono solo il titolare, l'admin e la segreteria.
+    match /accounts/{uid} {
+      allow read: if (request.auth != null && request.auth.uid == uid) || isStaff();
+      allow write: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['email', 'verified'])
+        && request.resource.data.email == request.auth.token.email.lower()
+        && request.resource.data.get('verified', false) == (request.auth.token.email_verified == true);
+      allow create: if isStaff() && request.resource.data.keys().hasOnly(['email', 'verified']) && request.resource.data.verified == false;
+      allow delete: if isAdmin() && (isGeneral() || !generalUid(uid));   // eliminazione dell'utente (non un admin generale, se a farlo è un Admin)
+      allow delete: if isSeg() && plainUser(uid);
+    }
+
+    // Messaggi già letti da ciascun utente.
+    match /inbox/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    match /bans/{uid} {
+      allow read: if (request.auth != null && request.auth.uid == uid) || isStaff();
+      allow write: if isStaff();
+    }
+
+
+    // ---------- prenotazione dei campi ----------
+    // Ogni mezz'ora prenotata ha due documenti con lo stesso ID (giorno_campo_ora), scritti insieme:
+    //   busy/{id}      pubblico, solo "occupato" (nessun nome, nessun motivo);
+    //   bookings/{id}  privato: chi ha prenotato o il motivo del blocco (solo titolare e admin).
+    // Se lo slot è già di un altro la scrittura è rifiutata. Ognuno gestisce solo i propri slot; l'admin tutto.
+    // Gli slot dei blocchi ricorrenti (weekly) non si possono prenotare.
+    function bk(id) { return /databases/$(database)/documents/bookings/$(id); }
+    function bz(id) { return /databases/$(database)/documents/busy/$(id); }
+    function dowOf(d) {
+      let p = d.split('-');
+      return timestamp.date(int(p[0]), int(p[1]), int(p[2])).dayOfWeek();
+    }
+    // mezz'ora libera dai blocchi settimanali; un allenamento annullato (o eliminato) quel giorno libera il suo campo
+    function weeklyFree(c, d, start) {
+      let wid = c + '_' + string(dowOf(d)) + '_' + start;
+      return !exists(/databases/$(database)/documents/weekly/$(wid))
+        || (get(/databases/$(database)/documents/weekly/$(wid)).data.get('rid', '').matches('t_.*')
+            && exists(/databases/$(database)/documents/occ/$(get(/databases/$(database)/documents/weekly/$(wid)).data.rid.split('_')[1] + '_' + d))
+            && get(/databases/$(database)/documents/occ/$(get(/databases/$(database)/documents/weekly/$(wid)).data.rid.split('_')[1] + '_' + d)).data.get('cancelled', false) == true);
+    }
+    // Durata minima e massima decise dall'admin (minuti, in data/settings; di serie 60 e 120: 1 h, 1 h 30 o 2 h); orari "HH:MM".
+    function mins(hm) { return int(hm.split(':')[0]) * 60 + int(hm.split(':')[1]); }
+    // formati sicuri (i valori finiscono nelle pagine di tutti): orario HH:MM e codici dei documenti
+    function hm(x) { return x is string && x.matches('[0-2][0-9]:[0-5][0-9]'); }
+    function safeId(x) { return x is string && x.matches('[A-Za-z0-9_-]{1,100}'); }
+    function minBook() { return get(/databases/$(database)/documents/data/settings).data.get('minMinutes', 60); }
+    function maxBook() { return get(/databases/$(database)/documents/data/settings).data.get('maxMinutes', 120); }
+    function validSlot(id) {
+      let x = request.resource.data;
+      return x.keys().hasOnly(['courtId', 'date', 'start', 'from', 'to', 'gid', 'userId', 'blocked', 'first'])
+        && x.courtId is string && x.date is string && x.date.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && id == x.date + '_' + x.courtId + '_' + x.start
+        && hm(x.from) && hm(x.start) && hm(x.to) && safeId(x.gid) && safeId(x.courtId)
+        && x.from <= x.start && x.start < x.to
+        && mins(x.to) - mins(x.from) >= minBook()
+        && mins(x.to) - mins(x.from) <= maxBook()
+        && mins(x.from) % 30 == 0 && mins(x.to) % 30 == 0
+        && x.userId == request.auth.uid && x.blocked == ''
+        && weeklyFree(x.courtId, x.date, x.start)
+        && existsAfter(bz(id));
+    }
+    function canBook() { return isMember() && verified() && !banned(request.auth.uid, 'book'); }
 
     match /bookings/{id} {
-      allow read: if signedIn() && (isStaff() || resource.data.uid == request.auth.uid);
-
-      // l'utente prenota per sé; lo staff anche per altri o per chi non è registrato (uid vuoto).
-      // Nella stessa scrittura devono nascere anche le sue mezz'ore (almeno la prima e l'ultima).
-      allow create: if signedIn()
-        && request.resource.data.keys().hasOnly(['courtId', 'date', 'start', 'end', 'last', 'dur', 'uid', 'name', 'createdBy', 'createdAt'])
-        && request.resource.data.date is string && request.resource.data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
-        && isTime(request.resource.data.start) && isTime(request.resource.data.end)
-        && request.resource.data.dur in [60, 90, 120]
-        && hhmm(request.resource.data.end) == hhmm(request.resource.data.start) + request.resource.data.dur
-        && filled(request.resource.data.name, 80)
-        && request.resource.data.createdBy == request.auth.uid
-        && (request.resource.data.uid == null || request.resource.data.uid is string)
-        && (isStaff() || request.resource.data.uid == request.auth.uid)
-        && exists(/databases/$(database)/documents/courts/$(request.resource.data.courtId))
-        && existsAfter(slotPath(request.resource.data.courtId, request.resource.data.date, request.resource.data.start))
-        && isTime(request.resource.data.last)
-        && hhmm(request.resource.data.last) == hhmm(request.resource.data.end) - 30
-        && existsAfter(slotPath(request.resource.data.courtId, request.resource.data.date, request.resource.data.last));
-
-      allow update: if false;
-      allow delete: if signedIn() && (isStaff() || resource.data.uid == request.auth.uid);
+      allow read: if isStaff() || isCash() || (request.auth != null && resource.data.userId == request.auth.uid);
+      allow write: if isStaff();   // admin e segreteria: prenotazioni di tutti (anche per chi non è registrato) e blocchi
+      allow create: if canBook() && validSlot(id);
+      allow update: if canBook() && resource.data.userId == request.auth.uid && validSlot(id);
+      allow create, update: if isCenter() && request.resource.data.get('gid', '').matches('trx_.*') && request.resource.data.get('userId', null) == null;
+      allow delete: if request.auth != null && !existsAfter(bz(id))
+        && (resource.data.userId == request.auth.uid
+            || (isCenter() && resource.data.get('gid', '').matches('trx_.*')));   // campi di un allenamento eliminato
     }
 
-    // ---------- mezz'ore occupate (da una prenotazione o da un allenamento) ----------
-    function slotIn(sid, s, b) {
-      return b != null
-        && b.data.courtId == s.courtId && b.data.date == s.date
-        && isTime(s.time)
-        && hhmm(s.time) >= hhmm(b.data.start) && hhmm(s.time) < hhmm(b.data.end)
-        && sid == s.courtId + '_' + s.date + '_' + s.time[0:2] + s.time[3:5];
+    // bkplayers/{gid}: chi gioca nella prenotazione e quando mandare il reminder. La scrive chi ha prenotato
+    // (il primo slot della prenotazione deve essere suo); la leggono lui, gli invitati e l'admin.
+    function ownsBooking(d, gid) {
+      return exists(/databases/$(database)/documents/bookings/$(d.date + '_' + d.courtId + '_' + d.from))
+        && get(/databases/$(database)/documents/bookings/$(d.date + '_' + d.courtId + '_' + d.from)).data.userId == request.auth.uid
+        && get(/databases/$(database)/documents/bookings/$(d.date + '_' + d.courtId + '_' + d.from)).data.gid == gid;
     }
-    function bookingSlotOk(sid, s) {
-      let b = getAfter(/databases/$(database)/documents/bookings/$(s.bookingId));
-      return s.keys().hasOnly(['courtId', 'date', 'time', 'bookingId']) && s.bookingId is string
-        && slotIn(sid, s, b) && (isStaff() || b.data.uid == request.auth.uid);
-    }
-    function trainingSlotOk(sid, s) {
-      return s.keys().hasOnly(['courtId', 'date', 'time', 'trainingId']) && s.trainingId is string && isStaff()
-        && slotIn(sid, s, getAfter(/databases/$(database)/documents/trainings/$(s.trainingId)));
+    match /bkplayers/{gid} {
+      allow read: if isStaff() || (request.auth != null && (resource.data.by == request.auth.uid || request.auth.uid in resource.data.uids));
+      // in modifica il documento deve essere già suo: il gid è pubblico (busy) e un altro potrebbe riusarlo
+      allow create, update: if isStaff() || (isMember() && request.resource.data.by == request.auth.uid
+        && (resource == null || resource.data.by == request.auth.uid)
+        && request.resource.data.gid == gid
+        && request.resource.data.keys().hasOnly(['gid', 'by', 'ownerName', 'date', 'from', 'to', 'courtId', 'courtName', 'uids', 'guests', 'names', 'remind', 'updated'])
+        && request.resource.data.uids is list && request.resource.data.get('guests', {}) is map
+        && request.resource.data.uids.size() + request.resource.data.get('guests', {}).size() <= 7
+        && !(request.auth.uid in request.resource.data.uids)
+        && request.resource.data.remind in [30, 60, 120, 180, 360, 720, 1440]
+        && safeId(gid) && hm(request.resource.data.from) && hm(request.resource.data.to)
+        && txt(request.resource.data.get('ownerName', ''), 80) && txt(request.resource.data.get('courtName', ''), 40)
+        && request.resource.data.get('names', {}) is map && request.resource.data.get('names', {}).size() <= 8
+        && ownsBooking(request.resource.data, gid));
+      allow delete: if isStaff() || (request.auth != null && resource.data.by == request.auth.uid);
     }
 
-    match /slots/{sid} {
+    // Parte pubblica: deve corrispondere alla prenotazione privata scritta nello stesso invio.
+    match /busy/{id} {
       allow read: if true;
-      allow create: if signedIn()
-        && (('bookingId' in request.resource.data && bookingSlotOk(sid, request.resource.data))
-          || ('trainingId' in request.resource.data && trainingSlotOk(sid, request.resource.data)));
-      allow update: if false;
-      allow delete: if signedIn()
-        && (isStaff() || ('bookingId' in resource.data
-          && get(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.uid == request.auth.uid));
+      allow write: if isStaff();
+      allow create, update: if isCenter() && request.resource.data.get('gid', '').matches('trx_.*') && existsAfter(bk(id))
+        && getAfter(bk(id)).data.get('gid', '') == request.resource.data.gid;
+      allow create, update: if request.auth != null
+        && request.resource.data.keys().hasOnly(['courtId', 'date', 'start', 'from', 'to', 'gid'])
+        && existsAfter(bk(id))
+        && getAfter(bk(id)).data.userId == request.auth.uid
+        && getAfter(bk(id)).data.courtId == request.resource.data.courtId
+        && getAfter(bk(id)).data.date == request.resource.data.date
+        && getAfter(bk(id)).data.start == request.resource.data.start
+        && getAfter(bk(id)).data.from == request.resource.data.from
+        && getAfter(bk(id)).data.to == request.resource.data.to
+        && getAfter(bk(id)).data.gid == request.resource.data.gid;
+      allow delete: if request.auth != null && exists(bk(id)) && !existsAfter(bk(id))
+        && (get(bk(id)).data.userId == request.auth.uid
+            || (isCenter() && get(bk(id)).data.get('gid', '').matches('trx_.*')));
     }
 
-    // ---------- corsisti: schede con dati personali e certificato medico, solo staff ----------
-    function isDate(d) { return d is string && (d == '' || d.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')); }
-    match /athletes/{id} {
-      allow read, delete: if isStaff();
-      allow create, update: if isStaff()
-        && request.resource.data.keys().hasOnly(['first', 'last', 'birth', 'phone', 'email', 'parent', 'notes',
-             'certType', 'certExpiry', 'fitpPaid', 'fitpYear', 'active', 'createdAt'])
-        && filled(request.resource.data.first, 40) && str(request.resource.data.last, 40)
-        && isDate(request.resource.data.birth) && str(request.resource.data.phone, 30)
-        && str(request.resource.data.email, 120) && str(request.resource.data.parent, 80)
-        && str(request.resource.data.notes, 500)
-        && request.resource.data.certType in ['', 'agonistico', 'non agonistico']
-        && isDate(request.resource.data.certExpiry)
-        && request.resource.data.fitpPaid is bool && request.resource.data.fitpYear is int
-        && request.resource.data.active is bool;
-    }
-
-    // ---------- allenamenti: li crea lo staff, l'allenatore vede i suoi ----------
-    function isCoach(t) { return signedIn() && t.data.coachId == request.auth.uid; }
+    // ---------- allenamenti ----------
+    // trainings: pubblici (giorno, orari, coach, livello, massimo, campi); li scrivono admin e segreteria.
+    // coaches/{uid}: coach indicato dall'admin (all = vede tutti gli allenamenti, altrimenti solo i suoi).
+    // athletes/{uid}: scheda corsista (dati, certificato, tesseramento FITP, pagamenti): solo admin, segreteria e interessato.
+    // groups/{tid_mese}: nomi del gruppo: admin, segreteria e allenatore (tutti o solo i gruppi dei suoi allenamenti).
+    // plans/{uid_mese}: piano e prezzo del mese: admin, segreteria e interessato (in lettura).
+    function coachDoc() { return /databases/$(database)/documents/coaches/$(request.auth.uid); }
+    function isCoach() { return request.auth != null && exists(coachDoc()); }
     match /trainings/{id} {
-      allow read: if isStaff() || (signedIn() && resource.data.coachId == request.auth.uid);
-      allow create: if isStaff()
-        && request.resource.data.keys().hasOnly(['title', 'courtId', 'date', 'start', 'end', 'last', 'dur',
-             'coachId', 'coachName', 'athleteIds', 'names', 'series', 'notes', 'createdBy', 'createdAt'])
-        && filled(request.resource.data.title, 60)
-        && request.resource.data.date is string && request.resource.data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
-        && isTime(request.resource.data.start) && isTime(request.resource.data.end)
-        && request.resource.data.dur in [60, 90, 120]
-        && hhmm(request.resource.data.end) == hhmm(request.resource.data.start) + request.resource.data.dur
-        && isTime(request.resource.data.last) && hhmm(request.resource.data.last) == hhmm(request.resource.data.end) - 30
-        && request.resource.data.coachId is string && str(request.resource.data.coachName, 80)
-        && request.resource.data.athleteIds is list && request.resource.data.athleteIds.size() <= 40
-        && request.resource.data.names is map && str(request.resource.data.notes, 500)
-        && request.resource.data.createdBy == request.auth.uid
-        && exists(/databases/$(database)/documents/courts/$(request.resource.data.courtId))
-        && existsAfter(slotPath(request.resource.data.courtId, request.resource.data.date, request.resource.data.start))
-        && existsAfter(slotPath(request.resource.data.courtId, request.resource.data.date, request.resource.data.last));
-      // si cambiano titolo, allenatore, corsisti e note; per spostare giorno, ora o campo si ricrea
-      allow update: if isStaff()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'coachId', 'coachName', 'athleteIds', 'names', 'notes'])
-        && filled(request.resource.data.title, 60) && request.resource.data.coachId is string
-        && request.resource.data.athleteIds is list && request.resource.data.athleteIds.size() <= 40
-        && request.resource.data.names is map && str(request.resource.data.notes, 500);
+      allow read: if true;
+      allow write: if isCenter();
+    }
+    match /coaches/{uid} {
+      allow get: if isCenter() || (request.auth != null && request.auth.uid == uid);
+      allow list: if isCenter();
+      // gli allenatori li nominano admin e segreteria (non un admin, una segreteria o una cassa: lo fa l'admin)
+      allow write: if isAdmin() || (isSeg() && plainUser(uid));
+    }
+    // scheda del corsista (dati personali, certificato, tesseramento, pagamenti): solo admin, segreteria e interessato.
+    // L'allenatore non la legge.
+    // Scheda SENZA ACCOUNT (ragazzo non registrato): ID "k-" + codice casuale (mai uguale a un UID di accesso) e
+    // noAccount = true, con i dati del genitore. La crea e la vede solo lo staff; il suo ID si usa come un UID in
+    // gruppi, presenze, piani, pacchetti, valutazioni e ricevute.
+    function kidId(uid) { return uid.matches('k-[A-Za-z0-9]{8,40}'); }
+    match /athletes/{uid} {
+      allow get: if (request.auth != null && request.auth.uid == uid) || isStaff();
+      allow list, delete: if isStaff();
+      allow create, update: if isStaff()
+        && (request.resource.data.get('noAccount', false) == true) == kidId(uid);
+    }
+    match /groups/{id} {
+      allow read: if isCenter() || (isCoach() && (get(coachDoc()).data.get('all', false) == true || resource.data.coachUid == request.auth.uid));
+      allow write: if isCenter();
+    }
+    // xmem/{tid_uid}: il corsista fa parte di un recupero allenamento (per la richiesta di presenza): admin e interessato
+    match /xmem/{id} {
+      allow read: if (request.auth != null && resource.data.uid == request.auth.uid) || isStaff();
+      allow write: if isCenter();
+    }
+    match /plans/{id} {
+      // l'admin centro li legge e li ricalcola quando elimina un allenamento (il prezzo manuale resta)
+      allow read: if isCenter() || (request.auth != null && resource.data.uid == request.auth.uid);
+      allow write: if isCenter();
+    }
+    // packs/{id}: pacchetto di lezioni (numero, prezzo, pagamento): admin, segreteria e interessato (in lettura).
+    // L'allenatore non lo legge (ci sono prezzo e pagamento). Il contatore degli allenamenti usati sta in packcount
+    // ("used" qui resta solo dai pacchetti di prima, per il passaggio al contatore).
+    match /packs/{id} {
+      allow read: if isCenter() || (request.auth != null && resource.data.uid == request.auth.uid);
+      allow create, update: if isStaff() && request.resource.data.get('used', 0) is int
+        && request.resource.data.get('used', 0) >= 0 && request.resource.data.get('used', 0) <= request.resource.data.n;
       allow delete: if isStaff();
     }
+    // packcount/{id del pacchetto}: contatore senza dati economici { uid, n, used, from, created, coachUids, last }.
+    // coachUids = allenatori degli allenamenti del corsista (lo tiene aggiornato l'app di admin e segreteria): solo loro
+    // lo leggono. L'allenatore cambia solo "used" di +1 o -1, e solo insieme alla creazione (o cancellazione) del
+    // packuse indicato in "last", nella stessa scrittura: le regole di packuse controllano il resto.
+    function pcP(id) { return /databases/$(database)/documents/packcount/$(id); }
+    function puP(id) { return /databases/$(database)/documents/packuse/$(id); }
+    function attD(id) { return /databases/$(database)/documents/att/$(id); }
+    match /packcount/{pid} {
+      allow read: if isStaff() || (request.auth != null && (resource.data.uid == request.auth.uid
+        || (isCoach() && request.auth.uid in resource.data.get('coachUids', []))));
+      allow create, update: if isStaff()
+        && request.resource.data.keys().hasOnly(['uid', 'n', 'used', 'from', 'created', 'coachUids', 'last'])
+        && request.resource.data.n is int && request.resource.data.used is int
+        && request.resource.data.used >= 0 && request.resource.data.used <= request.resource.data.n
+        && request.resource.data.get('coachUids', []) is list;
+      allow delete: if isStaff();
+      allow update: if isCoach()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['used', 'last'])
+        && request.resource.data.last is string
+        && ((request.resource.data.used == resource.data.used + 1 && request.resource.data.used <= resource.data.n
+              && !exists(puP(request.resource.data.last)) && existsAfter(puP(request.resource.data.last))
+              && getAfter(puP(request.resource.data.last)).data.pack == pid)
+          || (request.resource.data.used == resource.data.used - 1 && request.resource.data.used >= 0
+              && exists(puP(request.resource.data.last)) && !existsAfter(puP(request.resource.data.last))
+              && get(puP(request.resource.data.last)).data.pack == pid));
+    }
+    // mese già coperto dal piano pagato (mensile, trimestrale, corso intero): la presenza non scala il pacchetto
+    function monthPaid(tid, date, uid) {
+      let pl = /databases/$(database)/documents/plans/$(uid + '_' + date[0:7]);
+      let ath = /databases/$(database)/documents/athletes/$(uid);
+      return exists(pl)
+        && (get(/databases/$(database)/documents/trainings/$(tid)).data.get('date', '') != '' || get(pl).data.get('tids', []).hasAny([tid]))
+        && (get(pl).data.get('paid', null) != null
+            || (exists(ath) && get(ath).data.get('prepaid', {}).get(date[0:7], null) != null));
+    }
+    // packuse/{tid_data_uid}: allenamento scalato dal pacchetto per una presenza (senza Cloud Functions).
+    // Lo scrivono admin e segreteria (anche con "Ricalcola") e l'allenatore di quell'allenamento quando segna
+    // "presente": in un'unica transazione con la presenza e con il contatore (+1).
+    match /packuse/{id} {
+      allow get: if isStaff() || (request.auth != null && (resource == null ? coachOfTr(id.split('_')[0])
+        : (resource.data.uid == request.auth.uid || coachOfTr(resource.data.tid))));
+      allow list: if isStaff() || (request.auth != null && resource.data.uid == request.auth.uid);
+      allow create, update: if isStaff()
+        && request.resource.data.keys().hasOnly(['pack', 'uid', 'tid', 'date', 'at', 'by'])
+        && id == request.resource.data.tid + '_' + request.resource.data.date + '_' + request.resource.data.uid
+        && request.resource.data.by == request.auth.uid
+        && existsAfter(pcP(request.resource.data.pack))
+        && getAfter(pcP(request.resource.data.pack)).data.uid == request.resource.data.uid;
+      allow delete: if isStaff();
+      // allenatore: presenza "segnata" (forced) del suo allenamento, pacchetto del corsista già iniziato con allenamenti
+      // rimasti, giornata non annullata, mese non coperto dal piano pagato
+      allow create: if isCoach()
+        && request.resource.data.keys().hasOnly(['pack', 'uid', 'tid', 'date', 'at', 'by'])
+        && request.resource.data.by == request.auth.uid
+        && request.resource.data.date is string && request.resource.data.date.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && id == request.resource.data.tid + '_' + request.resource.data.date + '_' + request.resource.data.uid
+        && coachOfTr(request.resource.data.tid)
+        && existsAfter(attD(id)) && getAfter(attD(id)).data.status == 'in' && getAfter(attD(id)).data.get('forced', false) == true
+        && getAfter(pcP(request.resource.data.pack)).data.uid == request.resource.data.uid
+        && getAfter(pcP(request.resource.data.pack)).data.used == get(pcP(request.resource.data.pack)).data.used + 1
+        && getAfter(pcP(request.resource.data.pack)).data.last == id
+        && get(pcP(request.resource.data.pack)).data.from <= request.resource.data.date
+        && getAfter(occP(request.resource.data.tid + '_' + request.resource.data.date)).data.get('cancelled', false) == false
+        && !monthPaid(request.resource.data.tid, request.resource.data.date, request.resource.data.uid);
+      // allenatore: presenza tolta o cambiata in assente → l'allenamento torna nel pacchetto (-1)
+      allow delete: if coachOfTr(resource.data.tid)
+        && getAfter(pcP(resource.data.pack)).data.used == get(pcP(resource.data.pack)).data.used - 1
+        && getAfter(pcP(resource.data.pack)).data.last == id
+        && !(existsAfter(attD(id)) && getAfter(attD(id)).data.status == 'in');
+    }
 
-    // ---------- valutazioni: id = allenamento_corsista ----------
-    function okScore(m, k) { return !(k in m) || (m[k] is int && m[k] >= 1 && m[k] <= 10); }
-    function okScores(m) {
-      return m is map
-        && m.keys().hasOnly(['tecnica', 'movimento', 'controllo', 'scelte', 'intensita', 'atteggiamento', 'consistenza'])
-        && okScore(m, 'tecnica') && okScore(m, 'movimento') && okScore(m, 'controllo') && okScore(m, 'scelte')
-        && okScore(m, 'intensita') && okScore(m, 'atteggiamento') && okScore(m, 'consistenza');
+    // ---------- presenze e spot ----------
+    // occ/{tid_data}: pubblico (p presenti, a assenti, s spot confermati, cancelled). Il corsista cambia solo p e a,
+    //   e solo insieme alla propria risposta att/{tid_data_uid} (contatori coerenti con il cambio di risposta).
+    // att e spots: li leggono l'admin, l'interessato e il coach (tutti o solo i suoi allenamenti, campo coachUid).
+    function occP(oid) { return /databases/$(database)/documents/occ/$(oid); }
+    function attP(oid) { return /databases/$(database)/documents/att/$(oid + '_' + request.auth.uid); }
+    function stBefore(oid) { return exists(attP(oid)) ? get(attP(oid)).data.status : 'none'; }
+    function stAfter(oid) { return existsAfter(attP(oid)) ? getAfter(attP(oid)).data.status : 'none'; }
+    function cnt(oid, k, st) { return (stAfter(oid) == st ? 1 : 0) - (stBefore(oid) == st ? 1 : 0); }
+    function occBefore(oid, k) { return exists(occP(oid)) ? get(occP(oid)).data.get(k, 0) : 0; }
+    function occCountsOk(oid) {
+      return existsAfter(occP(oid))
+        && getAfter(occP(oid)).data.p == occBefore(oid, 'p') + cnt(oid, 'p', 'in')
+        && getAfter(occP(oid)).data.a == occBefore(oid, 'a') + cnt(oid, 'a', 'out');
+    }
+    function seesTraining(d) {
+      return request.auth != null && (d.uid == request.auth.uid
+        || (isCoach() && (get(coachDoc()).data.get('all', false) == true || d.coachUid == request.auth.uid))
+        || isStaff());
+    }
+    function trCoach(tid) { return get(/databases/$(database)/documents/trainings/$(tid)).data.get('coachUid', ''); }
+    // l'utente è l'allenatore di quell'allenamento (segna le presenze e compila la scheda di valutazione)
+    function coachOfTr(tid) { return isCoach() && tid is string && trCoach(tid) == request.auth.uid; }
+    function inGroup(tid, date, uid) {
+      return exists(/databases/$(database)/documents/groups/$(tid + '_' + date[0:7]))
+        && get(/databases/$(database)/documents/groups/$(tid + '_' + date[0:7])).data.uids.hasAny([uid]);
+    }
+    match /occ/{oid} {
+      allow read: if true;
+      allow write: if isCenter();
+      allow create: if isMember() && verified()
+        && request.resource.data.keys().hasOnly(['tid', 'date', 'p', 'a', 's', 'cancelled'])
+        && oid == request.resource.data.tid + '_' + request.resource.data.date
+        && request.resource.data.s == 0 && request.resource.data.cancelled == false
+        && occCountsOk(oid);
+      allow update: if isMember() && verified()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['p', 'a'])
+        && occCountsOk(oid);
+      // l'allenatore dell'allenamento segna le presenze: cambia solo i contatori (e crea la giornata se manca)
+      allow create: if coachOfTr(request.resource.data.tid)
+        && request.resource.data.keys().hasOnly(['tid', 'date', 'p', 'a', 's', 'cancelled'])
+        && oid == request.resource.data.tid + '_' + request.resource.data.date
+        && request.resource.data.s == 0 && request.resource.data.cancelled == false;
+      allow update: if coachOfTr(resource.data.tid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['p', 'a']);
+    }
+    // ---------- scheda di valutazione ----------
+    // evals/{tid_data_uidCorsista}: voti da 1 a 10 (6 = sufficienza) sulle 7 voci, tutti facoltativi, e la nota del giorno.
+    // La scrivono l'allenatore di quell'allenamento, l'admin e la segreteria, solo per i corsisti del gruppo;
+    // la leggono admin, segreteria e l'allenatore (chi l'ha scritta o l'allenatore di quell'allenamento).
+    // Il corsista e gli altri utenti non la leggono.
+    function evVote(v, k) { return !(k in v) || (v[k] is int && v[k] >= 1 && v[k] <= 10); }
+    function evOk(id, d) {
+      return d.keys().hasOnly(['tid', 'date', 'uid', 'coachUid', 'by', 'v', 'note', 'at'])
+        && d.tid is string && d.uid is string && d.date is string && d.date.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && id == d.tid + '_' + d.date + '_' + d.uid
+        && d.by == request.auth.uid && d.coachUid == trCoach(d.tid)
+        && d.v is map && d.v.keys().hasOnly(['tec', 'mov', 'ctl', 'sce', 'int', 'att', 'con'])
+        && evVote(d.v, 'tec') && evVote(d.v, 'mov') && evVote(d.v, 'ctl') && evVote(d.v, 'sce')
+        && evVote(d.v, 'int') && evVote(d.v, 'att') && evVote(d.v, 'con')
+        && d.note is string && d.note.size() <= 160
+        && (inGroup(d.tid, d.date, d.uid)
+            || (exists(occP(d.tid + '_' + d.date)) && d.uid in get(occP(d.tid + '_' + d.date)).data.get('members', [])));
     }
     match /evals/{id} {
-      allow read: if isStaff() || (signedIn() && resource.data.coachId == request.auth.uid);
-      allow create, update: if signedIn()
-        && request.resource.data.keys().hasOnly(['trainingId', 'athleteId', 'athleteName', 'date', 'title', 'coachId', 'scores', 'note', 'by', 'updatedAt'])
-        && id == request.resource.data.trainingId + '_' + request.resource.data.athleteId
-        && okScores(request.resource.data.scores) && str(request.resource.data.note, 300)
-        && str(request.resource.data.athleteName, 80) && str(request.resource.data.title, 60)
+      allow read: if isStaff() || (request.auth != null && (resource.data.by == request.auth.uid || resource.data.coachUid == request.auth.uid));
+      allow create, update: if (isStaff() || coachOfTr(request.resource.data.tid)) && evOk(id, request.resource.data);
+      // scheda senza account collegata all'account del ragazzo: lo staff copia la valutazione con l'ID nuovo
+      // (stessi voti, nota e autore della valutazione di origine, che poi si cancella)
+      allow create: if isStaff()
+        && request.resource.data.keys().hasOnly(['tid', 'date', 'uid', 'coachUid', 'by', 'v', 'note', 'at', 'movedFrom'])
+        && request.resource.data.movedFrom is string && kidId(request.resource.data.movedFrom)
+        && id == request.resource.data.tid + '_' + request.resource.data.date + '_' + request.resource.data.uid
+        && get(/databases/$(database)/documents/evals/$(request.resource.data.tid + '_' + request.resource.data.date + '_' + request.resource.data.movedFrom)).data.v == request.resource.data.v
+        && get(/databases/$(database)/documents/evals/$(request.resource.data.tid + '_' + request.resource.data.date + '_' + request.resource.data.movedFrom)).data.note == request.resource.data.note
+        && get(/databases/$(database)/documents/evals/$(request.resource.data.tid + '_' + request.resource.data.date + '_' + request.resource.data.movedFrom)).data.by == request.resource.data.by;
+      allow delete: if isStaff() || coachOfTr(resource.data.tid);
+    }
+    // occfree/{tid_data}: posti spot liberi decisi dall'admin (il numero lo vede solo l'admin; in occ resta "open").
+    match /occfree/{id} {
+      allow read, write: if isStaff();
+    }
+    match /att/{id} {
+      // la propria anche prima che esista (l'id finisce con il proprio uid); l'admin centro tutte (anche non ancora create)
+      allow get: if isCenter() || (request.auth != null && id.matches('.*_' + request.auth.uid)) || (resource != null && seesTraining(resource.data))
+        || (resource == null && coachOfTr(id.split('_')[0]));   // l'allenatore, prima di segnare una presenza nuova
+      allow list: if isStaff() || seesTraining(resource.data);
+      allow write: if isCenter();   // presenze segnate da admin e segreteria
+      // presenze segnate dall'allenatore di quell'allenamento, solo per i corsisti del gruppo del mese
+      allow create, update: if coachOfTr(request.resource.data.tid)
+        && request.resource.data.keys().hasOnly(['tid', 'date', 'uid', 'status', 'at', 'coachUid', 'forced', 'by'])
+        && id == request.resource.data.tid + '_' + request.resource.data.date + '_' + request.resource.data.uid
+        && request.resource.data.status in ['in', 'out'] && request.resource.data.by == request.auth.uid
+        && (inGroup(request.resource.data.tid, request.resource.data.date, request.resource.data.uid)
+            || request.resource.data.uid in get(occP(request.resource.data.tid + '_' + request.resource.data.date)).data.get('members', []));
+      allow delete: if coachOfTr(resource.data.tid);
+      // risposta del corsista ("ci sarò" / "non ci sarò"): non cambia una presenza già segnata dall'allenatore o dallo staff
+      allow create, update: if isMember() && verified()
+        && (resource == null || resource.data.get('forced', false) != true)
+        && request.resource.data.keys().hasOnly(['tid', 'date', 'uid', 'status', 'at', 'coachUid'])
+        && request.resource.data.uid == request.auth.uid
+        && id == request.resource.data.tid + '_' + request.resource.data.date + '_' + request.auth.uid
+        && request.resource.data.status in ['in', 'out']
+        && request.resource.data.coachUid == trCoach(request.resource.data.tid)
+        // il 5° giorno del mese è fuori abbonamento (solo spot), tranne i recuperi allenamento (tr.date)
+        && (int(request.resource.data.date[8:10]) <= 28
+            || get(/databases/$(database)/documents/trainings/$(request.resource.data.tid)).data.get('date', '') == request.resource.data.date
+            // 5° allenamento: i corsisti del gruppo copiati dall'admin nella giornata
+            || request.auth.uid in get(/databases/$(database)/documents/occ/$(request.resource.data.tid + '_' + request.resource.data.date)).data.get('members', []))
+        && inGroup(request.resource.data.tid, request.resource.data.date, request.auth.uid)
+        && occCountsOk(request.resource.data.tid + '_' + request.resource.data.date);
+      // il corsista toglie la propria risposta (torna "senza risposta"), con i contatori aggiornati nello stesso invio
+      allow delete: if isMember() && verified() && resource.data.uid == request.auth.uid
+        && resource.data.get('forced', false) != true
+        && id == resource.data.tid + '_' + resource.data.date + '_' + request.auth.uid
+        && occCountsOk(resource.data.tid + '_' + resource.data.date);
+    }
+    match /spots/{id} {
+      // la propria anche prima che esista (l'id finisce con il proprio uid)
+      allow get: if isStaff() || (request.auth != null && id.matches('.*_' + request.auth.uid)) || (resource != null && seesTraining(resource.data));
+      allow list: if isStaff() || seesTraining(resource.data);
+      allow write: if isStaff();
+      allow update: if isCenter() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['packBack']);
+      // candidatura: solo "in attesa", per sé, non per un allenamento del proprio gruppo né annullato
+      allow create: if isMember() && verified()
+        && request.resource.data.keys().hasOnly(['tid', 'date', 'uid', 'name', 'status', 'at', 'seen', 'coachUid', 'from'])
+        && request.resource.data.uid == request.auth.uid
+        && id == request.resource.data.tid + '_' + request.resource.data.date + '_' + request.auth.uid
+        && request.resource.data.status == 'pending' && request.resource.data.seen == false
+        && request.resource.data.name is string && request.resource.data.name.size() <= 80
+        && request.resource.data.coachUid == trCoach(request.resource.data.tid)
+        && (int(request.resource.data.date[8:10]) > 28 || !inGroup(request.resource.data.tid, request.resource.data.date, request.auth.uid))
+        && !(exists(occP(request.resource.data.tid + '_' + request.resource.data.date))
+             && get(occP(request.resource.data.tid + '_' + request.resource.data.date)).data.get('cancelled', false) == true);
+      // l'interessato segna come letto l'esito, o ritira la candidatura ancora in attesa
+      allow update: if request.auth != null && resource.data.uid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['seen']);
+      allow delete: if request.auth != null && resource.data.uid == request.auth.uid && resource.data.status == 'pending';
+    }
+
+    // ---------- ricevute ----------
+    // Ricevute: serie Q (quote sociali) e C (commerciali). La cassa le emette; correggerle o annullarle spetta ad admin e segreteria.
+    match /receipts/{id} {
+      allow read: if isCash() || (request.auth != null && resource.data.uid == request.auth.uid);
+      allow create: if isCash() && request.resource.data.by == request.auth.uid
+        && request.resource.data.series in ['Q', 'C'] && request.resource.data.void == false;
+      allow update, delete: if isStaff();
+    }
+    // incassi/{id}: registro di tutti gli incassi (anche senza ricevuta) per il resoconto mensile.
+    match /incassi/{id} {
+      allow read: if isCash();
+      allow create: if isCash() && request.resource.data.by == request.auth.uid && request.resource.data.void == false;
+      allow update, delete: if isStaff();
+    }
+    // tesserati/{uid}: dati per l'intestazione delle ricevute (nome, nascita, residenza, codice fiscale, stagioni),
+    // senza certificato né pagamenti. La legge la cassa; la scrive solo l'admin generale (copia delle schede).
+    match /tesserati/{uid} {
+      allow read: if isCash();
+      allow write: if isStaff();
+    }
+    // bkpaid/{gid}: prenotazione del campo pagata (quota sociale).
+    match /bkpaid/{gid} {
+      allow read, create: if isCash();
+      allow update, delete: if isStaff();
+    }
+    match /counters/{id} {
+      allow read, write: if isCash();
+    }
+
+    // Blocchi ricorrenti: il motivo lo vede solo l'admin; gli orari occupati (weekly) sono pubblici.
+    match /recurring/{id} {
+      allow read: if isCenter();
+      allow write: if isAdmin();
+      // admin centro: solo i blocchi dei campi degli allenamenti
+      allow create, update: if isCenter() && request.resource.data.get('trid', '') != '' && id == 't_' + request.resource.data.trid + '_' + request.resource.data.courtId;
+      allow delete: if isCenter() && resource.data.get('trid', '') != '';
+    }
+    match /weekly/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+      allow create, update: if isCenter() && request.resource.data.get('rid', '').matches('t_.*');
+      allow delete: if isCenter() && resource.data.get('rid', '').matches('t_.*');
+    }
+
+    // Avvisi di prenotazioni modificate o cancellate. L'utente scrive solo agli amministratori ("admins").
+    match /notices/{id} {
+      allow read: if request.auth != null && (resource.data.to == request.auth.uid || (resource.data.to == 'admins' && isStaff()));
+      allow create: if isMember() && safeId(id)
+        && request.resource.data.keys().hasOnly(['to', 'text', 'at', 'by'])
         && request.resource.data.by == request.auth.uid
-        && (isStaff() || isCoach(get(/databases/$(database)/documents/trainings/$(request.resource.data.trainingId))))
-        && request.resource.data.athleteId in get(/databases/$(database)/documents/trainings/$(request.resource.data.trainingId)).data.athleteIds
-        && request.resource.data.coachId == get(/databases/$(database)/documents/trainings/$(request.resource.data.trainingId)).data.coachId
-        && request.resource.data.date == get(/databases/$(database)/documents/trainings/$(request.resource.data.trainingId)).data.date;
-      allow delete: if isStaff() || (signedIn() && resource.data.coachId == request.auth.uid);
+        && request.resource.data.text is string && request.resource.data.text.size() <= 400
+        && request.resource.data.to is string && (isStaff() || request.resource.data.to == 'admins');
+      allow delete: if request.auth != null && (resource.data.to == request.auth.uid || (resource.data.to == 'admins' && isStaff()));
+      // "Ho letto" di un admin sugli avvisi per tutti gli admin: aggiunge solo il proprio uid a readBy
+      allow update: if resource.data.to == 'admins' && isStaff()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy'])
+        && request.resource.data.readBy is list
+        && request.resource.data.readBy.hasAll(resource.data.get('readBy', []))
+        && request.resource.data.readBy.removeAll(resource.data.get('readBy', [])) == [request.auth.uid];
+    }
+
+    // Chi è admin lo decide solo il database: l'app chiede il documento "probe" (o il proprio) e,
+    // se la lettura è permessa, l'utente è admin. Nessun UID nel codice pubblico.
+    match /admins/{uid} {
+      allow get: if request.auth != null && (request.auth.uid == uid || isAdmin());
+      allow list, write: if false;
     }
   }
 }

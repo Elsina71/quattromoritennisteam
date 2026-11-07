@@ -1,21 +1,34 @@
 // Dati di prova per l'emulatore (solo in locale, mai sul database vero).
-// Con gli emulatori accesi: node tests/seed-emulator.mjs
+// Con gli emulatori accesi (npm run emulatori): node tests/seed-emulator.mjs
 // Poi apri http://localhost:5173/?emu=1 — password di tutti gli account di prova: prova123
+//   admin.prova@esempio.it (admin), elena.sanna@esempio.it (segreteria), giulia.serra@esempio.it (cassa),
+//   marco.pinna@esempio.it (allenatore), andrea.melis@esempio.it, sara.murru@esempio.it, luca.porcu@esempio.it,
+//   chiara.loi@esempio.it (utenti e corsisti); in più due ragazzi SENZA ACCOUNT (Pietro Deiana e Giorgia Floris,
+//   schede k-… con il genitore), Pietro con un pacchetto di 4 lezioni
+// Porte diverse da quelle di serie: EMU_FS=8180 EMU_AU=9199 node tests/seed-emulator.mjs (e nell'app ?emu=1&fs=8180&au=9199)
 const PROJECT = 'quattromoritennisteam-d3258';
-const FS = `http://127.0.0.1:8080/v1/projects/${PROJECT}/databases/(default)/documents`;
-const AUTH = 'http://127.0.0.1:9099';
+const FSP = process.env.EMU_FS || '8080', AUP = process.env.EMU_AU || '9099';
+const FS = `http://127.0.0.1:${FSP}/v1/projects/${PROJECT}/databases/(default)/documents`;
+const AUTH = `http://127.0.0.1:${AUP}`;
 const H = { 'Content-Type': 'application/json', Authorization: 'Bearer owner' };   // "owner" salta le regole nell'emulatore
 
 const pad = n => String(n).padStart(2, '0');
-const d = new Date();
-const today = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const tomorrow = (() => { const x = new Date(d); x.setDate(x.getDate() + 1); return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`; })();
+const ymd = x => `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`;
+const now = new Date();
+const today = ymd(now);
+const plus = n => { const x = new Date(now); x.setDate(x.getDate() + n); return ymd(x); };
+const month = today.slice(0, 7);
+const dowOf = d => { const x = new Date(d + 'T12:00').getDay(); return x === 0 ? 7 : x; };
+const addMin = (hm, n) => { const [h, m] = hm.split(':').map(Number), x = h * 60 + m + n; return `${pad(Math.floor(x / 60))}:${pad(x % 60)}`; };
+const season = (() => { const y = +today.slice(0, 4), mo = +today.slice(5, 7), a = mo >= 9 ? y : y - 1; return `${a}/${pad((a + 1) % 100)}`; })();
 
 function val(v) {
-  if (v === null) return { nullValue: null };
+  if (v === null || v === undefined) return { nullValue: null };
   if (typeof v === 'boolean') return { booleanValue: v };
   if (Number.isInteger(v)) return { integerValue: String(v) };
-  if (v instanceof Date) return { timestampValue: v.toISOString() };
+  if (typeof v === 'number') return { doubleValue: v };
+  if (Array.isArray(v)) return { arrayValue: { values: v.map(val) } };
+  if (typeof v === 'object') return { mapValue: { fields: Object.fromEntries(Object.entries(v).map(([k, x]) => [k, val(x)])) } };
   return { stringValue: String(v) };
 }
 const fields = o => ({ fields: Object.fromEntries(Object.entries(o).map(([k, v]) => [k, val(v)])) });
@@ -24,130 +37,115 @@ async function put(path, data) {
   if (!r.ok) throw new Error(path + ' ' + (await r.text()));
 }
 
-await fetch(`http://127.0.0.1:8080/emulator/v1/projects/${PROJECT}/databases/(default)/documents`, { method: 'DELETE' });
+await fetch(`http://127.0.0.1:${FSP}/emulator/v1/projects/${PROJECT}/databases/(default)/documents`, { method: 'DELETE' });
 await fetch(`${AUTH}/emulator/v1/projects/${PROJECT}/accounts`, { method: 'DELETE' });
 
-const people = [
-  ['Giulia', 'Serra', 'segreteria', '+39 347 218 4401'],
-  ['Marco', 'Pinna', 'allenatore', '+39 340 991 2075'],
-  ['Elena', 'Cossu', 'allenatore', '+39 349 553 1180'],
-  ['Andrea', 'Melis', 'utente', '+39 333 610 7724'],
-  ['Francesca', 'Deiana', 'utente', ''],
-  ['Luca', 'Porcu', 'utente', '+39 328 404 9136'],
-  ['Sara', 'Murru', 'utente', '+39 345 772 0581'],
-  ['Davide', 'Sanna', 'utente', ''],
-  ['Chiara', 'Loi', 'utente', '+39 339 118 6629'],
-  ['Paolo', 'Atzeni', 'admin', '+39 335 240 8817']
-];
-const uids = {};
-for (const [first, last, role, phone] of people) {
-  const email = `${first}.${last}@esempio.it`.toLowerCase();
-  const r = await fetch(`${AUTH}/identitytoolkit.googleapis.com/v1/accounts:signUp?key=demo`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: 'prova123', displayName: `${first} ${last}` })
-  });
+// account (email già confermata)
+const people = [['Paolo', 'Atzeni', 'M', 'admin.prova'], ['Elena', 'Sanna', 'F'], ['Giulia', 'Serra', 'F'], ['Marco', 'Pinna', 'M'], ['Andrea', 'Melis', 'M'], ['Sara', 'Murru', 'F'],
+  ['Luca', 'Porcu', 'M'], ['Chiara', 'Loi', 'F'], ['Matteo', 'Cocco', 'M']];
+const uid = {};
+for (const [first, last, gender, user] of people) {
+  const email = `${user || `${first}.${last}`}@esempio.it`.toLowerCase();
+  const r = await fetch(`${AUTH}/identitytoolkit.googleapis.com/v1/accounts:signUp?key=demo`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: 'prova123' }) });
   const { localId } = await r.json();
-  uids[first] = localId;
-  const joined = new Date(2026, 8 + (first.length % 3), 3 + first.length * 2);
-  await put(`users/${localId}`, { first, last, phone, email, role, lang: 'it', createdAt: joined });
+  await fetch(`${AUTH}/identitytoolkit.googleapis.com/v1/projects/${PROJECT}/accounts:update`, { method: 'POST', headers: H, body: JSON.stringify({ localId, emailVerified: true }) });
+  uid[first] = localId;
+  await put(`members/${localId}`, { first, last, gender, created: Date.now(), privacyAt: Date.now(), privacyVer: '2026-11-06' });
+  await put(`accounts/${localId}`, { email, verified: true });
 }
+const nm = f => { const p = people.find(x => x[0] === f); return `${p[1]} ${p[0]}`; };
+await put('dir/members', Object.fromEntries(people.map(([f, l, g]) => [uid[f], { f, l, g }])));
+// ruoli: admin generale (raccolta admins), segreteria, cassa, allenatore
+await put(`admins/${uid.Paolo}`, { note: 'admin di prova' });
+await put(`roles/${uid.Elena}`, { seg: true, center: false, cash: false, name: nm('Elena') });
+await put(`roles/${uid.Giulia}`, { cash: true, center: false, seg: false, name: nm('Giulia') });
+await put(`coaches/${uid.Marco}`, { all: false, name: nm('Marco') });
 
-const courts = [
-  ['centrale', 'Centrale', 'tennis', '08:00', '23:00', 0],
-  ['campo2', 'Campo 2', 'tennis', '08:00', '23:00', 1],
-  ['campo3', 'Campo 3', 'tennis', '08:00', '21:00', 2],
-  ['padel1', 'Padel 1', 'padel', '09:00', '23:00', 3],
-  ['padel2', 'Padel 2', 'padel', '09:00', '23:00', 4]
-];
-for (const [id, name, type, from, to, order] of courts) await put(`courts/${id}`, { name, type, from, to, active: true, order });
+// impostazioni: campi da tennis e da padel, regole di prenotazione (da 1 h a 2 h), listino, avviso
+const hours = (from, to) => Object.fromEntries([1, 2, 3, 4, 5, 6, 7].map(d => [d, { open: true, from, to }]));
+const courts = [{ id: 'centrale', name: 'Centrale', type: 'tennis', visible: true, hours: hours('08:00', '23:00') }, { id: 'campo2', name: 'Campo 2', type: 'tennis', visible: true, hours: hours('08:00', '23:00') },
+  { id: 'campo3', name: 'Campo 3', type: 'tennis', visible: true, hours: hours('08:00', '21:00') }, { id: 'padel1', name: 'Padel 1', type: 'padel', visible: true, hours: hours('09:00', '23:00') },
+  { id: 'padel2', name: 'Padel 2', type: 'padel', visible: true, hours: hours('09:00', '23:00') }];
+const settings = { notice: 'Sabato il Campo 3 è chiuso per manutenzione fino alle 12.', noticeUntil: plus(10), nicks: {}, courts,
+  booking: { minHours: 1, maxHours: 2, maxPerDay: 1, daysAhead: 7 }, bookRewards: { star: 5, comet: 15, earth: 30 },
+  prices: { w1: 50, w2: 80, w3: 100, w4: 120, q1: 140, q2: 220, spot: 15, c1: 380, c2: 600, courseFrom: `${today.slice(0, 4)}-09-15`, courseTo: `${+today.slice(0, 4) + 1}-06-15`, fitp: 30 } };
+await put('data/settings', { json: JSON.stringify(settings), updated: Date.now(), minMinutes: 60, maxMinutes: 120 });
 
-const toMin = t => +t.slice(0, 2) * 60 + +t.slice(3, 5);
-const fromMin = n => pad(Math.floor(n / 60)) + ':' + pad(n % 60);
-let k = 0;
-async function book(date, courtId, start, dur, who) {
-  const id = 'bk' + (++k);
-  const p = people.find(x => x[0] === who);
-  const half = []; for (let m = toMin(start); m < toMin(start) + dur; m += 30) half.push(fromMin(m));
-  await put(`bookings/${id}`, {
-    courtId, date, start, end: fromMin(toMin(start) + dur), last: half[half.length - 1], dur,
-    uid: p ? uids[who] : null, name: p ? `${p[0]} ${p[1]}` : who, createdBy: uids.Giulia, createdAt: new Date()
-  });
-  for (const t of half) await put(`slots/${courtId}_${date}_${t.replace(':', '')}`, { courtId, date, time: t, bookingId: id });
+// allenamento settimanale del giorno di oggi (17:00–18:30, Centrale) con il suo blocco ricorrente; un allenamento di padel domani
+const tr = { name: 'Agonisti Under 14', dow: dowOf(today), from: '17:00', to: '18:30', level: 'inter', max: 6, coachUid: uid.Marco, courts: ['centrale'], reason: 'Allenamenti · Agonisti Under 14 · Pinna Marco', created: Date.now(), sizes: { [month]: 6 } };
+const tr2 = { name: 'Padel principianti', dow: dowOf(plus(1)), from: '19:00', to: '20:00', level: 'start', max: 4, coachUid: uid.Marco, courts: ['padel1'], reason: 'Allenamenti · Padel principianti · Pinna Marco', created: Date.now(), sizes: { [month]: 2 } };
+for (const [id, t, c] of [['t1', tr, 'centrale'], ['t2', tr2, 'padel1']]) {
+  await put(`trainings/${id}`, t);
+  await put(`recurring/t_${id}_${c}`, { courtId: c, dow: t.dow, from: t.from, to: t.to, reason: t.reason, trid: id, created: Date.now() });
+  for (let x = t.from; x < t.to; x = addMin(x, 30)) await put(`weekly/${c}_${t.dow}_${x}`, { courtId: c, dow: t.dow, start: x, from: t.from, to: t.to, rid: `t_${id}_${c}` });
 }
-for (const date of [today, tomorrow]) {
-  await book(date, 'centrale', '09:00', 90, 'Luca');
-  await book(date, 'centrale', '17:30', 90, 'Andrea');
-  await book(date, 'centrale', '19:00', 120, 'Sara');
-  await book(date, 'campo2', '10:00', 60, 'Chiara');
-  await book(date, 'campo2', '18:00', 120, 'Francesca');
-  await book(date, 'campo3', '16:00', 60, 'Roberto Usai');
-  await book(date, 'campo3', '18:30', 90, 'Davide');
-  await book(date, 'padel1', '18:00', 90, 'Luca');
-  await book(date, 'padel1', '20:00', 90, 'Simona Floris');
-  await book(date, 'padel2', '19:30', 120, 'Chiara');
-}
-// corsisti: certificati in tutte le situazioni (valido, in scadenza, scaduto, mancante)
-const plus = n => { const x = new Date(d); x.setDate(x.getDate() + n); return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`; };
+const g1 = ['Andrea', 'Sara', 'Luca', 'Chiara'];
+// ragazzi senza account (schede gestite dalla segreteria, ID "k-…"): stessi gruppi, piani, pacchetti e ricevute
 const kids = [
-  ['Alice', 'Mura', '2014-03-12', 'Roberta Mura', 'agonistico', plus(120), true],
-  ['Tommaso', 'Piras', '2013-07-30', 'Gianni Piras', 'agonistico', plus(5), true],
-  ['Giorgia', 'Lai', '2015-01-18', 'Marta Lai', 'non agonistico', plus(22), false],
-  ['Matteo', 'Fadda', '2012-11-02', 'Stefano Fadda', 'agonistico', plus(-3), true],
-  ['Sofia', 'Cocco', '2014-09-09', 'Laura Cocco', 'non agonistico', plus(200), true],
-  ['Riccardo', 'Orrù', '2013-04-25', 'Pietro Orrù', '', '', false],
-  ['Emma', 'Usai', '2015-06-14', 'Valeria Usai', 'non agonistico', plus(90), true],
-  ['Nicola', 'Serra', '2012-02-08', 'Franco Serra', 'agonistico', plus(310), true],
-  ['Martina', 'Pisano', '2014-12-01', 'Anna Pisano', 'agonistico', plus(28), true],
-  ['Gabriele', 'Contu', '2013-10-19', 'Ivo Contu', 'non agonistico', plus(160), false]
-];
-const ath = {};
-let ai = 0;
-for (const [first, last, birth, parent, certType, certExpiry, paid] of kids) {
-  const id = 'ath' + (++ai); ath[first] = id;
-  await put(`athletes/${id}`, { first, last, birth, phone: '+39 3' + (40 + ai) + ' ' + (100 + ai * 7) + ' ' + (2000 + ai * 31), email: '', parent, notes: '',
-    certType, certExpiry, fitpPaid: paid, fitpYear: paid ? d.getFullYear() : 0, active: true, createdAt: new Date() });
+  { id: 'k-PietroDeiana01', first: 'Pietro', last: 'Deiana', gender: 'M', birthDate: '2016-03-02', parent: { name: 'Anna Deiana', phone: '333 1234567', email: 'anna.deiana@esempio.it' }, notes: 'Allergico alle api', certType: 'nonagon', certExp: plus(90) },
+  { id: 'k-GiorgiaFloris1', first: 'Giorgia', last: 'Floris', gender: 'F', birthDate: '2015-09-21', parent: { name: 'Paolo Floris', phone: '347 7654321', email: '' }, notes: '', certType: 'agon', certExp: plus(25) }];
+const lastWeek = plus(-7), lwMonth = lastWeek.slice(0, 7);
+for (const mo of [...new Set([month, lwMonth])]) {
+  await put(`groups/t1_${mo}`, { tid: 't1', month: mo, uids: g1.map(n => uid[n]).concat(kids.map(k => k.id)),
+    names: Object.assign(Object.fromEntries(g1.map(n => [uid[n], nm(n)])), Object.fromEntries(kids.map(k => [k.id, `${k.last} ${k.first}`]))), coachUid: uid.Marco, updated: Date.now() });
 }
+for (const k of kids) {
+  const { id, ...data } = k;
+  await put(`athletes/${id}`, Object.assign({ noAccount: true, tess: { [season]: id === kids[0].id }, created: Date.now() }, data,
+    id === kids[0].id ? { birthPlace: 'Cagliari', city: 'Quartu Sant\'Elena', address: 'via Marconi 12', cf: 'DNEPTR16C02B354A' } : {}));
+  await put(`plans/${id}_${month}`, { uid: id, month, tids: ['t1'], desc: ['Agonisti Under 14'], n: 1, price: 50, manual: false, updated: Date.now() });
+}
+// pacchetto di Pietro (4 lezioni) con il suo contatore senza prezzi, letto anche dall'allenatore
+await put('packs/kpietro', { uid: kids[0].id, name: 'Deiana Pietro', n: 4, price: 70, used: 0, from: `${month}-01`, created: Date.now(), by: uid.Elena });
+await put('packcount/kpietro', { uid: kids[0].id, n: 4, used: 0, from: `${month}-01`, created: Date.now(), coachUids: [uid.Marco] });
+await put(`groups/t2_${month}`, { tid: 't2', month, uids: [uid.Matteo, uid.Chiara], names: { [uid.Matteo]: nm('Matteo'), [uid.Chiara]: nm('Chiara') }, coachUid: uid.Marco, updated: Date.now() });
+// certificati: Andrea scade tra 20 giorni, Sara tra 5, Luca è scaduto, Chiara e Matteo validi
+const certs = { Andrea: [plus(20), 'agon'], Sara: [plus(5), 'agon'], Luca: [plus(-10), 'nonagon'], Chiara: [plus(200), 'nonagon'], Matteo: [plus(120), 'nonagon'] };
+const cfs = { Andrea: 'MLSNDR13D12B354X', Sara: 'MRRSRA13D52B354Y', Luca: 'PRCLCU12C10B354Z', Chiara: 'LOICHR12E41B354W', Matteo: 'CCCMTT90A01B354K' };
+for (const n of Object.keys(certs)) {
+  const p = people.find(x => x[0] === n);
+  await put(`athletes/${uid[n]}`, { first: n, last: p[1], birthPlace: 'Cagliari', birthDate: n === 'Matteo' ? '1990-01-01' : '2013-04-12', city: 'Cagliari', address: 'via Roma 1', cf: cfs[n],
+    tess: { [season]: n !== 'Luca' }, certExp: certs[n][0], certType: certs[n][1], created: Date.now() });
+}
+for (const n of g1.concat(['Matteo'])) {
+  const tids = (g1.includes(n) ? ['t1'] : []).concat(['Matteo', 'Chiara'].includes(n) ? ['t2'] : []);
+  await put(`plans/${uid[n]}_${month}`, { uid: uid[n], month, tids, desc: tids.map(x => (x === 't1' ? 'Agonisti Under 14' : 'Padel principianti')), n: tids.length, price: tids.length > 1 ? 80 : 50, manual: false, updated: Date.now() });
+}
+// pacchetto di 5 lezioni per Andrea (dal 1° del mese, non ancora usato)
+await put('packs/kandrea', { uid: uid.Andrea, name: nm('Andrea'), n: 5, price: 90, used: 0, from: `${month}-01`, created: Date.now(), by: uid.Paolo });
+await put('packcount/kandrea', { uid: uid.Andrea, n: 5, used: 0, from: `${month}-01`, created: Date.now(), coachUids: [uid.Marco] });
+// risposte di oggi: Chiara «ci sarò», Luca «non ci sarò»; Andrea e Sara senza risposta (la presenza la segna l'allenatore)
+await put(`occ/t1_${today}`, { tid: 't1', date: today, p: 1, a: 1, s: 0, cancelled: false });
+await put(`att/t1_${today}_${uid.Chiara}`, { tid: 't1', date: today, uid: uid.Chiara, status: 'in', at: Date.now(), coachUid: uid.Marco });
+await put(`att/t1_${today}_${uid.Luca}`, { tid: 't1', date: today, uid: uid.Luca, status: 'out', at: Date.now(), coachUid: uid.Marco });
+// una scheda di valutazione della settimana scorsa (Chiara e Sara)
+await put(`occ/t1_${lastWeek}`, { tid: 't1', date: lastWeek, p: 2, a: 0, s: 0, cancelled: false });
+await put(`evals/t1_${lastWeek}_${uid.Chiara}`, { tid: 't1', date: lastWeek, uid: uid.Chiara, coachUid: uid.Marco, by: uid.Marco, v: { tec: 7, mov: 5, con: 6 }, note: 'Buon dritto in spinta / rovescio in ritardo sotto pressione', at: Date.now() });
+await put(`evals/t1_${lastWeek}_${uid.Sara}`, { tid: 't1', date: lastWeek, uid: uid.Sara, coachUid: uid.Marco, by: uid.Marco, v: { tec: 6, sce: 8, att: 9 }, note: 'Ottima attenzione / servizio da sistemare', at: Date.now() });
 
-// allenamenti di questa settimana (lunedì-domenica)
-const monday = (() => { const x = new Date(d); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; })();
-const dayOfWeek = i => { const x = new Date(monday); x.setDate(x.getDate() + i); return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`; };
-let ti = 0;
-async function training(date, courtId, start, dur, title, coach, kidsIn) {
-  const id = 'tr' + (++ti);
-  const half = []; for (let m = toMin(start); m < toMin(start) + dur; m += 30) half.push(fromMin(m));
-  const p = people.find(x => x[0] === coach);
-  await put(`trainings/${id}`, { title, courtId, date, start, end: fromMin(toMin(start) + dur), last: half[half.length - 1], dur,
-    coachId: uids[coach], coachName: `${p[0]} ${p[1]}`, series: 'serie-' + title, notes: '', createdBy: uids.Giulia, createdAt: new Date() });
-  // liste e mappe con la REST: scritte a parte
-  const r = await fetch(`${FS}/trainings/${id}?updateMask.fieldPaths=athleteIds&updateMask.fieldPaths=names`, { method: 'PATCH', headers: H, body: JSON.stringify({ fields: {
-    athleteIds: { arrayValue: { values: kidsIn.map(n => ({ stringValue: ath[n] })) } },
-    names: { mapValue: { fields: Object.fromEntries(kidsIn.map(n => [ath[n], { stringValue: n + ' ' + kids.find(x => x[0] === n)[1] }])) } }
-  } }) });
-  if (!r.ok) throw new Error(await r.text());
-  for (const t of half) await put(`slots/${courtId}_${date}_${t.replace(':', '')}`, { courtId, date, time: t, trainingId: id });
-  return id;
+// prenotazioni: Luca domani 18:00–19:00 (Campo 2), Andrea dopodomani 10:00–11:30 (Padel 1); blocco dell'admin
+async function booking(gid, courtId, date, from, to, userId, blocked = '') {
+  for (let t = from; t < to; t = addMin(t, 30)) {
+    const id = `${date}_${courtId}_${t}`;
+    await put(`bookings/${id}`, { courtId, date, start: t, from, to, gid, userId, blocked, first: t === from });
+    await put(`busy/${id}`, { courtId, date, start: t, from, to, gid });
+  }
 }
-const u12 = ['Alice', 'Giorgia', 'Sofia', 'Emma', 'Martina'];
-const ago = ['Tommaso', 'Matteo', 'Nicola', 'Riccardo', 'Gabriele'];
-const trToday = [];
-for (const i of [0, 2, 4]) {
-  const id = await training(dayOfWeek(i), 'campo2', '15:00', 90, 'Under 12', 'Marco', u12);
-  if (dayOfWeek(i) === today) trToday.push(id);
-}
-for (const i of [1, 3, 4]) {
-  const id = await training(dayOfWeek(i), 'centrale', '14:00', 90, 'Agonisti', 'Elena', ago);
-  if (dayOfWeek(i) === today) trToday.push(id);
-}
-// valutazioni già date per il primo allenamento Under 12 della settimana
-async function evalOf(tid, kid, scores, note, coach) {
-  await fetch(`${FS}/evals/${tid}_${ath[kid]}`, { method: 'PATCH', headers: H, body: JSON.stringify({ fields: {
-    trainingId: { stringValue: tid }, athleteId: { stringValue: ath[kid] }, athleteName: { stringValue: kid + ' ' + kids.find(x => x[0] === kid)[1] },
-    date: { stringValue: dayOfWeek(0) }, title: { stringValue: 'Under 12' }, coachId: { stringValue: uids[coach] }, note: { stringValue: note },
-    by: { stringValue: uids[coach] }, updatedAt: { timestampValue: new Date().toISOString() },
-    scores: { mapValue: { fields: Object.fromEntries(Object.entries(scores).map(([k2, v]) => [k2, { integerValue: String(v) }])) } }
-  } }) });
-}
-await evalOf('tr1', 'Alice', { tecnica: 7, movimento: 6, consistenza: 7 }, 'Buon dritto in spinta / rovescio in ritardo sotto pressione', 'Marco');
-await evalOf('tr1', 'Giorgia', { tecnica: 5, scelte: 6, atteggiamento: 8 }, 'Ascolta molto / servizio da sistemare', 'Marco');
-await evalOf('tr1', 'Sofia', { movimento: 8, intensita: 7, consistenza: 5 }, 'Gambe sempre attive / troppi errori quando accelera', 'Marco');
+await booking('gluca1', 'campo2', plus(1), '18:00', '19:00', uid.Luca);
+await put('bkplayers/gluca1', { gid: 'gluca1', by: uid.Luca, ownerName: 'Porcu Luca', date: plus(1), from: '18:00', to: '19:00', courtId: 'campo2', courtName: 'Campo 2', uids: [uid.Chiara], guests: {}, names: { [uid.Chiara]: 'Loi Chiara' }, remind: 60, updated: Date.now() });
+await booking('gandrea1', 'padel1', plus(2), '10:00', '11:30', uid.Andrea);
+await booking('gblock1', 'campo3', plus(3), '08:00', '12:00', null, 'Manutenzione');
 
-console.log('dati di prova pronti:', Object.keys(uids).length, 'utenti,', courts.length, 'campi,', k, 'prenotazioni,', kids.length, 'corsisti,', ti, 'allenamenti');
+// cassa: un incasso con ricevuta
+await put(`counters/receipts-${today.slice(0, 4)}`, { last: 1, updated: Date.now() });
+await put('receipts/r1', { year: +today.slice(0, 4), n: 1, series: 'Q', issued: today, payDate: today, amount: 50, method: 'cash', kind: 'cassa', ref: 'i1', incasso: 'i1', uid: uid.Andrea,
+  person: { name: 'Andrea Melis', gender: 'M', birthPlace: 'Cagliari', birthDate: '2013-04-12', city: 'Cagliari', address: 'via Roma 1', cf: 'MLSNDR13D12B354X' }, causale: `Quota sociale allenamenti ${month}`,
+  lines: [{ cat: 'q_train', desc: 'Corso di allenamento', amount: 50 }], void: false, created: Date.now(), by: uid.Giulia });
+await put('incassi/i1', { date: today, method: 'cash', lines: [{ cat: 'q_train', series: 'Q', desc: 'Corso di allenamento', amount: 50 }], totQ: 50, totC: 0, total: 50,
+  receipts: { Q: { id: 'r1', rn: `1/Q/${today.slice(0, 4)}` } }, uid: uid.Andrea, name: 'Andrea Melis', void: false, at: Date.now(), by: uid.Giulia });
+
+// un messaggio dell'admin a tutti
+await put('messages/m1', { title: 'Benvenuti', text: 'La nuova app del circolo è attiva: prenotate i campi da qui.', all: true, to: [], created: Date.now(), by: uid.Paolo });
+
+console.log('Dati di prova pronti. Account (password prova123):', people.map(([f, l, , u]) => `${u || `${f}.${l}`}@esempio.it`.toLowerCase()).join(', '));
+console.log(JSON.stringify(uid));

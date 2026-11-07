@@ -2,3 +2,4 @@ node_modules/
 .taste-skill/
 *.log
 .firebase/
+node_modules
