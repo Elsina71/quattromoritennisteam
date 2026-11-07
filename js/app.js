@@ -4445,7 +4445,7 @@
       <div class="card">
         <h2>${esc(t('language'))}</h2>
         <div class="segmented wrap" role="group">
-          ${[['it', 'Italiano'], ['en', 'English']].map(([c, n]) => `<button data-action="set-lang" data-lang="${c}" aria-pressed="${I18n.lang === c}">${n}</button>`).join('')}
+          ${[['it', 'Italiano'], ['en', 'English'], ['es', 'Español']].map(([c, n]) => `<button data-action="set-lang" data-lang="${c}" aria-pressed="${I18n.lang === c}">${n}</button>`).join('')}
         </div>
       </div>
       ${designCard()}

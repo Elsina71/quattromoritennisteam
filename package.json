@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node tests/logic.test.mjs",
+    "test": "node tests/logic.test.mjs && node tests/i18n.test.mjs",
     "test:rules": "firebase emulators:exec --project demo-quattromori --only firestore \"node tests/rules.test.mjs\"",
     "check": "for f in js/*.js tests/*.mjs; do node --check \"$f\" || exit 1; done",
     "emulatori": "firebase emulators:start --project quattromoritennisteam-d3258 --only firestore,auth",
