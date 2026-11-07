@@ -1699,3 +1699,11 @@ form:has(select[name=holder] option[value="__manual"]:checked) .mh-hide { displa
 .rc-wa-box { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: flex-end; padding: 6px 8px; border-radius: 10px; background: color-mix(in srgb, var(--accent, #2e7d32) 8%, transparent); }
 .rc-wa-box label { display: flex; flex-direction: column; gap: 2px; }
 .rc-wa-box input { width: 11em; max-width: 100%; }
+
+/* Nuovo allenamento: più giorni, ognuno con il suo orario */
+.tr-form:has([name=kind][value=weekly]:checked) .not-weekly { display: none; }
+.tr-days { display: grid; gap: 8px; }
+.tr-day-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; align-items: end; }
+.tr-day-row .btn { margin-bottom: 2px; }
+.tr-days > .btn { justify-self: start; }
+.tr-series { margin-top: -4px; }

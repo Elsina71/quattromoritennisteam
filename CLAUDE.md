@@ -51,11 +51,16 @@ allenamenti, allenatori, cassa. Regole decise dal titolare: valgono per ogni mod
   «ci sarò / non ci sarò» (serve per i posti spot) e non può cambiare una presenza già segnata.
 - Allenamenti: titolo, giorno, ora, durata, campo, allenatore, corsisti; si possono ripetere ogni settimana.
   Occupano il campo nel tabellone (gli altri vedono "Allenamento"). Per cambiare giorno/ora/campo si ricrea.
+- **Allenamento su più giorni** (nuovo allenamento settimanale): nel modulo «Giorni e orari» si aggiungono più righe
+  giorno + orario (es. lun 18–20, mer 15–17, ven 16–18). Si crea un allenamento per giorno, nello stesso invio
+  (`Cloud.saveTrainingSeries`), con gli stessi nome, livello, allenatore e campi e lo stesso `series`; ognuno blocca i suoi
+  campi nel suo orario. La scheda mostra «Anche: …» con gli altri giorni. «Aggiungi un corsista» lo mette di serie in tutti
+  i giorni (casella), togliendolo esce da tutti i giorni del mese. Ogni giorno si modifica o si elimina da solo.
 - Tipi (badge nelle liste): **Allenamento settimanale**, **Recupero allenamento** (una data, `tr.date`),
   **Allenamento privato** (`type: 'private'`, una data, un allievo: utente, ragazzo senza account o esterno `x-…` con il solo nome, un maestro).
 - Livelli, in quest'ordine: Minitennis 4-6 anni, Scuola Tennis Orange 6-8 anni, Scuola Tennis Green 8-10 anni,
-  Perfezionamento 10-13 anni, Preagonistica 11-14 anni, Agonistica 12-18 anni, Performance - Avanzato, Tennis Adulti
-  (chiavi `mini, orange, green, perf, preago, ago, adv, adult`; un livello vecchio si mostra com'è scritto).
+  Bambini misti, Perfezionamento 10-13 anni, Preagonistica 11-14 anni, Agonistica 12-18 anni, Performance - Avanzato,
+  Tennis Adulti (chiavi `mini, orange, green, kids, perf, preago, ago, adv, adult`; un livello vecchio si mostra com'è scritto).
 
 ## Richieste di allenamento personalizzato (privato)
 - Bottone «Richiedi un allenamento personalizzato» in Allenamenti (anche per i visitatori), pagina `#/ptreq`:

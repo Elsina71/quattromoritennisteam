@@ -28,6 +28,6 @@ const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 for (const x of html.matchAll(/data-i18n(?:-aria)?="([A-Za-z0-9_]+)"/g)) used.add(x[1]);
 for (const k of used) for (const l of langs) if (!(k in (dict[l] || {}))) fail(`«${k}» usata nel codice ma mancante in ${l}`);
 // i livelli nuovi
-for (const lv of ['mini', 'orange', 'green', 'perf', 'preago', 'ago', 'adv', 'adult']) for (const l of langs) if (!dict[l]['fpLevel_' + lv]) fail(`livello ${lv} mancante in ${l}`);
+for (const lv of ['mini', 'orange', 'green', 'kids', 'perf', 'preago', 'ago', 'adv', 'adult']) for (const l of langs) if (!dict[l]['fpLevel_' + lv]) fail(`livello ${lv} mancante in ${l}`);
 if (errors) { console.error(`traduzioni: ${errors} errori`); process.exit(1); }
 console.log(`traduzioni: ${all.size} chiavi in ${langs.join(', ')}, ${used.size} usate nel codice: tutto a posto`);

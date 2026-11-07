@@ -654,7 +654,7 @@ service cloud.firestore {
         && hm(d.from) && mins(d.from) % 30 == 0 && mins(d.from) >= 360 && mins(d.from) + d.dur <= 1440
         && d.dur in [60, 90, 120]
         && d.coachUid is string && (d.coachUid == '' || (safeId(d.coachUid) && exists(/databases/$(database)/documents/coaches/$(d.coachUid))))
-        && d.level in ['mini', 'orange', 'green', 'perf', 'preago', 'ago', 'adv', 'adult']
+        && d.level in ['mini', 'orange', 'green', 'kids', 'perf', 'preago', 'ago', 'adv', 'adult']
         && txt(d.notes, 300) && txt(d.get('coachName', ''), 80)
         && d.status == 'pending' && d.at == request.time
         && id == d.phone.replace('[^0-9]', '') + '_' + d.date + '_' + d.from.replace(':', '');
@@ -701,7 +701,7 @@ service cloud.firestore {
       allow read, delete: if isStaff();
       allow create: if request.resource.data.keys().hasOnly(['parent', 'kid', 'level', 'images', 'privacy', 'season', 'status', 'at'])
         && enPerson(request.resource.data.parent, false) && enPerson(request.resource.data.kid, true)
-        && request.resource.data.level in ['mini', 'orange', 'green', 'perf', 'preago', 'ago', 'adv', 'adult']
+        && request.resource.data.level in ['mini', 'orange', 'green', 'kids', 'perf', 'preago', 'ago', 'adv', 'adult']
         && request.resource.data.images is bool && request.resource.data.privacy == true
         && request.resource.data.season is string && request.resource.data.season.matches('20[0-9]{2}/[0-9]{2}')
         && request.resource.data.status == 'new' && request.resource.data.at == request.time;

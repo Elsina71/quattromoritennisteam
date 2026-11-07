@@ -1225,7 +1225,7 @@
 
   // livelli degli allenamenti (etichette fpLevel_…), nell'ordine deciso dal titolare.
   // I livelli di prima (start, inter, high, pro) restano leggibili; un livello sconosciuto si mostra com'è scritto.
-  const LEVELS = ['mini', 'orange', 'green', 'perf', 'preago', 'ago', 'adv', 'adult'];
+  const LEVELS = ['mini', 'orange', 'green', 'kids', 'perf', 'preago', 'ago', 'adv', 'adult'];
   const levelLabel = l => { if (!l) return ''; const k = 'fpLevel_' + l, x = t(k); return x === k ? String(l) : x; };
   const lvlBadge = l => (l ? `<span class="badge lvl-${/^[a-z]+$/.test(l) ? l : 'other'}">${esc(levelLabel(l))}</span>` : '');
   const levelOptions = cur => LEVELS.map(l => `<option value="${l}" ${l === cur ? 'selected' : ''}>${esc(levelLabel(l))}</option>`).join('')
@@ -1621,6 +1621,7 @@
           <label class="check"><input type="checkbox" name="tess"> ${esc(t('tessLabel', { s: seasonOf(todayStr()) }))}</label>
           ${admin() ? certTypeSelect('') : ''}
           <label>${esc(t('certExp'))}<input type="date" name="certExp"></label>
+          ${seriesOf(tr).length ? `<label class="check span-all"><input type="checkbox" name="allDays" checked> ${esc(t('grpAllDays', { l: seriesOf(tr).map(trLabel).join(' · ') }))}</label>` : ''}
           <div class="form-actions span-all"><button class="btn primary">${esc(t('grpAddBtn'))}</button></div>
         </form></details>`;
     }
@@ -1628,6 +1629,7 @@
       <div class="ch-head">${extraBadge(tr)}${lvlBadge(tr.level)} <span class="badge ${full ? 'st-full' : ''}">${uids.length}/${tr.max}</span></div>
       <h3>${esc(trTitle(tr))}</h3>
       <p class="muted cap"><i class="ti ti-${isExtraTr(tr) ? 'calendar-event' : 'calendar-repeat'}" aria-hidden="true"></i> ${esc(trLabel(tr))}</p>
+      ${seriesOf(tr).length ? `<p class="muted small tr-series"><i class="ti ti-link" aria-hidden="true"></i> ${esc(t('trAlsoDays'))} ${seriesOf(tr).map(x => trLabel(x)).join(' · ')}</p>` : ''}
       <p class="muted small">${tr.coachUid ? `<i class="ti ti-school" aria-hidden="true"></i> ${esc(t('trCoach'))}: ${esc(coachName(tr.coachUid))}` : ''}
         ${tr.coachUid && (tr.courts || []).length ? ' · ' : ''}${(tr.courts || []).length ? `<i class="ti ti-layout-grid" aria-hidden="true"></i> ${esc(tr.courts.map(courtName).join(', '))}` : ''}</p>
       <h4>${esc(t('grpTitle', { m: monthLabel(month) }))}</h4>
@@ -1638,6 +1640,35 @@
         <button class="btn small danger" data-action="tr-delete" data-id="${esc(tr.id)}"><i class="ti ti-trash" aria-hidden="true"></i> ${esc(t('trDelete'))}</button></div>` : ''}
     </div>`;
   }
+
+  // Nuovo allenamento settimanale: uno o più giorni, ognuno con il suo orario (es. lun 18–20, mer 15–17, ven 16–18).
+  // Al salvataggio si crea un allenamento per giorno, collegati dallo stesso «series»; i corsisti si aggiungono a tutti.
+  const trDayRows = v => (ui.trDays && ui.trDays.length ? ui.trDays : (v.days && v.days.length ? v.days : [{ dow: v.dow || 1, from: v.from || '18:00', to: v.to || '19:30' }]));
+  function trDaysField(v) {
+    const opt = (sel, list) => list.map(h => `<option ${h === sel ? 'selected' : ''}>${h}</option>`).join('');
+    const rows = trDayRows(v);
+    return `<fieldset class="span-all only-weekly tr-days"><legend>${esc(t('trDays'))}</legend>
+      ${rows.map((r, i) => `<div class="tr-day-row">
+        <label>${esc(t('bkDay'))}<select data-f="dow">${[1, 2, 3, 4, 5, 6, 7].map(n => `<option value="${n}" ${n === +r.dow ? 'selected' : ''}>${esc(dayName(n))}</option>`).join('')}</select></label>
+        <label>${esc(t('courtFrom'))}<select data-f="from">${opt(r.from, QUARTERS.slice(0, -1))}</select></label>
+        <label>${esc(t('courtTo'))}<select data-f="to">${opt(r.to, QUARTERS.slice(1))}</select></label>
+        ${rows.length > 1 ? `<button type="button" class="btn small danger" data-action="tr-day-del" data-i="${i}" aria-label="${esc(t('trDayDel'))}"><i class="ti ti-trash" aria-hidden="true"></i></button>` : ''}
+      </div>`).join('')}
+      <button type="button" class="btn small" data-action="tr-day-add"><i class="ti ti-plus" aria-hidden="true"></i> ${esc(t('trDayAdd'))}</button>
+      <small class="muted">${esc(t('trDaysHelp'))}</small></fieldset>`;
+  }
+  // dati già scritti nel modulo del nuovo allenamento (restano dopo aver aggiunto o tolto un giorno)
+  function keepTrDraft(f) {
+    const k = f.querySelector('[name=kind]:checked');
+    ui.trDraft = Object.assign({}, ui.trDraft || {}, { name: f.name.value, level: f.level.value, max: f.max.value, coachUid: f.coachUid.value,
+      courts: [...f.querySelectorAll('[name=court]:checked')].map(x => x.value), kind: k ? k.value : 'weekly', from: f.from.value, to: f.to.value,
+      date: f.date ? f.date.value : '', days: ui.trDays });
+    (ui.keep = ui.keep || {})['tr-new'] = true;
+  }
+  // righe dei giorni come sono scritte ora nel modulo
+  const readTrDays = form => [...form.querySelectorAll('.tr-day-row')].map(r => ({ dow: +r.querySelector('[data-f=dow]').value, from: r.querySelector('[data-f=from]').value, to: r.querySelector('[data-f=to]').value }));
+  // altri giorni dello stesso allenamento (creati insieme)
+  const seriesOf = tr => (tr && tr.series ? trainings().filter(x => x.series === tr.series && x.id !== tr.id && !x.date) : []);
 
   function trainingForm(tr) {
     // nuovo allenamento: dopo un avviso il modulo riparte da quanto già scritto (ui.trDraft)
@@ -1662,9 +1693,9 @@
         ${tr ? '' : `<label class="only-extra span-all">${esc(t('trCopyFrom'))}<select name="copyFrom"><option value="">${esc(t('trCopyNone'))}</option>
           ${sources.map(s => `<option value="${esc(s.id)}" ${dr && dr.copyFrom === s.id ? 'selected' : ''}>${esc(trTitle(s))} · ${esc(trLabel(s))}${s.coachUid ? ' · ' + esc(coachName(s.coachUid)) : ''}</option>`).join('')}</select>
           <small class="muted">${esc(t('trCopyFromHelp'))}</small></label>`}
-        <label class="only-weekly">${esc(t('bkDay'))}<select name="dow">${[1, 2, 3, 4, 5, 6, 7].map(n => `<option value="${n}" ${n === v.dow ? 'selected' : ''}>${esc(dayName(n))}</option>`).join('')}</select></label>
-        <label>${esc(t('courtFrom'))}<select name="from">${opt(v.from, QUARTERS.slice(0, -1))}</select></label>
-        <label>${esc(t('courtTo'))}<select name="to">${opt(v.to, QUARTERS.slice(1))}</select></label>
+        ${tr ? `<label class="only-weekly">${esc(t('bkDay'))}<select name="dow">${[1, 2, 3, 4, 5, 6, 7].map(n => `<option value="${n}" ${n === v.dow ? 'selected' : ''}>${esc(dayName(n))}</option>`).join('')}</select></label>` : trDaysField(v)}
+        <label class="${tr ? '' : 'not-weekly'}">${esc(t('courtFrom'))}<select name="from">${opt(v.from, QUARTERS.slice(0, -1))}</select></label>
+        <label class="${tr ? '' : 'not-weekly'}">${esc(t('courtTo'))}<select name="to">${opt(v.to, QUARTERS.slice(1))}</select></label>
         <label>${esc(t('trLevel'))}<select name="level">${levelOptions(v.level)}</select></label>
         <label class="not-private">${esc(t('trMax'))}<input type="number" name="max" min="1" max="60" required value="${v.max}" inputmode="numeric"></label>
         <label>${esc(t('trCoach'))}<select name="coachUid"><option value="">—</option>${coaches.map(c => `<option value="${esc(c.id)}" ${c.id === v.coachUid ? 'selected' : ''}>${esc(coachName(c.id))}</option>`).join('')}</select>
@@ -2029,10 +2060,13 @@
     const old = f.dataset.id ? trainingById(f.dataset.id) : null;
     const kindEl = f.querySelector('[name=kind]:checked') || f.querySelector('[name=kind]');
     const extra = kindEl && kindEl.value === 'extra', priv = kindEl && kindEl.value === 'private';
-    const d = { name: f.name.value.trim(), dow: +f.dow.value, from: f.from.value, to: f.to.value, level: f.level.value,
+    const d = { name: f.name.value.trim(), dow: f.dow ? +f.dow.value : 1, from: f.from.value, to: f.to.value, level: f.level.value,
       max: Math.max(1, parseInt(f.max.value, 10) || 1), coachUid: f.coachUid.value, courts: [...f.querySelectorAll('[name=court]:checked')].map(x => x.value) };
     if (!old) ui.trDraft = Object.assign({}, d, { kind: priv ? 'private' : extra ? 'extra' : 'weekly', date: f.date ? f.date.value : '', copyFrom: f.copyFrom ? f.copyFrom.value : '',
       person: f.person ? f.person.value : '', extName: f.extName ? f.extName.value : '' });
+    const days = !old && !priv && !extra ? readTrDays(f) : null;
+    if (days) ui.trDraft.days = days;
+    if (days && days.length) return trSaveWeeklyDays(d, days);
     if (d.to <= d.from) return warn('fpTimeErr');
     if (priv) return trSavePrivate(f, old, d);
     if (extra) return trSaveExtra(f, old, d);
@@ -2046,8 +2080,31 @@
     if (busy.length && !confirmed('trBookingsClash', { n: busy.length })) return;
     const groups = old ? (S().groups || []).filter(g => g.tid === old.id) : [];
     window.Cloud.saveTraining(old, d, groups).then(() => {
-      if (old) ui.trEdit = null; else { (ui.keep || {})['tr-new'] = false; ui.trDraft = null; }
+      if (old) ui.trEdit = null; else { (ui.keep || {})['tr-new'] = false; ui.trDraft = null; ui.trDays = null; }
       ui.flash = { text: t(old ? 'trSaved' : 'trCreated') };
+      render();
+    }).catch(e => warn('regError', { code: e.code || e.message }));
+  }
+
+  // Nuovo allenamento settimanale su uno o più giorni: un allenamento per giorno (stesso nome, livello, allenatore e
+  // campi), creati in un solo invio e collegati da «series»; ogni giorno blocca i suoi campi nel suo orario.
+  function trSaveWeeklyDays(d, days) {
+    const bad = days.find(r => r.to <= r.from);
+    if (bad) return warn('fpTimeErr');
+    const ov = days.find((r, i) => days.some((x, j) => j !== i && x.dow === r.dow && x.from < r.to && r.from < x.to));
+    if (ov) return warn('trDaysOverlap', { d: dayName(ov.dow) });
+    const reason = `${t('navTrain')} · ${d.name || levelLabel(d.level)}${d.coachUid ? ' · ' + coachName(d.coachUid) : ''}`;
+    const list = days.map(r => Object.assign({}, d, { dow: r.dow, from: r.from, to: r.to, reason }));
+    for (const x of list) {
+      const clash = x.courts.filter(c => (S().recurring || []).some(r => r.courtId === c && r.dow === x.dow && r.from < x.to && x.from < r.to));
+      if (clash.length) return warn('trCourtBusyDay', { c: clash.map(courtName).join(', '), d: dayName(x.dow), a: x.from, b: x.to });
+    }
+    const today = todayStr();
+    const busy = (S().bookings || []).filter(b => !b.recurring && b.date >= today && list.some(x => x.courts.includes(b.courtId) && dow(b.date) === x.dow && b.from < x.to && x.from < b.to));
+    if (busy.length && !confirmed('trBookingsClash', { n: busy.length })) return;
+    window.Cloud.saveTrainingSeries(list).then(() => {
+      (ui.keep || {})['tr-new'] = false; ui.trDraft = null; ui.trDays = null;
+      ui.flash = { text: list.length > 1 ? t('trCreatedDays', { n: list.length }) : t('trCreated') };
       render();
     }).catch(e => warn('regError', { code: e.code || e.message }));
   }
@@ -2079,7 +2136,7 @@
       const g = { id: `${id}_${month}`, tid: id, month, uids: [uid], names: { [uid]: name }, coachUid: d.coachUid || '', updated: Date.now() };
       return window.Cloud.saveGroups([g], [], [], isExtPerson(uid) ? [] : [{ tid: id, date, uid, on: true }]);
     }).then(() => {
-      (ui.keep || {})['tr-new'] = false; ui.trDraft = null; ui.trMonth = month;
+      (ui.keep || {})['tr-new'] = false; ui.trDraft = null; ui.trDays = null; ui.trMonth = month;
       ui.flash = { text: t('trPrivateCreated', { n: name }) }; render();
     }).catch(e => warn('regError', { code: e.code || e.message }));
   }
@@ -2107,7 +2164,7 @@
       const g = { id: `${id}_${month}`, tid: id, month, uids: sg.uids.slice(), names: Object.assign({}, sg.names || {}), coachUid: d.coachUid || '', updated: Date.now(), from: src.id };
       return window.Cloud.saveGroups([g], [], [], g.uids.map(uid => ({ tid: id, date, uid, on: true }))).then(() => g.uids.length);
     }).then(n => {
-      if (old) ui.trEdit = null; else { (ui.keep || {})['tr-new'] = false; ui.trDraft = null; }
+      if (old) ui.trEdit = null; else { (ui.keep || {})['tr-new'] = false; ui.trDraft = null; ui.trDays = null; }
       ui.trMonth = month;
       ui.flash = { text: n ? t('trExtraCopied', { n, s: trTitle(src) }) : t(old ? 'trSaved' : 'trExtraCreated') };
       render();
@@ -2115,18 +2172,23 @@
   }
 
   // Aggiunge o toglie un corsista dal gruppo del mese, aggiornando il suo piano (e la scheda).
+  // tid può essere un elenco (i giorni dello stesso allenamento): tutto in un solo invio, con un solo piano.
   function grpChange(tid, month, uid, add, athleteData) {
-    const tr = trainingById(tid);
-    if (!tr) return;
-    const cur = groupOf(tid, month) || { id: `${tid}_${month}`, tid, month, uids: [], names: {} };
-    const g = Object.assign({}, cur, { uids: (cur.uids || []).slice(), names: Object.assign({}, cur.names || {}), coachUid: tr.coachUid || '' });
-    if (add) { if (!g.uids.includes(uid)) g.uids.push(uid); const m = memberByUid(uid) || athleteData; if (m && (m.first || m.last)) g.names[uid] = personName(m); }
-    else { g.uids = g.uids.filter(x => x !== uid); delete g.names[uid]; }
-    g.updated = Date.now();
-    const all = (S().groups || []).filter(x => x.id !== g.id).concat([g]);
+    const trs = [].concat(tid).map(trainingById).filter(Boolean);
+    if (!trs.length) return Promise.resolve();
+    const m = memberByUid(uid) || athleteData;
+    const gs = trs.map(tr => {
+      const cur = groupOf(tr.id, month) || { id: `${tr.id}_${month}`, tid: tr.id, month, uids: [], names: {} };
+      const g = Object.assign({}, cur, { uids: (cur.uids || []).slice(), names: Object.assign({}, cur.names || {}), coachUid: tr.coachUid || '' });
+      if (add) { if (!g.uids.includes(uid)) g.uids.push(uid); if (m && (m.first || m.last)) g.names[uid] = personName(m); }
+      else { g.uids = g.uids.filter(x => x !== uid); delete g.names[uid]; }
+      g.updated = Date.now();
+      return g;
+    });
+    const all = (S().groups || []).filter(x => !gs.some(g => g.id === x.id)).concat(gs);
     const plan = planFrom(uid, month, all);
-    const xm = isExtraTr(tr) ? [{ tid, date: tr.date, uid, on: !!add }] : [];
-    return window.Cloud.saveGroups([g], plan ? [plan] : [], athleteData ? [athleteData] : [], xm);
+    const xm = trs.filter(isExtraTr).map(tr => ({ tid: tr.id, date: tr.date, uid, on: !!add }));
+    return window.Cloud.saveGroups(gs, plan ? [plan] : [], athleteData ? [athleteData] : [], xm);
   }
 
   // Spunte degli allenamenti del corsista per un mese (scheda corsista: creazione e modifica).
@@ -3958,7 +4020,10 @@
       if (f.certExp.value) ad.certExp = f.certExp.value;
       if (f.certType && f.certType.value) ad.certType = f.certType.value;
       if (!a && admin()) ad.created = Date.now();
-      grpChange(tid, month, uid, true, ad).then(() => { ui.flash = { text: t('grpAdded', { n: personName(m) }) }; render(); }).catch(e => warn('regError', { code: e.code || e.message }));
+      const sib = f.allDays && f.allDays.checked ? seriesOf(tr).map(x => x.id) : [];
+      const full = sib.map(trainingById).filter(x => { const sg = groupOf(x.id, month); return sg && (sg.uids || []).length >= x.max && !(sg.uids || []).includes(uid); });
+      if (full.length && !confirmed('grpFullConfirmList', { l: full.map(x => `${trTitle(x)} · ${trLabel(x)}`).join(', ') })) return;
+      grpChange([tid].concat(sib), month, uid, true, ad).then(() => { ui.flash = { text: t('grpAdded', { n: personName(m) }) }; render(); }).catch(e => warn('regError', { code: e.code || e.message }));
     },
     'ath-new': f => {
       const kid = (f.querySelector('[name=kind]:checked') || {}).value === 'kid';
@@ -4028,6 +4093,9 @@
   const trActions = {
     'tr-month': el => { ui.trMonth = el.dataset.m; render(); },
     'tr-edit': el => { ui.trEdit = el.dataset.id; render(); },
+    'tr-day-add': el => { const f = el.closest('form'), rows = readTrDays(f), last = rows[rows.length - 1] || { dow: 1, from: '18:00', to: '19:30' };
+      ui.trDays = rows.concat([{ dow: last.dow % 7 + 1, from: last.from, to: last.to }]); keepTrDraft(f); render(); },
+    'tr-day-del': el => { const f = el.closest('form'), rows = readTrDays(f); rows.splice(+el.dataset.i, 1); ui.trDays = rows; keepTrDraft(f); render(); },
     'tr-edit-cancel': () => { ui.trEdit = null; render(); },
     'tr-delete': el => {
       const tr = trainingById(el.dataset.id);
@@ -4053,9 +4121,10 @@
       window.Cloud.saveGroups(add, plans, []).then(() => { ui.flash = { text: t('trCopied', { n: add.length }) }; render(); }).catch(e => warn('regError', { code: e.code || e.message }));
     },
     'grp-remove': el => {
-      const m = memberByUid(el.dataset.uid);
-      if (!confirmed('grpRemoveConfirm', { n: m ? personName(m) : '?' })) return;
-      grpChange(el.dataset.tid, el.dataset.m, el.dataset.uid, false).then(() => render()).catch(e => warn('regError', { code: e.code || e.message }));
+      const m = memberByUid(el.dataset.uid), month = el.dataset.m, uid = el.dataset.uid;
+      const sib = seriesOf(trainingById(el.dataset.tid)).filter(x => ((groupOf(x.id, month) || {}).uids || []).includes(uid));
+      if (!confirmed(sib.length ? 'grpRemoveConfirmDays' : 'grpRemoveConfirm', { n: m ? personName(m) : '?' })) return;
+      grpChange([el.dataset.tid].concat(sib.map(x => x.id)), month, uid, false).then(() => render()).catch(e => warn('regError', { code: e.code || e.message }));
     },
     'coach-remove': el => {
       if (!confirmed('coachRemoveConfirm', { n: coachName(el.dataset.uid) })) return;
@@ -4862,7 +4931,7 @@
   const CASH_ACTIONS = new Set(['ca-month', 'ca-addline', 'ca-xlsx', 'rc-pdf', 'rc-send', 'rc-wa-open', 'rc-wa-close']);
   const CASH_FORMS = new Set(['ca-save']);
   // Admin Centro: allenamenti (vede tutti, annulla una giornata, elimina)
-  const CENTER_ACTIONS = new Set(['tr-delete', 'occ-cancel', 'occ-remove', 'occ-restore', 'occ-copy-group', 'tr-edit', 'tr-edit-cancel', 'tr-copy', 'grp-remove', 'att-force']);
+  const CENTER_ACTIONS = new Set(['tr-day-add', 'tr-day-del', 'tr-delete', 'occ-cancel', 'occ-remove', 'occ-restore', 'occ-copy-group', 'tr-edit', 'tr-edit-cancel', 'tr-copy', 'grp-remove', 'att-force']);
   const CENTER_FORMS = new Set(['tr-save', 'grp-add', 'occ-copy']);
   const PUBLIC_FORMS = new Set(['login', 'register', 'complete-profile', 'ptreq-send', 'enroll-send']);
   // solo admin (non la segreteria): impostazioni dei campi, regole di prenotazione, listino, avvisi, articoli, messaggi
