@@ -1707,3 +1707,7 @@ form:has(select[name=holder] option[value="__manual"]:checked) .mh-hide { displa
 .tr-day-row .btn { margin-bottom: 2px; }
 .tr-days > .btn { justify-self: start; }
 .tr-series { margin-top: -4px; }
+@media (max-width: 560px) {
+  .tr-day-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; padding-bottom: 8px; border-bottom: 1px dashed var(--line, #ddd); }
+  .tr-day-row > label:first-child { grid-column: 1 / -1; }
+}
