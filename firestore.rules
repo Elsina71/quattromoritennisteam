@@ -308,7 +308,8 @@ service cloud.firestore {
         && (request.resource.data.get('noAccount', false) == true) == kidId(uid);
     }
     match /groups/{id} {
-      allow read: if isCenter() || (isCoach() && (get(coachDoc()).data.get('all', false) == true || resource.data.coachUid == request.auth.uid));
+      allow read: if isCenter() || (isCoach() && (get(coachDoc()).data.get('all', false) == true || resource.data.coachUid == request.auth.uid
+        || resource.data.get('coach2Uid', '') == request.auth.uid));
       allow write: if isCenter();
     }
     // xmem/{tid_uid}: il corsista fa parte di un recupero allenamento (per la richiesta di presenza): admin e interessato
@@ -418,12 +419,16 @@ service cloud.firestore {
     }
     function seesTraining(d) {
       return request.auth != null && (d.uid == request.auth.uid
-        || (isCoach() && (get(coachDoc()).data.get('all', false) == true || d.coachUid == request.auth.uid))
+        || (isCoach() && (get(coachDoc()).data.get('all', false) == true || d.coachUid == request.auth.uid || d.get('coach2Uid', '') == request.auth.uid))
         || isStaff());
     }
     function trCoach(tid) { return get(/databases/$(database)/documents/trainings/$(tid)).data.get('coachUid', ''); }
-    // l'utente è l'allenatore di quell'allenamento (segna le presenze e compila la scheda di valutazione)
-    function coachOfTr(tid) { return isCoach() && tid is string && trCoach(tid) == request.auth.uid; }
+    // secondo allenatore (facoltativo): ha gli stessi permessi del primo su quell'allenamento
+    function trCoach2(tid) { return get(/databases/$(database)/documents/trainings/$(tid)).data.get('coach2Uid', ''); }
+    // l'utente è un allenatore di quell'allenamento (segna le presenze e compila la scheda di valutazione)
+    function coachOfTr(tid) { return isCoach() && tid is string && (trCoach(tid) == request.auth.uid || trCoach2(tid) == request.auth.uid); }
+    // il secondo allenatore copiato nel documento è quello dell'allenamento (vuoto se non c'è)
+    function co2Ok(d) { return d.get('coach2Uid', '') == trCoach2(d.tid); }
     function inGroup(tid, date, uid) {
       return exists(/databases/$(database)/documents/groups/$(tid + '_' + date[0:7]))
         && get(/databases/$(database)/documents/groups/$(tid + '_' + date[0:7])).data.uids.hasAny([uid]);
@@ -454,10 +459,10 @@ service cloud.firestore {
     // Il corsista e gli altri utenti non la leggono.
     function evVote(v, k) { return !(k in v) || (v[k] is int && v[k] >= 1 && v[k] <= 10); }
     function evOk(id, d) {
-      return d.keys().hasOnly(['tid', 'date', 'uid', 'coachUid', 'by', 'v', 'note', 'at'])
+      return d.keys().hasOnly(['tid', 'date', 'uid', 'coachUid', 'coach2Uid', 'by', 'v', 'note', 'at'])
         && d.tid is string && d.uid is string && d.date is string && d.date.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
         && id == d.tid + '_' + d.date + '_' + d.uid
-        && d.by == request.auth.uid && d.coachUid == trCoach(d.tid)
+        && d.by == request.auth.uid && d.coachUid == trCoach(d.tid) && co2Ok(d)
         && d.v is map && d.v.keys().hasOnly(['tec', 'mov', 'ctl', 'sce', 'int', 'att', 'con'])
         && evVote(d.v, 'tec') && evVote(d.v, 'mov') && evVote(d.v, 'ctl') && evVote(d.v, 'sce')
         && evVote(d.v, 'int') && evVote(d.v, 'att') && evVote(d.v, 'con')
@@ -473,14 +478,15 @@ service cloud.firestore {
       allow delete: if isStaff();
     }
     match /evals/{id} {
-      allow read: if isStaff() || (request.auth != null && (resource.data.by == request.auth.uid || resource.data.coachUid == request.auth.uid));
+      allow read: if isStaff() || (request.auth != null && (resource.data.by == request.auth.uid || resource.data.coachUid == request.auth.uid
+        || resource.data.get('coach2Uid', '') == request.auth.uid));
       // l'allenatore legge tutte le schede dei corsisti dei suoi gruppi (anche scritte da altri allenatori)
       allow read: if isCoach() && exists(eaP(resource.data.uid)) && request.auth.uid in get(eaP(resource.data.uid)).data.get('coachUids', []);
       allow create, update: if (isStaff() || coachOfTr(request.resource.data.tid)) && evOk(id, request.resource.data);
       // scheda senza account collegata all'account del ragazzo: lo staff copia la valutazione con l'ID nuovo
       // (stessi voti, nota e autore della valutazione di origine, che poi si cancella)
       allow create: if isStaff()
-        && request.resource.data.keys().hasOnly(['tid', 'date', 'uid', 'coachUid', 'by', 'v', 'note', 'at', 'movedFrom'])
+        && request.resource.data.keys().hasOnly(['tid', 'date', 'uid', 'coachUid', 'coach2Uid', 'by', 'v', 'note', 'at', 'movedFrom'])
         && request.resource.data.movedFrom is string && kidId(request.resource.data.movedFrom)
         && id == request.resource.data.tid + '_' + request.resource.data.date + '_' + request.resource.data.uid
         && get(/databases/$(database)/documents/evals/$(request.resource.data.tid + '_' + request.resource.data.date + '_' + request.resource.data.movedFrom)).data.v == request.resource.data.v
@@ -500,7 +506,7 @@ service cloud.firestore {
       allow write: if isCenter();   // presenze segnate da admin e segreteria
       // presenze segnate dall'allenatore di quell'allenamento, solo per i corsisti del gruppo del mese
       allow create, update: if coachOfTr(request.resource.data.tid)
-        && request.resource.data.keys().hasOnly(['tid', 'date', 'uid', 'status', 'at', 'coachUid', 'forced', 'by'])
+        && request.resource.data.keys().hasOnly(['tid', 'date', 'uid', 'status', 'at', 'coachUid', 'coach2Uid', 'forced', 'by'])
         && id == request.resource.data.tid + '_' + request.resource.data.date + '_' + request.resource.data.uid
         && request.resource.data.status in ['in', 'out'] && request.resource.data.by == request.auth.uid
         && (inGroup(request.resource.data.tid, request.resource.data.date, request.resource.data.uid)
@@ -509,11 +515,11 @@ service cloud.firestore {
       // risposta del corsista ("ci sarò" / "non ci sarò"): non cambia una presenza già segnata dall'allenatore o dallo staff
       allow create, update: if isMember() && verified()
         && (resource == null || resource.data.get('forced', false) != true)
-        && request.resource.data.keys().hasOnly(['tid', 'date', 'uid', 'status', 'at', 'coachUid'])
+        && request.resource.data.keys().hasOnly(['tid', 'date', 'uid', 'status', 'at', 'coachUid', 'coach2Uid'])
         && request.resource.data.uid == request.auth.uid
         && id == request.resource.data.tid + '_' + request.resource.data.date + '_' + request.auth.uid
         && request.resource.data.status in ['in', 'out']
-        && request.resource.data.coachUid == trCoach(request.resource.data.tid)
+        && request.resource.data.coachUid == trCoach(request.resource.data.tid) && co2Ok(request.resource.data)
         // il 5° giorno del mese è fuori abbonamento (solo spot), tranne i recuperi allenamento (tr.date)
         && (int(request.resource.data.date[8:10]) <= 28
             || get(/databases/$(database)/documents/trainings/$(request.resource.data.tid)).data.get('date', '') == request.resource.data.date
@@ -535,12 +541,12 @@ service cloud.firestore {
       allow update: if isCenter() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['packBack']);
       // candidatura: solo "in attesa", per sé, non per un allenamento del proprio gruppo né annullato
       allow create: if isMember() && verified()
-        && request.resource.data.keys().hasOnly(['tid', 'date', 'uid', 'name', 'status', 'at', 'seen', 'coachUid', 'from'])
+        && request.resource.data.keys().hasOnly(['tid', 'date', 'uid', 'name', 'status', 'at', 'seen', 'coachUid', 'coach2Uid', 'from'])
         && request.resource.data.uid == request.auth.uid
         && id == request.resource.data.tid + '_' + request.resource.data.date + '_' + request.auth.uid
         && request.resource.data.status == 'pending' && request.resource.data.seen == false
         && request.resource.data.name is string && request.resource.data.name.size() <= 80
-        && request.resource.data.coachUid == trCoach(request.resource.data.tid)
+        && request.resource.data.coachUid == trCoach(request.resource.data.tid) && co2Ok(request.resource.data)
         && (int(request.resource.data.date[8:10]) > 28 || !inGroup(request.resource.data.tid, request.resource.data.date, request.auth.uid))
         && !(exists(occP(request.resource.data.tid + '_' + request.resource.data.date))
              && get(occP(request.resource.data.tid + '_' + request.resource.data.date)).data.get('cancelled', false) == true);

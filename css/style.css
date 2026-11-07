@@ -1734,3 +1734,9 @@ form:has(select[name=holder] option[value="__manual"]:checked) .mh-hide { displa
 .tr-compact .trc-body > .tr-card { border: 0; margin: 0; }
 /* aperta: nome e giorni sono già nella riga in alto */
 .tr-compact .trc-body .tr-card > h3, .tr-compact .trc-body .tr-card > p.cap, .tr-compact .trc-body .trs-days { display: none; }
+/* riga del giorno con il secondo allenatore */
+.tr-day-row { grid-template-columns: minmax(0, 1.2fr) minmax(0, .9fr) minmax(0, .9fr) minmax(0, 1.4fr) auto; }
+@media (max-width: 560px) {
+  .tr-day-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
+  .tr-day-row > .trd-c2 { grid-column: 1 / 3; }
+}

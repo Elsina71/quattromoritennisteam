@@ -1547,10 +1547,14 @@
     return `<span class="badge ${ok ? 'st-done' : 'tess-no'}"><i class="ti ti-${ok ? 'id-badge-2' : 'id-off'}" aria-hidden="true"></i> ${esc(t(ok ? 'tessYes' : 'tessNo', { s }))}</span>`;
   };
   // Allenamenti che il coach può vedere (tutti o solo i suoi)
-  const visibleTrainings = () => (admin() || centerAdm() ? trainings() : coach() ? trainings().filter(tr => coach().all || tr.coachUid === myUid()) : []);
+  // allenatori dell'allenamento: il primo (coachUid) e il secondo facoltativo (coach2Uid), diversi per ogni giorno
+  const trCoaches = tr => [tr && tr.coachUid, tr && tr.coach2Uid].filter(Boolean);
+  const isMyTr = tr => !!tr && trCoaches(tr).includes(myUid());
+  const trCoachNames = tr => trCoaches(tr).map(coachName).join(', ');
+  const visibleTrainings = () => (admin() || centerAdm() ? trainings() : coach() ? trainings().filter(tr => coach().all || isMyTr(tr)) : []);
 
   // Descrizione degli allenamenti del piano (dagli allenamenti attuali; per quelli eliminati resta quella salvata).
-  const trDesc = tr => [trTitle(tr), trLabel(tr), tr.coachUid ? coachName(tr.coachUid) : ''].filter(Boolean).join(' · ');
+  const trDesc = tr => [trTitle(tr), trLabel(tr), trCoachNames(tr)].filter(Boolean).join(' · ');
   const planDesc = p => (p.tids || []).map((id, i) => { const tr = trainingById(id); return tr ? trDesc(tr) : (p.desc || [])[i] || ''; }).filter(Boolean);
   // Piano del mese ricalcolato da tutti i gruppi (con le modifiche "groups" non ancora salvate).
   function planFrom(uid, month, groups) {
@@ -1614,7 +1618,7 @@
   function trCompact(b, month) {
     const tr0 = b.trs[0], key = 'trc-' + b.key.replace(/[^\w-]/g, '');
     const open = keepOpen(key) || b.trs.some(x => x.id === ui.trEdit) ? 'open' : '';
-    const coaches = [...new Set(b.trs.map(x => x.coachUid).filter(Boolean))].map(coachName);
+    const coaches = [...new Set(b.trs.flatMap(trCoaches))].map(coachName);
     const n = Math.max(0, ...b.trs.map(x => ((groupOf(x.id, month) || {}).uids || []).length));
     return `<details class="card tr-compact ${isPrivateTr(tr0) ? 'tr-private' : isExtraTr(tr0) ? 'tr-extra' : ''}" data-keep="${esc(key)}" ${open}>
       <summary><span class="trc-main"><strong class="trc-name">${esc(trTitle(tr0))}</strong>
@@ -1631,7 +1635,8 @@
     const groups = trs.map(x => ({ tr: x, uids: ((groupOf(x.id, month) || {}).uids) || [], names: ((groupOf(x.id, month) || {}).names) || {} }));
     const uids = [...new Set(groups.flatMap(g => g.uids))];
     const names = Object.assign({}, ...groups.map(g => g.names));
-    const coaches = [...new Set(trs.map(x => x.coachUid).filter(Boolean))].map(coachName);
+    const coaches = [...new Set(trs.flatMap(trCoaches))].map(coachName);
+    const sameCoaches = new Set(trs.map(x => trCoaches(x).join('|'))).size === 1;
     const courts = [...new Set(trs.flatMap(x => x.courts || []))].map(courtName);
     const max = Math.max(...trs.map(x => x.max || 0));
     const dayShort = x => { const d = dayName(x.dow); return d.charAt(0).toUpperCase() + d.slice(1, 3); };
@@ -1646,7 +1651,7 @@
       if (centerAdm() && ui.trEdit === x.id) return `<div class="tr-day-block">${trainingForm(x)}</div>`;
       const od = nextOcc(x, month), oc = od && occOf(x.id, od);
       return `<div class="tr-day-block"><p><strong><i class="ti ti-calendar-repeat" aria-hidden="true"></i> ${esc(trLabel(x))}</strong>
-          <span class="muted small">${(x.courts || []).length ? ' · ' + esc(x.courts.map(courtName).join(', ')) : ''}${x.coachUid && coaches.length > 1 ? ' · ' + esc(coachName(x.coachUid)) : ''}</span></p>
+          <span class="muted small">${(x.courts || []).length ? ' · ' + esc(x.courts.map(courtName).join(', ')) : ''}${trCoaches(x).length && !sameCoaches ? ' · ' + esc(trCoachNames(x)) : ''}</span></p>
         ${od ? `<p class="muted small"><i class="ti ti-calendar-check" aria-hidden="true"></i> ${esc(t(oc && oc.cancelled ? 'occCancelledOn' : 'trNextDay', { d: longDate(od) }))}</p>` : ''}
         ${centerAdm() ? `<div class="btn-row"><button class="btn small" data-action="tr-edit" data-id="${esc(x.id)}"><i class="ti ti-pencil" aria-hidden="true"></i> ${esc(t('trEditDay'))}</button>
           <button class="btn small danger" data-action="tr-delete" data-id="${esc(x.id)}"><i class="ti ti-trash" aria-hidden="true"></i> ${esc(t('trDeleteDay'))}</button></div>` : ''}</div>`;
@@ -1703,7 +1708,7 @@
       <h3>${esc(trTitle(tr))}</h3>
       <p class="muted cap"><i class="ti ti-${isExtraTr(tr) ? 'calendar-event' : 'calendar-repeat'}" aria-hidden="true"></i> ${esc(trLabel(tr))}</p>
       ${seriesOf(tr).length ? `<p class="muted small tr-series"><i class="ti ti-link" aria-hidden="true"></i> ${esc(t('trAlsoDays'))} ${seriesOf(tr).map(x => trLabel(x)).join(' · ')}</p>` : ''}
-      <p class="muted small"><i class="ti ti-school" aria-hidden="true"></i> ${esc(t('trCoach'))}: ${esc(tr.coachUid ? coachName(tr.coachUid) : t('trNoCoach'))}
+      <p class="muted small"><i class="ti ti-school" aria-hidden="true"></i> ${esc(t('trCoach'))}: ${esc(trCoachNames(tr) || t('trNoCoach'))}
         ${(tr.courts || []).length ? ' · ' : ''}${(tr.courts || []).length ? `<i class="ti ti-layout-grid" aria-hidden="true"></i> ${esc(tr.courts.map(courtName).join(', '))}` : ''}</p>
       <h4>${esc(t('grpTitle', { m: monthLabel(month) }))}</h4>
       ${od && uids.length ? `<p class="muted small"><i class="ti ti-calendar-check" aria-hidden="true"></i> ${esc(t(oc && oc.cancelled ? 'occCancelledOn' : 'attOfDay', { d: longDate(od) }))}</p>` : ''}
@@ -1725,6 +1730,7 @@
         <label>${esc(t('bkDay'))}<select data-f="dow">${[1, 2, 3, 4, 5, 6, 7].map(n => `<option value="${n}" ${n === +r.dow ? 'selected' : ''}>${esc(dayName(n))}</option>`).join('')}</select></label>
         <label>${esc(t('courtFrom'))}<select data-f="from">${opt(r.from, QUARTERS.slice(0, -1))}</select></label>
         <label>${esc(t('courtTo'))}<select data-f="to">${opt(r.to, QUARTERS.slice(1))}</select></label>
+        <label class="trd-c2">${esc(t('trCoach2'))}<select data-f="coach2"><option value="">${esc(t('trCoach2None'))}</option>${(S().coaches || []).slice().sort((a, b) => coachName(a.id).localeCompare(coachName(b.id))).map(c => `<option value="${esc(c.id)}" ${c.id === r.coach2 ? 'selected' : ''}>${esc(coachName(c.id))}</option>`).join('')}</select></label>
         ${rows.length > 1 ? `<button type="button" class="btn small danger" data-action="tr-day-del" data-i="${i}" aria-label="${esc(t('trDayDel'))}"><i class="ti ti-trash" aria-hidden="true"></i></button>` : ''}
       </div>`).join('')}
       <button type="button" class="btn small" data-action="tr-day-add"><i class="ti ti-plus" aria-hidden="true"></i> ${esc(t('trDayAdd'))}</button>
@@ -1739,7 +1745,7 @@
     (ui.keep = ui.keep || {})['tr-new'] = true;
   }
   // righe dei giorni come sono scritte ora nel modulo
-  const readTrDays = form => [...form.querySelectorAll('.tr-day-row')].map(r => ({ dow: +r.querySelector('[data-f=dow]').value, from: r.querySelector('[data-f=from]').value, to: r.querySelector('[data-f=to]').value }));
+  const readTrDays = form => [...form.querySelectorAll('.tr-day-row')].map(r => ({ dow: +r.querySelector('[data-f=dow]').value, from: r.querySelector('[data-f=from]').value, to: r.querySelector('[data-f=to]').value, coach2: r.querySelector('[data-f=coach2]').value }));
   // altri giorni dello stesso allenamento (creati insieme)
   const seriesOf = tr => (tr && tr.series ? trainings().filter(x => x.series === tr.series && x.id !== tr.id && !x.date) : []);
 
@@ -1773,6 +1779,7 @@
         <label class="not-private">${esc(t('trMax'))}<input type="number" name="max" min="1" max="60" required value="${v.max}" inputmode="numeric"></label>
         <label>${esc(t('trCoach'))}<select name="coachUid"><option value="">—</option>${coaches.map(c => `<option value="${esc(c.id)}" ${c.id === v.coachUid ? 'selected' : ''}>${esc(coachName(c.id))}</option>`).join('')}</select>
           ${coaches.length ? '' : `<small class="muted">${esc(t('trNoCoaches'))}</small>`}</label>
+        <label class="${tr ? '' : 'not-weekly'}">${esc(t('trCoach2'))}<select name="coach2Uid"><option value="">${esc(t('trCoach2None'))}</option>${coaches.map(c => `<option value="${esc(c.id)}" ${c.id === v.coach2Uid ? 'selected' : ''}>${esc(coachName(c.id))}</option>`).join('')}</select></label>
         <fieldset class="span-all fp-levels"><legend>${esc(t('trCourts'))}</legend>
           ${(S().courts || []).map(c => `<label class="check"><input type="checkbox" name="court" value="${esc(c.id)}" ${(v.courts || []).includes(c.id) ? 'checked' : ''}> ${esc(c.name)}</label>`).join('') || `<span class="muted small">${esc(t('trNoCourts'))}</span>`}
           <small class="muted span-all only-weekly">${esc(t('trCourtsHelp'))}</small><small class="muted span-all only-date">${esc(t('trExtraCourtsHelp'))}</small></fieldset>
@@ -2014,7 +2021,7 @@
   // (tutte le schede, anche di altri allenatori; solo nomi e voti, niente dati della scheda corsista).
   function myTrainees() {
     const me = myUid(), out = {};
-    (S().groups || []).filter(g => admin() || g.coachUid === me).forEach(g => (g.uids || []).forEach(u => { if (!out[u]) out[u] = (g.names || {})[u] || uidName(u); }));
+    (S().groups || []).filter(g => admin() || g.coachUid === me || g.coach2Uid === me).forEach(g => (g.uids || []).forEach(u => { if (!out[u]) out[u] = (g.names || {})[u] || uidName(u); }));
     return Object.entries(out).map(([uid, name]) => ({ uid, name })).sort((a, b) => a.name.localeCompare(b.name));
   }
   function viewCoachEvals() {
@@ -2134,13 +2141,14 @@
     const kindEl = f.querySelector('[name=kind]:checked') || f.querySelector('[name=kind]');
     const extra = kindEl && kindEl.value === 'extra', priv = kindEl && kindEl.value === 'private';
     const d = { name: f.name.value.trim(), dow: f.dow ? +f.dow.value : 1, from: f.from.value, to: f.to.value, level: f.level.value,
-      max: Math.max(1, parseInt(f.max.value, 10) || 1), coachUid: f.coachUid.value, courts: [...f.querySelectorAll('[name=court]:checked')].map(x => x.value) };
+      max: Math.max(1, parseInt(f.max.value, 10) || 1), coachUid: f.coachUid.value, coach2Uid: f.coach2Uid ? f.coach2Uid.value : '', courts: [...f.querySelectorAll('[name=court]:checked')].map(x => x.value) };
     if (!old) ui.trDraft = Object.assign({}, d, { kind: priv ? 'private' : extra ? 'extra' : 'weekly', date: f.date ? f.date.value : '', copyFrom: f.copyFrom ? f.copyFrom.value : '',
       person: f.person ? f.person.value : '', extName: f.extName ? f.extName.value : '' });
     const days = !old && !priv && !extra ? readTrDays(f) : null;
     if (days) ui.trDraft.days = days;
     if (days && days.length) return trSaveWeeklyDays(d, days);
     if (d.to <= d.from) return warn('fpTimeErr');
+    if (d.coach2Uid && d.coach2Uid === d.coachUid) return warn('trCoach2Same');
     if (priv) return trSavePrivate(f, old, d);
     if (extra) return trSaveExtra(f, old, d);
     d.reason = `${t('navTrain')} · ${d.name || levelLabel(d.level)}${d.coachUid ? ' · ' + coachName(d.coachUid) : ''}`;
@@ -2167,7 +2175,8 @@
     const ov = days.find((r, i) => days.some((x, j) => j !== i && x.dow === r.dow && x.from < r.to && r.from < x.to));
     if (ov) return warn('trDaysOverlap', { d: dayName(ov.dow) });
     const reason = `${t('navTrain')} · ${d.name || levelLabel(d.level)}${d.coachUid ? ' · ' + coachName(d.coachUid) : ''}`;
-    const list = days.map(r => Object.assign({}, d, { dow: r.dow, from: r.from, to: r.to, reason }));
+    if (d.coachUid && days.some(r => r.coach2 === d.coachUid)) return warn('trCoach2Same');
+    const list = days.map(r => Object.assign({}, d, { dow: r.dow, from: r.from, to: r.to, coach2Uid: r.coach2 || '', reason }));
     for (const x of list) {
       const clash = x.courts.filter(c => (S().recurring || []).some(r => r.courtId === c && r.dow === x.dow && r.from < x.to && x.from < r.to));
       if (clash.length) return warn('trCourtBusyDay', { c: clash.map(courtName).join(', '), d: dayName(x.dow), a: x.from, b: x.to });
@@ -2206,7 +2215,7 @@
     else { const m = memberByUid(uid); name = m ? personName(m) : ''; }
     const month = date.slice(0, 7);
     window.Cloud.saveTraining(null, d, []).then(id => {
-      const g = { id: `${id}_${month}`, tid: id, month, uids: [uid], names: { [uid]: name }, coachUid: d.coachUid || '', updated: Date.now() };
+      const g = { id: `${id}_${month}`, tid: id, month, uids: [uid], names: { [uid]: name }, coachUid: d.coachUid || '', coach2Uid: d.coach2Uid || '', updated: Date.now() };
       return window.Cloud.saveGroups([g], [], [], isExtPerson(uid) ? [] : [{ tid: id, date, uid, on: true }]);
     }).then(() => {
       (ui.keep || {})['tr-new'] = false; ui.trDraft = null; ui.trDays = null; ui.trMonth = month;
@@ -2234,7 +2243,7 @@
       // gruppo del mese dell'allenamento sorgente (se non c'è ancora, quello del mese precedente)
       const sg = groupOf(src.id, month) || groupOf(src.id, shiftMonth(month, -1));
       if (!sg || !(sg.uids || []).length) return 0;
-      const g = { id: `${id}_${month}`, tid: id, month, uids: sg.uids.slice(), names: Object.assign({}, sg.names || {}), coachUid: d.coachUid || '', updated: Date.now(), from: src.id };
+      const g = { id: `${id}_${month}`, tid: id, month, uids: sg.uids.slice(), names: Object.assign({}, sg.names || {}), coachUid: d.coachUid || '', coach2Uid: d.coach2Uid || '', updated: Date.now(), from: src.id };
       return window.Cloud.saveGroups([g], [], [], g.uids.map(uid => ({ tid: id, date, uid, on: true }))).then(() => g.uids.length);
     }).then(n => {
       if (old) ui.trEdit = null; else { (ui.keep || {})['tr-new'] = false; ui.trDraft = null; ui.trDays = null; }
@@ -2252,7 +2261,7 @@
     const m = memberByUid(uid) || athleteData;
     const gs = trs.map(tr => {
       const cur = groupOf(tr.id, month) || { id: `${tr.id}_${month}`, tid: tr.id, month, uids: [], names: {} };
-      const g = Object.assign({}, cur, { uids: (cur.uids || []).slice(), names: Object.assign({}, cur.names || {}), coachUid: tr.coachUid || '' });
+      const g = Object.assign({}, cur, { uids: (cur.uids || []).slice(), names: Object.assign({}, cur.names || {}), coachUid: tr.coachUid || '', coach2Uid: tr.coach2Uid || '' });
       if (add) { if (!g.uids.includes(uid)) g.uids.push(uid); if (m && (m.first || m.last)) g.names[uid] = personName(m); }
       else { g.uids = g.uids.filter(x => x !== uid); delete g.names[uid]; }
       g.updated = Date.now();
@@ -2280,7 +2289,7 @@
     trainings().forEach(tr => {
       const cur = groupOf(tr.id, month), has = !!(cur && (cur.uids || []).includes(uid)), want = tids.includes(tr.id);
       if (has === want) return;
-      const g = Object.assign({ id: `${esc(tr.id)}_${month}`, tid: tr.id, month }, cur || {}, { uids: ((cur && cur.uids) || []).slice(), names: Object.assign({}, (cur && cur.names) || {}), coachUid: tr.coachUid || '', updated: Date.now() });
+      const g = Object.assign({ id: `${esc(tr.id)}_${month}`, tid: tr.id, month }, cur || {}, { uids: ((cur && cur.uids) || []).slice(), names: Object.assign({}, (cur && cur.names) || {}), coachUid: tr.coachUid || '', coach2Uid: tr.coach2Uid || '', updated: Date.now() });
       if (want) { if (g.uids.length >= tr.max) full.push(trTitle(tr)); g.uids.push(uid); if (m) g.names[uid] = personName(m); }
       else { g.uids = g.uids.filter(x => x !== uid); delete g.names[uid]; }
       changed.push(g);
@@ -2386,7 +2395,7 @@
         <div class="ch-head">${lvlBadge(tr.level)} ${free > 0 ? freeBadge(tr, date) : ''}</div>
         <h3>${esc(trTitle(tr))}</h3>
         <p class="muted cap"><i class="ti ti-calendar" aria-hidden="true"></i> ${esc(longDate(date))} · ${esc(tr.from)}–${esc(tr.to)}</p>
-        ${tr.coachUid ? `<p class="muted small"><i class="ti ti-school" aria-hidden="true"></i> ${esc(coachName(tr.coachUid))}</p>` : ''}
+        ${trCoaches(tr).length ? `<p class="muted small"><i class="ti ti-school" aria-hidden="true"></i> ${esc(trCoachNames(tr))}</p>` : ''}
         <p class="muted small">${esc(m && activePack(m.uid) ? t('spotPackInfo') : t('spotPriceInfo', { p: euro((S().prices || {}).spot) }))}</p>
         ${act}</div>`;
     };
@@ -2464,7 +2473,7 @@
         <button class="linkish tr-month-date cap" data-action="tr-day" data-d="${date}" data-to-day="1">${esc(longDate(date))}</button>
         <ul class="plain-list">${list.sort((x, y) => x.tr.from.localeCompare(y.tr.from)).map(({ tr }) => { const c = cnt(tr.id, date); return `<li class="${isExtraTr(tr) ? 'tr-extra-row' : ''}">
           <button class="linkish" data-action="tr-day" data-d="${date}" data-to-day="1">${esc(tr.from)}–${esc(tr.to)} · <strong>${esc(trTitle(tr))}</strong></button>
-          ${extraBadge(tr)}${tr.coachUid ? ` <small class="muted">${esc(coachName(tr.coachUid))}</small>` : ''}
+          ${extraBadge(tr)}${trCoaches(tr).length ? ` <small class="muted">${esc(trCoachNames(tr))}</small>` : ''}
           ${c.cancelled ? `<span class="badge st-full">${esc(t('occCancelled'))}</span>` : `<small class="muted">${esc(t('trMonthCounts', { p: c.p, a: c.a, s: c.s }))}</small>`}</li>`; }).join('')}</ul></div>`).join('')}</div>`;
   }
 
@@ -2681,8 +2690,8 @@
   const EV_KEYS = ['tec', 'mov', 'ctl', 'sce', 'int', 'att', 'con'];
   const evalOf = (tid, date, uid) => (S().evals || []).find(e => e.tid === tid && e.date === date && e.uid === uid);
   // l'allenatore di quell'allenamento segna le presenze e compila la scheda; admin e segreteria sempre
-  const canMark = tr => centerAdm() || !!(tr && coach() && tr.coachUid === myUid());
-  const canEval = tr => admin() || !!(tr && coach() && tr.coachUid === myUid());
+  const canMark = tr => centerAdm() || !!(coach() && isMyTr(tr));
+  const canEval = tr => admin() || !!(coach() && isMyTr(tr));
   // bottone in fondo alla giornata di allenamento
   function evalCta(tr, date, o, uids) {
     if (!canEval(tr) || o.cancelled || date > todayStr() || !uids.length) return '';
@@ -2726,7 +2735,7 @@
     const byName = (a, b) => name(a).localeCompare(name(b));
     return `<div class="page-head">${back}
         <h1><i class="ti ti-clipboard-check" aria-hidden="true"></i> ${esc(t('evTitle'))}</h1>
-        <p class="muted cap">${esc(trTitle(tr))} · ${esc(longDate(date))} ${esc(tr.from)}–${esc(tr.to)}${tr.coachUid ? ` · <i class="ti ti-school" aria-hidden="true"></i> ${esc(coachName(tr.coachUid))}` : ''}</p></div>
+        <p class="muted cap">${esc(trTitle(tr))} · ${esc(longDate(date))} ${esc(tr.from)}–${esc(tr.to)}${trCoaches(tr).length ? ` · <i class="ti ti-school" aria-hidden="true"></i> ${esc(trCoachNames(tr))}` : ''}</p></div>
       <div class="card ev-help">
         <p><strong><i class="ti ti-info-circle" aria-hidden="true"></i> ${esc(t('evScale'))}</strong></p>
         <p class="muted small">${esc(t('evTip'))}</p>
@@ -2744,7 +2753,7 @@
     if (!tr || !canEval(tr) || !ui.ev || ui.ev.key !== `${tid}_${date}`) return;
     document.querySelectorAll('.ev-note input[data-uid]').forEach(i => { const d = ui.ev.d[i.dataset.uid]; if (d && d.note !== i.value.trim()) { d.note = i.value.trim().slice(0, 160); d.dirty = true; } });
     const list = Object.entries(ui.ev.d).filter(([uid, d]) => (onlyUid ? uid === onlyUid : d.dirty) && (d.dirty || onlyUid))
-      .map(([uid, d]) => ({ tid, date, uid, coachUid: tr.coachUid || '', v: d.v, note: d.note }));
+      .map(([uid, d]) => ({ tid, date, uid, coachUid: tr.coachUid || '', coach2Uid: tr.coach2Uid || '', v: d.v, note: d.note }));
     if (!list.length) return warn('evNothing');
     window.Cloud.saveEvals(list).then(() => {
       list.forEach(e => { ui.ev.d[e.uid].dirty = false; });
@@ -2800,7 +2809,7 @@
       <div class="ch-head">${extraBadge(tr)}${lvlBadge(tr.level)}
         ${o.cancelled ? `<span class="badge st-full">${esc(t('occCancelled'))}</span>` : admin() ? freeBadge(tr, date) : ''}</div>
       <h3>${esc(trTitle(tr))}</h3>
-      <p class="muted"><i class="ti ti-clock" aria-hidden="true"></i> ${esc(tr.from)}–${esc(tr.to)}${tr.coachUid ? ` · ${esc(coachName(tr.coachUid))}` : ''}</p>
+      <p class="muted"><i class="ti ti-clock" aria-hidden="true"></i> ${esc(tr.from)}–${esc(tr.to)}${trCoaches(tr).length ? ` · ${esc(trCoachNames(tr))}` : ''}</p>
       ${o.cancelled && o.note ? `<p class="note warn">${esc(o.note)}</p>` : ''}
       <p class="occ-sum">${esc(t('occSummary', { p: o.p || 0, a: o.a || 0, u: Math.max(0, n - (o.p || 0) - (o.a || 0)), s: o.s || 0, m: tr.max }))}</p>
       ${canMark(tr) && !o.cancelled && uids.length ? `<p class="muted small"><i class="ti ti-hand-finger" aria-hidden="true"></i> ${esc(t('attMarkHelp'))}</p>` : ''}
@@ -2896,7 +2905,7 @@
       if (cur && cur.forced) return warn('attMarkedLocked');
       // dopo le 13 si torna presenti solo se i posti non sono già andati agli spot
       if (st === 'in' && afterNoon(date) && !(cur && cur.status === 'in') && ((occOf(tr.id, date) || {}).s || 0) > 0 && spotsFree(tr, date) <= 0) return warn('attFullContact');
-      window.Cloud.setAttendance(tr.id, date, m.uid, st || null, { coachUid: tr.coachUid || '' }).then(() => { ui.flash = { text: t(st === 'in' ? 'attSavedIn' : st === 'out' ? 'attSavedOut' : 'attSavedNone') }; render(); })
+      window.Cloud.setAttendance(tr.id, date, m.uid, st || null, { coachUid: tr.coachUid || '', coach2Uid: tr.coach2Uid || '' }).then(() => { ui.flash = { text: t(st === 'in' ? 'attSavedIn' : st === 'out' ? 'attSavedOut' : 'attSavedNone') }; render(); })
         .catch(e => (e && e.code === 'permission-denied' ? warn('attDenied') : trErr(e)));
     },
     'att-force': el => {
@@ -2907,7 +2916,7 @@
       // Lo scalo del pacchetto avviene subito, anche quando segna l'allenatore (contatore senza prezzi).
       const date = el.dataset.date, uid = el.dataset.uid, nm = (((groupOf(tr.id, date.slice(0, 7)) || {}).names || {})[uid]) || coachName(uid);
       el.disabled = true;
-      window.Cloud.markAttendance(tr.id, date, uid, el.dataset.st || null, tr.coachUid || '')
+      window.Cloud.markAttendance(tr.id, date, uid, el.dataset.st || null, tr.coachUid || '', tr.coach2Uid || '')
         .then(r => { ui.flash = r === 'used' || r === 'released' ? { text: t(r === 'used' ? 'packScaledOne' : 'packBackOne', { n: nm }) } : null; render(); })
         .catch(e => { el.disabled = false; trErr(e); });
     },
@@ -2918,7 +2927,7 @@
       if (!spotOpen(tr, date)) return warn('spotClosed');
       const pk = activePack(m.uid);
       if (!confirmed(pk ? 'spotApplyConfirmPack' : 'spotApplyConfirm', { o: occLabel(tr, date), p: euro((S().prices || {}).spot), l: packsOf(m.uid).reduce((s, k) => s + packLeft(k), 0) })) return;
-      window.Cloud.applySpot({ tid: tr.id, date, name: personLabel(m), coachUid: tr.coachUid || '', from: tr.from }).then(() => { ui.flash = { text: t('spotApplied') }; render(); }).catch(trErr);
+      window.Cloud.applySpot({ tid: tr.id, date, name: personLabel(m), coachUid: tr.coachUid || '', coach2Uid: tr.coach2Uid || '', from: tr.from }).then(() => { ui.flash = { text: t('spotApplied') }; render(); }).catch(trErr);
     },
     'spot-withdraw': el => { if (confirmed('spotWithdrawConfirm')) window.Cloud.withdrawSpot(el.dataset.id).then(() => render()).catch(trErr); },
     'spot-seen': el => { window.Cloud.seeSpot(el.dataset.id).then(() => render()).catch(trErr); },
@@ -3010,7 +3019,7 @@
       const asPack = f.as.value === 'pack', pk = asPack ? activePack(m.uid) : null;
       if (asPack && !pk) return warn('occAddNoPack', { n: personName(m) });
       const price = asPack || f.price.value === '' ? 0 : Math.round(Number(f.price.value) * 100) / 100;
-      const sp = { id: `${esc(tr.id)}_${date}_${m.uid}`, tid: tr.id, date, uid: m.uid, name: personLabel(m), coachUid: tr.coachUid || '', from: tr.from, at: Date.now(), added: true };
+      const sp = { id: `${esc(tr.id)}_${date}_${m.uid}`, tid: tr.id, date, uid: m.uid, name: personLabel(m), coachUid: tr.coachUid || '', coach2Uid: tr.coach2Uid || '', from: tr.from, at: Date.now(), added: true };
       window.Cloud.decideSpot(sp, true, price, pk ? pk.id : null).then(() => {
         ui.flash = { text: t(asPack ? 'occAddDonePack' : 'occAddDone', { n: personName(m), o: occLabel(tr, date) }) }; render();
       }).catch(e => (e && e.code === 'pack-empty' ? warn('packEmptyErr') : trErr(e)));
@@ -3020,7 +3029,7 @@
       if (!tr) return;
       const price = f.price.value === '' ? 0 : Math.round(Number(f.price.value) * 100) / 100;
       const uid = f.dataset.uid;
-      const sp = { id: `${tid}_${date}_${uid}`, tid, date, uid, name: f.dataset.name, coachUid: tr.coachUid || '', from: tr.from, at: Date.now(), recovery: { tid: f.dataset.tid, date: f.dataset.date } };
+      const sp = { id: `${tid}_${date}_${uid}`, tid, date, uid, name: f.dataset.name, coachUid: tr.coachUid || '', coach2Uid: tr.coach2Uid || '', from: tr.from, at: Date.now(), recovery: { tid: f.dataset.tid, date: f.dataset.date } };
       window.Cloud.decideSpot(sp, true, price).then(() => { ui.recFor = null; ui.flash = { text: t('recGiven', { n: sp.name, o: occLabel(tr, date) }) }; render(); }).catch(trErr);
     }
   };
@@ -3938,7 +3947,7 @@
     if (r.loading) return;
     const sessions = [['Data', 'Allenamento', 'Livello', 'Allenatore', 'Iscritti', 'Presenti', 'Assenti', 'Senza risposta', 'Spot', 'Recuperi', 'Totale presenti']]
       .concat(r.ss.slice().sort((a, b) => (a.date + a.tr.from).localeCompare(b.date + b.tr.from)).map(s => [itDate(s.date), `${trTitle(s.tr)} ${s.tr.from}–${s.tr.to}`, levelLabel(s.tr.level),
-        s.tr.coachUid ? coachName(s.tr.coachUid) : '', s.enrolled, s.in, s.out, s.nr, s.spot, s.rec, s.in + s.spot + s.rec]));
+        trCoachNames(s.tr), s.enrolled, s.in, s.out, s.nr, s.spot, s.rec, s.in + s.spot + s.rec]));
     const ath = [['Allenamento', 'Corsista', 'Presenze', 'Assenze', 'di cui senza risposta', 'Recuperi fatti', 'Allenamenti assenti']];
     r.byTr.forEach(x => { const tr = trainingById(x.key); if (!tr) return;
       rpAthletes(tr.id, r.p.from, r.p.to, r.d).list.forEach(a => ath.push([x.label, a.name, a.in, a.abs, a.nr, a.rec, a.days.filter(dd => dd.st !== 'in').map(dd => itDate(dd.date)).join(', ')])); });
@@ -3953,7 +3962,7 @@
     if (!d) return;
     const trs = trainings(), PAYM = { cash: 'contanti', card: 'POS', transfer: 'bonifico' };
     const sheetTr = [['Allenamento', 'Giorno', 'Orario', 'Livello', 'Allenatore', 'Max persone', 'Campi', 'Iscritti nel mese']]
-      .concat(trs.map(tr => [trTitle(tr), dayName(tr.dow), `${esc(tr.from)}–${esc(tr.to)}`, levelLabel(tr.level), tr.coachUid ? coachName(tr.coachUid) : '', tr.max || 0,
+      .concat(trs.map(tr => [trTitle(tr), dayName(tr.dow), `${esc(tr.from)}–${esc(tr.to)}`, levelLabel(tr.level), trCoachNames(tr), tr.max || 0,
         (tr.courts || []).map(courtName).join(', '), ((groupOf(tr.id, month) || {}).uids || []).length]));
     const sheetGr = [['Allenamento', 'Orario', 'Corsista']];
     trs.forEach(tr => { const g = groupOf(tr.id, month); ((g && g.uids) || []).forEach(u => sheetGr.push([trTitle(tr), trLabel(tr), (g.names || {})[u] || coachName(u)])); });
@@ -4076,7 +4085,7 @@
       const add = ((sg && sg.uids) || []).filter(u => !(cur.uids || []).includes(u));
       if (!add.length) return warn('occCopyNone', { s: trTitle(src) });
       const g = Object.assign({}, cur, { uids: (cur.uids || []).concat(add), names: Object.assign({}, cur.names || {}, Object.fromEntries(add.map(u => [u, (sg.names || {})[u] || '']))),
-        coachUid: tr.coachUid || '', updated: Date.now() });
+        coachUid: tr.coachUid || '', coach2Uid: tr.coach2Uid || '', updated: Date.now() });
       window.Cloud.saveGroups([g], [], [], add.map(uid => ({ tid: tr.id, date: tr.date || date, uid, on: true })))
         .then(() => { ui.flash = { text: t('occCopied', { n: add.length, s: trTitle(src) }) }; render(); })
         .catch(e => warn('regError', { code: e.code || e.message }));
@@ -4167,7 +4176,7 @@
     'tr-month': el => { ui.trMonth = el.dataset.m; render(); },
     'tr-edit': el => { ui.trEdit = el.dataset.id; render(); },
     'tr-day-add': el => { const f = el.closest('form'), rows = readTrDays(f), last = rows[rows.length - 1] || { dow: 1, from: '18:00', to: '19:30' };
-      ui.trDays = rows.concat([{ dow: last.dow % 7 + 1, from: last.from, to: last.to }]); keepTrDraft(f); render(); },
+      ui.trDays = rows.concat([{ dow: last.dow % 7 + 1, from: last.from, to: last.to, coach2: last.coach2 || '' }]); keepTrDraft(f); render(); },
     'tr-day-del': el => { const f = el.closest('form'), rows = readTrDays(f); rows.splice(+el.dataset.i, 1); ui.trDays = rows; keepTrDraft(f); render(); },
     'tr-edit-cancel': () => { ui.trEdit = null; render(); },
     'tr-delete': el => {
@@ -4185,7 +4194,7 @@
       const month = el.dataset.m, prev = shiftMonth(month, -1);
       const add = weeklyTrainings().filter(tr => !groupOf(tr.id, month) && groupOf(tr.id, prev)).map(tr => {
         const pg = groupOf(tr.id, prev);
-        return { id: `${esc(tr.id)}_${month}`, tid: tr.id, month, uids: (pg.uids || []).slice(), names: Object.assign({}, pg.names || {}), coachUid: tr.coachUid || '', updated: Date.now() };
+        return { id: `${esc(tr.id)}_${month}`, tid: tr.id, month, uids: (pg.uids || []).slice(), names: Object.assign({}, pg.names || {}), coachUid: tr.coachUid || '', coach2Uid: tr.coach2Uid || '', updated: Date.now() };
       });
       if (!add.length) return;
       const all = (S().groups || []).concat(add);
@@ -5103,7 +5112,7 @@
         if (!fullAdmin()) return;
         const uid = el.dataset.uid, m = memberByUid(uid), cur = roleOf(uid), role = el.value, name = m ? personName(m) : '';
         if (!grantable().includes(role) || !grantable().includes(cur)) { render(); return; }
-        const trs = (S().trainings || []).filter(tr => tr.coachUid === uid);
+        const trs = (S().trainings || []).filter(tr => tr.coachUid === uid || tr.coach2Uid === uid);
         if (cur === 'coach' && trs.length && !confirmed('roleCoachLeave', { n: name, k: trs.length })) { render(); return; }
         if (!confirmed('roleChangeConfirm', { n: name, a: t('role_' + cur), b: t('role_' + role) })) { render(); return; }
         window.Cloud.setUserRole(uid, role, name, !!coachOf(uid))
