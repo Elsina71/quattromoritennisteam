@@ -76,6 +76,7 @@
     else if (r[0] === 'book') { nav = 'book'; html = viewBook(); }
     else if (r[0] === 'train') { nav = 'train'; html = viewTraining(); }
     else if (r[0] === 'eval') { nav = 'train'; html = viewEval(r[1], r[2]); }
+    else if (r[0] === 'ptreq') { nav = 'train'; html = viewPtReq(); }
     else if (r[0] === 'privacy' || r[0] === 'cookie' || r[0] === 'termini') { nav = 'settings'; html = viewLegal(r[0]); }
     else if (r[0] === 'athletes' && admin()) { nav = 'train'; html = viewAthletes(r[1] === 'cert'); }
     else if (r[0] === 'payments' && admin()) { nav = 'settings'; html = viewPayments(); }
@@ -319,6 +320,7 @@
       ${admin() && homonymPending().length ? `<div class="msg-alert" role="alert"><div class="msg-head"><strong><i class="ti ti-users" aria-hidden="true"></i> ${esc(t('homonym'))}</strong></div>
         <div class="msg-text">${esc(t('homonymWarn'))}</div><a class="btn small" href="#/users">${esc(t('usersOpen'))} →</a></div>` : ''}
       ${privacyAlert()}
+      ${ptAlert()}
       ${messageAlerts()}
       ${wrappedAlert()}
       ${trainingAlerts()}
@@ -1325,8 +1327,15 @@
   const weeklyTrainings = () => trainings().filter(tr => !tr.date);
   const trLabel = tr => { if (tr.date) { const x = longDate(tr.date); return `${x.charAt(0).toUpperCase() + x.slice(1)} ${esc(tr.from)}–${esc(tr.to)}`; }
     const d = dayName(tr.dow); return `${d.charAt(0).toUpperCase() + d.slice(1)} ${esc(tr.from)}–${esc(tr.to)}`; };
-  const extraBadge = tr => (isExtraTr(tr) ? `<span class="badge tr-extra-badge"><i class="ti ti-refresh" aria-hidden="true"></i> ${esc(t('trExtraBadge'))}</span>` : '');
-  const trTitle = tr => tr.name || t('trDefaultName', { l: levelLabel(tr.level) });
+  // Tipo di allenamento: settimanale (si ripete), recupero (una data) o privato (una data, un allievo, un maestro).
+  const isPrivateTr = tr => !!(tr && tr.type === 'private');
+  const trType = tr => (isPrivateTr(tr) ? 'private' : isExtraTr(tr) ? 'extra' : 'weekly');
+  const TR_TYPE = { weekly: ['calendar-repeat', 'trWeeklyBadge', 'tr-weekly-badge'], extra: ['refresh', 'trExtraBadge', 'tr-extra-badge'], private: ['user-star', 'trPrivateBadge', 'tr-private-badge'] };
+  const trTypeBadge = tr => { const [ic, k, cls] = TR_TYPE[trType(tr)]; return `<span class="badge ${cls}"><i class="ti ti-${ic}" aria-hidden="true"></i> ${esc(t(k))}</span>`; };
+  const extraBadge = tr => trTypeBadge(tr);
+  // persona di un allenamento privato senza account (esterno): ID "x-…", solo il nome nel gruppo
+  const isExtPerson = uid => /^x-/.test(uid || '');
+  const trTitle = tr => tr.name || (isPrivateTr(tr) ? t('trPrivateName') : t('trDefaultName', { l: levelLabel(tr.level) }));
   const groupOf = (tid, month) => (S().groups || []).find(g => g.tid === tid && g.month === month);
   const athleteOf = uid => (S().athletes || []).find(a => a.id === uid);
   const planOf = (uid, month) => (S().plans || []).find(p => p.uid === uid && p.month === month);
@@ -1376,13 +1385,13 @@
     // utenti e visitatori: posti spot disponibili e i propri allenamenti
     if (!admin() && !coach() && !centerAdm()) {
       const mine = member() ? myTrainingCard() : '';
-      return `${trainingAlerts()}<div class="page-head"><h1><i class="ti ti-barbell" aria-hidden="true"></i> ${esc(t('navTrain'))}</h1><p class="muted">${esc(t('trIntroPublic'))}</p></div>${mine}${spotSection(false)}`;
+      return `${trainingAlerts()}<div class="page-head"><h1><i class="ti ti-barbell" aria-hidden="true"></i> ${esc(t('navTrain'))}</h1><p class="muted">${esc(t('trIntroPublic'))}</p></div>${ptCta()}${myPtReqs()}${mine}${spotSection(false)}`;
     }
     const tab = ui.trTab || 'day';
     const tabs = `<nav class="tabs">${[['day', 'trTabDay', 'calendar-check'], ['groups', 'trTabGroups', 'users-group']].map(([k, l, i]) =>
       `<a href="#/train" class="${tab === k ? 'active' : ''}" data-action="tr-tab" data-tab="${k}"><i class="ti ti-${i}" aria-hidden="true"></i> ${esc(t(l))}</a>`).join('')}</nav>`;
     if (tab === 'day') return `${admin() ? trainingAlerts() : ''}<div class="page-head row"><h1><i class="ti ti-barbell" aria-hidden="true"></i> ${esc(t('navTrain'))}</h1>
-        ${admin() ? `<span class="btn-row"><a class="btn small" href="#/report"><i class="ti ti-report-analytics" aria-hidden="true"></i> ${esc(t('rpTitle'))} →</a><a class="btn small" href="#/athletes"><i class="ti ti-id-badge-2" aria-hidden="true"></i> ${esc(t('athTitle'))} →</a></span>` : ''}</div>${tabs}${admin() ? myTrainingCard() : ''}${trainingDay()}`;
+        ${admin() ? `<span class="btn-row"><a class="btn small" href="#/report"><i class="ti ti-report-analytics" aria-hidden="true"></i> ${esc(t('rpTitle'))} →</a><a class="btn small" href="#/athletes"><i class="ti ti-id-badge-2" aria-hidden="true"></i> ${esc(t('athTitle'))} →</a></span>` : ''}</div>${ptCta()}${tabs}${admin() ? myTrainingCard() : ''}${trainingDay()}`;
     const month = ui.trMonth || curMonth();
     const list = visibleTrainings().filter(tr => !tr.date || tr.date.slice(0, 7) === month);
     const prev = shiftMonth(month, -1);
@@ -1390,6 +1399,7 @@
     return `
       <div class="page-head row"><h1><i class="ti ti-barbell" aria-hidden="true"></i> ${esc(t('navTrain'))}</h1>
         ${admin() ? `<span class="btn-row"><a class="btn small" href="#/report"><i class="ti ti-report-analytics" aria-hidden="true"></i> ${esc(t('rpTitle'))} →</a><a class="btn small" href="#/athletes"><i class="ti ti-id-badge-2" aria-hidden="true"></i> ${esc(t('athTitle'))} →</a></span>` : ''}</div>
+      ${ptCta()}
       ${tabs}
       <div class="month-nav card">
         <button class="btn small" data-action="tr-month" data-m="${prev}" aria-label="${esc(t('prevMonth'))}"><i class="ti ti-chevron-left" aria-hidden="true"></i></button>
@@ -1413,7 +1423,7 @@
     const rows = uids.map(uid => {
       const a = athleteOf(uid), at = od && attOf(tr.id, od, uid);
       return `<li><span class="reg-names"><strong>${esc(names[uid] || coachName(uid))}</strong>${isKid(uid) && admin() ? ` <span class="badge kid-badge">${esc(t('kidBadge'))}</span>` : ''}${od && !(oc && oc.cancelled) ? ` ${attState(at, od)}` : ''}
-        ${admin() ? `<br>${tessBadge(a)} ${certBadge(a)}` : ''}</span>
+        ${admin() && !isExtPerson(uid) ? `<br>${tessBadge(a)} ${certBadge(a)}` : isExtPerson(uid) ? ` <span class="badge">${esc(t('ptExternal'))}</span>` : ''}</span>
         ${centerAdm() ? `<button class="btn small danger" data-action="grp-remove" data-tid="${esc(tr.id)}" data-m="${month}" data-uid="${uid}" aria-label="${esc(t('remove'))}"><i class="ti ti-user-minus" aria-hidden="true"></i></button>` : ''}</li>`;
     }).join('');
     let add = '';
@@ -1429,7 +1439,7 @@
           <div class="form-actions span-all"><button class="btn primary">${esc(t('grpAddBtn'))}</button></div>
         </form></details>`;
     }
-    return `<div class="card tr-card ${isExtraTr(tr) ? 'tr-extra' : ''}" id="tr-${esc(tr.id)}">
+    return `<div class="card tr-card ${isPrivateTr(tr) ? 'tr-private' : isExtraTr(tr) ? 'tr-extra' : ''}" id="tr-${esc(tr.id)}">
       <div class="ch-head">${extraBadge(tr)}${lvlBadge(tr.level)} <span class="badge ${full ? 'st-full' : ''}">${uids.length}/${tr.max}</span></div>
       <h3>${esc(trTitle(tr))}</h3>
       <p class="muted cap"><i class="ti ti-${isExtraTr(tr) ? 'calendar-event' : 'calendar-repeat'}" aria-hidden="true"></i> ${esc(trLabel(tr))}</p>
@@ -1450,15 +1460,20 @@
     const v = tr || dr || { name: '', dow: 1, from: '19:00', to: '20:15', level: LEVELS[0], max: 8, coachUid: '', courts: [] };
     const coaches = (S().coaches || []).slice().sort((a, b) => coachName(a.id).localeCompare(coachName(b.id)));
     const opt = (sel, list) => list.map(h => `<option ${h === sel ? 'selected' : ''}>${h}</option>`).join('');
-    const ex = isExtraTr(tr);
+    const ex = isExtraTr(tr), pv = isPrivateTr(tr), kind = tr ? trType(tr) : (dr && dr.kind) || 'weekly';
     const sources = weeklyTrainings();
-    const form = `<form class="grid-form tr-form ${ex ? 'is-extra' : ''}" data-form="tr-save" data-id="${tr ? tr.id : ''}">
-        ${tr ? `<h3 class="span-all">${esc(t(ex ? 'trExtraEditTitle' : 'trEditTitle'))}</h3>` : `<fieldset class="span-all tr-kind"><legend>${esc(t('trKind'))}</legend>
-          <label class="check"><input type="radio" name="kind" value="weekly" ${dr && dr.kind === 'extra' ? '' : 'checked'}> ${esc(t('trKindWeekly'))}</label>
-          <label class="check"><input type="radio" name="kind" value="extra" ${dr && dr.kind === 'extra' ? 'checked' : ''}> <span class="badge tr-extra-badge">${esc(t('trExtraBadge'))}</span> ${esc(t('trKindExtra'))}</label></fieldset>`}
-        ${tr ? `<input type="hidden" name="kind" value="${ex ? 'extra' : 'weekly'}">` : ''}
-        <label class="span-all">${esc(t('trName'))}<input name="name" maxlength="60" value="${esc(v.name || '')}" placeholder="${esc(t('trNamePh'))}"></label>
-        <label class="only-extra">${esc(t('trExtraDate'))}<input type="date" name="date" value="${esc(v.date || '')}" min="${todayStr()}"></label>
+    const people = traineePeople().slice().sort((a, b) => personName(a).localeCompare(personName(b)));
+    const radio = (k, label) => `<label class="check"><input type="radio" name="kind" value="${k}" ${kind === k ? 'checked' : ''}> ${trTypeBadge(k === 'weekly' ? {} : k === 'extra' ? { date: 'x' } : { date: 'x', type: 'private' })} ${esc(t(label))}</label>`;
+    const form = `<form class="grid-form tr-form ${pv ? 'is-private' : ex ? 'is-extra' : ''}" data-form="tr-save" data-id="${tr ? tr.id : ''}">
+        ${tr ? `<h3 class="span-all">${esc(t(pv ? 'trPrivateEditTitle' : ex ? 'trExtraEditTitle' : 'trEditTitle'))}</h3>` : `<fieldset class="span-all tr-kind"><legend>${esc(t('trKind'))}</legend>
+          ${radio('weekly', 'trKindWeekly')}${radio('extra', 'trKindExtra')}${radio('private', 'trKindPrivate')}</fieldset>`}
+        ${tr ? `<input type="hidden" name="kind" value="${kind}">` : ''}
+        <label class="span-all not-private">${esc(t('trName'))}<input name="name" maxlength="60" value="${esc(v.name || '')}" placeholder="${esc(t('trNamePh'))}"></label>
+        ${tr ? (pv ? `<p class="muted small span-all">${esc(t('trPrivatePersonFixed'))}</p>` : '') : `<label class="only-private">${esc(t('trPrivatePerson'))}<select name="person"><option value="">— ${esc(t('chooseUser'))} —</option>
+            <option value="ext" ${dr && dr.person === 'ext' ? 'selected' : ''}>${esc(t('trPrivateExt'))}</option>
+            ${people.map(m => `<option value="${m.uid}" ${dr && dr.person === m.uid ? 'selected' : ''}>${esc(personName(m))}${esc(kidTag(m))}</option>`).join('')}</select></label>
+          <label class="only-private">${esc(t('trPrivateExtName'))}<input name="extName" maxlength="80" value="${esc((dr && dr.extName) || '')}" placeholder="${esc(t('trPrivateExtNamePh'))}" autocomplete="off"></label>`}
+        <label class="only-date">${esc(t('trExtraDate'))}<input type="date" name="date" value="${esc(v.date || '')}" min="${todayStr()}"></label>
         ${tr ? '' : `<label class="only-extra span-all">${esc(t('trCopyFrom'))}<select name="copyFrom"><option value="">${esc(t('trCopyNone'))}</option>
           ${sources.map(s => `<option value="${esc(s.id)}" ${dr && dr.copyFrom === s.id ? 'selected' : ''}>${esc(trTitle(s))} · ${esc(trLabel(s))}${s.coachUid ? ' · ' + esc(coachName(s.coachUid)) : ''}</option>`).join('')}</select>
           <small class="muted">${esc(t('trCopyFromHelp'))}</small></label>`}
@@ -1466,12 +1481,12 @@
         <label>${esc(t('courtFrom'))}<select name="from">${opt(v.from, QUARTERS.slice(0, -1))}</select></label>
         <label>${esc(t('courtTo'))}<select name="to">${opt(v.to, QUARTERS.slice(1))}</select></label>
         <label>${esc(t('trLevel'))}<select name="level">${levelOptions(v.level)}</select></label>
-        <label>${esc(t('trMax'))}<input type="number" name="max" min="1" max="60" required value="${v.max}" inputmode="numeric"></label>
+        <label class="not-private">${esc(t('trMax'))}<input type="number" name="max" min="1" max="60" required value="${v.max}" inputmode="numeric"></label>
         <label>${esc(t('trCoach'))}<select name="coachUid"><option value="">—</option>${coaches.map(c => `<option value="${esc(c.id)}" ${c.id === v.coachUid ? 'selected' : ''}>${esc(coachName(c.id))}</option>`).join('')}</select>
           ${coaches.length ? '' : `<small class="muted">${esc(t('trNoCoaches'))}</small>`}</label>
         <fieldset class="span-all fp-levels"><legend>${esc(t('trCourts'))}</legend>
           ${(S().courts || []).map(c => `<label class="check"><input type="checkbox" name="court" value="${esc(c.id)}" ${(v.courts || []).includes(c.id) ? 'checked' : ''}> ${esc(c.name)}</label>`).join('') || `<span class="muted small">${esc(t('trNoCourts'))}</span>`}
-          <small class="muted span-all only-weekly">${esc(t('trCourtsHelp'))}</small><small class="muted span-all only-extra">${esc(t('trExtraCourtsHelp'))}</small></fieldset>
+          <small class="muted span-all only-weekly">${esc(t('trCourtsHelp'))}</small><small class="muted span-all only-date">${esc(t('trExtraCourtsHelp'))}</small></fieldset>
         <div class="form-actions span-all">${tr ? `<button type="button" class="btn" data-action="tr-edit-cancel">${esc(t('cancel'))}</button>` : ''}
           <button class="btn primary">${esc(t(tr ? 'save' : 'trCreate'))}</button></div>
       </form>`;
@@ -1741,11 +1756,13 @@
   function trSave(f) {
     const old = f.dataset.id ? trainingById(f.dataset.id) : null;
     const kindEl = f.querySelector('[name=kind]:checked') || f.querySelector('[name=kind]');
-    const extra = kindEl && kindEl.value === 'extra';
+    const extra = kindEl && kindEl.value === 'extra', priv = kindEl && kindEl.value === 'private';
     const d = { name: f.name.value.trim(), dow: +f.dow.value, from: f.from.value, to: f.to.value, level: f.level.value,
       max: Math.max(1, parseInt(f.max.value, 10) || 1), coachUid: f.coachUid.value, courts: [...f.querySelectorAll('[name=court]:checked')].map(x => x.value) };
-    if (!old) ui.trDraft = Object.assign({}, d, { kind: extra ? 'extra' : 'weekly', date: f.date ? f.date.value : '', copyFrom: f.copyFrom ? f.copyFrom.value : '' });
+    if (!old) ui.trDraft = Object.assign({}, d, { kind: priv ? 'private' : extra ? 'extra' : 'weekly', date: f.date ? f.date.value : '', copyFrom: f.copyFrom ? f.copyFrom.value : '',
+      person: f.person ? f.person.value : '', extName: f.extName ? f.extName.value : '' });
     if (d.to <= d.from) return warn('fpTimeErr');
+    if (priv) return trSavePrivate(f, old, d);
     if (extra) return trSaveExtra(f, old, d);
     d.reason = `${t('navTrain')} · ${d.name || levelLabel(d.level)}${d.coachUid ? ' · ' + coachName(d.coachUid) : ''}`;
     // campi: niente sovrapposizioni con altri blocchi ricorrenti; avviso se ci sono prenotazioni future
@@ -1760,6 +1777,38 @@
       if (old) ui.trEdit = null; else { (ui.keep || {})['tr-new'] = false; ui.trDraft = null; }
       ui.flash = { text: t(old ? 'trSaved' : 'trCreated') };
       render();
+    }).catch(e => warn('regError', { code: e.code || e.message }));
+  }
+
+  // Allenamento privato creato dall'admin o dalla segreteria: un giorno, un allievo (utente, ragazzo senza account o
+  // esterno con il solo nome), un maestro, un campo. Si salva come un recupero (data e campo bloccato quel giorno).
+  function trSavePrivate(f, old, d) {
+    const date = f.date.value;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return warn('trExtraNeedDate');
+    if (!old && date < todayStr()) return warn('trExtraPast');
+    if (!d.courts.length) return warn('ptNeedCourt');
+    Object.assign(d, { type: 'private', date, dow: dow(date), max: 1, name: old ? old.name || '' : '' });
+    d.reason = `${t('trPrivateBadge')}${d.coachUid ? ' · ' + coachName(d.coachUid) : ''}`;
+    const mine = old ? `trx_${esc(old.id)}_` : null;
+    const clashR = d.courts.filter(c => (S().recurring || []).some(r => r.courtId === c && r.dow === d.dow && r.from < d.to && d.from < r.to && !((occOf(String(r.trid || ''), date) || {}).cancelled)));
+    if (clashR.length) return warn('trCourtBusy', { c: clashR.map(courtName).join(', ') });
+    const clashB = (S().bookings || []).filter(b => !b.recurring && d.courts.includes(b.courtId) && b.date === date && b.from < d.to && d.from < b.to && !(mine && String(b.id).startsWith(mine)));
+    if (clashB.length) return warn('trExtraBooked', { c: [...new Set(clashB.map(b => `${courtName(b.courtId)} ${esc(b.from)}–${esc(b.to)}`))].join(', ') });
+    if (old) {
+      return window.Cloud.saveTraining(old, d, (S().groups || []).filter(g => g.tid === old.id))
+        .then(() => { ui.trEdit = null; ui.flash = { text: t('trSaved') }; render(); }).catch(e => warn('regError', { code: e.code || e.message }));
+    }
+    let uid = f.person.value, name = '';
+    if (!uid) return warn('ptNeedPerson');
+    if (uid === 'ext') { name = f.extName.value.trim(); if (!name) return warn('ptNeedExtName'); uid = 'x-' + Store.uid('').slice(0, 14); }
+    else { const m = memberByUid(uid); name = m ? personName(m) : ''; }
+    const month = date.slice(0, 7);
+    window.Cloud.saveTraining(null, d, []).then(id => {
+      const g = { id: `${id}_${month}`, tid: id, month, uids: [uid], names: { [uid]: name }, coachUid: d.coachUid || '', updated: Date.now() };
+      return window.Cloud.saveGroups([g], [], [], isExtPerson(uid) ? [] : [{ tid: id, date, uid, on: true }]);
+    }).then(() => {
+      (ui.keep || {})['tr-new'] = false; ui.trDraft = null; ui.trMonth = month;
+      ui.flash = { text: t('trPrivateCreated', { n: name }) }; render();
     }).catch(e => warn('regError', { code: e.code || e.message }));
   }
 
@@ -1872,7 +1921,7 @@
     if (isExtraTr(tr)) return tr.date === date && (((groupOf(tr.id, date.slice(0, 7)) || {}).uids || []).includes(m.uid) || (S().xmem || []).some(x => x.tid === tr.id && x.uid === m.uid));
     if (extraDay(date, tr)) return ((occOf(tr.id, date) || {}).members || []).includes(m.uid);   // 5° allenamento: corsisti copiati dal gruppo
     const p = planOf(m.uid, date.slice(0, 7)); return !!(p && (p.tids || []).includes(tr.id)); };
-  const occLabel = (tr, date) => `${isExtraTr(tr) ? t('trExtraBadge') + ' · ' : ''}${trTitle(tr)} · ${longDate(date)} ${esc(tr.from)}–${esc(tr.to)}`;
+  const occLabel = (tr, date) => `${isPrivateTr(tr) ? '' : isExtraTr(tr) ? t('trExtraBadge') + ' · ' : ''}${trTitle(tr)} · ${longDate(date)} ${esc(tr.from)}–${esc(tr.to)}`;
   // stato della presenza: verde confermata, rosso assente, grigio in attesa, arancione no reply (scaduto il termine)
   const attChip = (st, date) => { const k = st === 'in' ? 'in' : st === 'out' ? 'out' : afterNoon(date) ? 'late' : 'wait';
     return `<span class="badge att-chip att-${k}">${esc(t({ in: 'attIn', out: 'attOut', wait: 'attNone', late: 'attNoneAbsent' }[k]))}</span>`; };
@@ -2012,6 +2061,212 @@
           ${c.cancelled ? `<span class="badge st-full">${esc(t('occCancelled'))}</span>` : `<small class="muted">${esc(t('trMonthCounts', { p: c.p, a: c.a, s: c.s }))}</small>`}</li>`; }).join('')}</ul></div>`).join('')}</div>`;
   }
 
+
+  // ====================================================================
+  // RICHIESTE DI ALLENAMENTO PRIVATO (#/ptreq)
+  // Le manda chiunque (utente registrato o visitatore senza account); admin e segreteria le confermano o rifiutano.
+  // Alla conferma: allenamento privato con il campo bloccato (Campo 1, poi 2, poi 3: i primi tre campi da tennis),
+  // visibile al maestro; WhatsApp di chi conferma con il messaggio pronto (utente registrato) o telefonata (esterno).
+  // ====================================================================
+  const PT_DURS = [60, 90, 120];
+  const PT_WAIT = 3 * 60000;   // contro lo spam: un invio ogni 3 minuti da questo dispositivo
+  const ptStarts = () => HALF_HOURS.filter(h => h >= '07:00' && h <= '21:30');
+  const ptEnd = r => addMin(r.from, Number(r.dur) || 60);
+  const ptMaxDate = () => addDays(todayStr(), 60);
+  const nameKeyLoose = n => L.norm(String(n || '')).split(/\s+/).filter(Boolean).sort().join(' ');
+  // maestri selezionabili: il team del circolo (js/club.js) e gli allenatori con account, senza doppioni
+  // (stesso nome = una sola voce, collegata all'account). Valore: "u:<uid>" (account) o "n:<nome>" (senza account).
+  function ptCoachChoices() {
+    const acc = ((S().pubCoaches || {}).list || []).filter(c => c && c.uid && c.name);
+    const out = (Club.team || []).map(p => { const a = acc.find(c => nameKeyLoose(c.name) === nameKeyLoose(p.name)); return { v: a ? 'u:' + a.uid : 'n:' + p.name, name: p.name, role: p.role }; });
+    acc.forEach(c => { if (!out.some(o => o.v === 'u:' + c.uid)) out.push({ v: 'u:' + c.uid, name: c.name, role: '' }); });
+    return out;
+  }
+  const ptCoachLabel = r => (r.coachUid ? ((((S().pubCoaches || {}).list || []).find(c => c.uid === r.coachUid) || {}).name || coachName(r.coachUid)) : r.coachName || t('ptCoachAny'));
+  // primi tre campi da tennis nell'ordine della lista (Campo 1, 2, 3)
+  const ptCourts = () => (S().courts || []).filter(c => courtType(c) === 'tennis').slice(0, 3);
+  function courtFreeFor(courtId, date, from, to) {
+    const c = courtById(courtId), h = c && courtHours(c, date);
+    if (!h || from < h.from || to > h.to) return false;
+    for (let x = from; x < to; x = addMin(x, 30)) if (bookingAt(courtId, date, x)) return false;
+    return true;
+  }
+  const ptAutoCourt = r => ptCourts().find(c => courtFreeFor(c.id, r.date, r.from, ptEnd(r))) || null;
+  // numero per WhatsApp: formato internazionale senza "+"; senza prefisso si aggiunge 39 (Italia)
+  function waNumber(p) {
+    const raw = String(p || '').trim(), dg = raw.replace(/\D/g, '');
+    if (raw.startsWith('+')) return dg;
+    if (raw.startsWith('00')) return dg.slice(2);
+    return dg.length <= 10 ? '39' + dg : dg;
+  }
+  const itLongDate = d => new Date(d + 'T12:00').toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const ptWaText = r => `Allenamento privato confermato per il giorno ${itLongDate(r.date)} alle ore ${r.from} – ${Club.name}`;
+  const ptWaLink = r => `https://wa.me/${waNumber(r.phone)}?text=${encodeURIComponent(ptWaText(r))}`;
+  const ptStatusBadge = r => `<span class="badge ${r.status === 'ok' ? 'st-done' : r.status === 'no' ? 'st-full' : 'warn-b'}">${esc(t('ptSt_' + r.status))}</span>`;
+  const ptPending = () => (S().ptreqs || []).filter(r => r.status === 'pending');
+  const ptWhen = r => `${longDate(r.date)} · ${r.from}–${ptEnd(r)} (${durText(r.from, ptEnd(r))})`;
+
+  function ptForm() {
+    const m = member() || (admin() && window.Cloud && window.Cloud.adminMember) || null;
+    const guest = !myUid() || !m;
+    const dr = ui.ptDraft || {};
+    const phone = dr.phone != null ? dr.phone : m ? lastPhone() : '';
+    const coaches = ptCoachChoices();
+    return `<form class="card grid-form pt-form" data-form="ptreq-send" id="pt-form">
+      <h2 class="span-all"><i class="ti ti-user-star" aria-hidden="true"></i> ${esc(t('ptFormTitle'))}</h2>
+      <p class="muted small span-all">${esc(t(guest ? 'ptFormHelpGuest' : 'ptFormHelpUser', { n: m ? personName(m) : '' }))}</p>
+      ${guest ? `<label>${esc(t('firstName'))}<input name="first" required maxlength="60" autocomplete="given-name" value="${esc(dr.first || '')}"></label>
+      <label>${esc(t('lastName'))}<input name="last" required maxlength="60" autocomplete="family-name" value="${esc(dr.last || '')}"></label>` : ''}
+      <label>${esc(t('ptDay'))}<input type="date" name="date" required min="${todayStr()}" max="${ptMaxDate()}" value="${esc(dr.date || '')}"></label>
+      <label>${esc(t('ptStart'))}<select name="from" required>${ptStarts().map(h => `<option ${h === (dr.from || '17:00') ? 'selected' : ''}>${h}</option>`).join('')}</select></label>
+      <fieldset class="span-all pt-durs"><legend>${esc(t('bkDuration'))}</legend><div class="segmented wrap">${PT_DURS.map(n => `<label class="seg-radio"><input type="radio" name="dur" value="${n}" ${n === (Number(dr.dur) || 60) ? 'checked' : ''}><span>${esc(durText('00:00', fromMin(n)))}</span></label>`).join('')}</div></fieldset>
+      <label>${esc(t('ptCoach'))}<select name="coach"><option value="">${esc(t('ptCoachAny'))}</option>${coaches.map(c => `<option value="${esc(c.v)}" ${dr.coach === c.v ? 'selected' : ''}>${esc(c.name)}${c.role ? ' — ' + esc(c.role) : ''}</option>`).join('')}</select></label>
+      <label>${esc(t('trLevel'))}<select name="level" required><option value="">—</option>${LEVELS.map(l => `<option value="${l}" ${dr.level === l ? 'selected' : ''}>${esc(levelLabel(l))}</option>`).join('')}</select></label>
+      <label class="span-all">${esc(t('ptPhone'))}<input type="tel" name="phone" required maxlength="20" inputmode="tel" autocomplete="tel" value="${esc(phone)}" placeholder="${esc(t('bkPhonePh'))}">
+        <small class="muted">${esc(t('ptPhoneHelp'))}</small></label>
+      <label class="span-all">${esc(t('ptNotes'))}<textarea name="notes" rows="3" maxlength="300" placeholder="${esc(t('ptNotesPh'))}">${esc(dr.notes || '')}</textarea></label>
+      ${guest ? `<label class="check span-all"><input type="checkbox" name="privacy" required> <span>${t('ptPrivacy')}</span></label>` : ''}
+      <div class="form-actions span-all"><button class="btn primary"><i class="ti ti-send" aria-hidden="true"></i> ${esc(t('ptSend'))}</button></div>
+    </form>`;
+  }
+  // le mie richieste (utente registrato): in attesa, confermata (campo e maestro), rifiutata
+  function myPtReqs() {
+    const me = myUid();
+    const list = (S().ptreqs || []).filter(r => r.uid === me && r.date >= addDays(todayStr(), -7)).sort((a, b) => (a.date + a.from).localeCompare(b.date + b.from));
+    if (!me || !list.length) return '';
+    return `<div class="card" id="my-ptreq"><h2><i class="ti ti-user-star" aria-hidden="true"></i> ${esc(t('ptMine'))}</h2>
+      <ul class="reg-list">${list.map(r => `<li><span class="reg-names"><strong class="cap">${esc(ptWhen(r))}</strong> ${ptStatusBadge(r)}<br>
+        <small class="muted">${esc(levelLabel(r.level))} · ${esc(t('ptCoach'))}: ${esc(ptCoachLabel(r))}${r.status === 'ok' && r.courtId ? ` · ${esc(courtName(r.courtId))}` : ''}</small></span>
+        ${r.status === 'pending' ? `<button class="btn small" data-action="ptreq-withdraw" data-id="${esc(r.id)}">${esc(t('ptWithdraw'))}</button>` : ''}</li>`).join('')}</ul></div>`;
+  }
+  // admin e segreteria: elenco delle richieste con Conferma (maestro e campo) e Rifiuta
+  function ptStaffCard(r) {
+    const auto = r.status === 'pending' ? ptAutoCourt(r) : null;
+    const accCoaches = (S().coaches || []).slice().sort((a, b) => coachName(a.id).localeCompare(coachName(b.id)));
+    const head = `<div class="ch-head">${ptStatusBadge(r)} <span class="badge ${r.kind === 'user' ? 'role-user' : ''}"><i class="ti ti-${r.kind === 'user' ? 'user-check' : 'user-question'}" aria-hidden="true"></i> ${esc(t(r.kind === 'user' ? 'ptKindUser' : 'ptKindGuest'))}</span> ${lvlBadge(r.level)}</div>
+      <h3>${esc(r.name || '—')}</h3>
+      <p class="cap"><i class="ti ti-calendar" aria-hidden="true"></i> ${esc(ptWhen(r))}</p>
+      <p class="small">${telLink(r.phone)} · <i class="ti ti-school" aria-hidden="true"></i> ${esc(t('ptCoachAsked'))}: ${esc(ptCoachLabel(r))}</p>
+      ${r.notes ? `<p class="note small">${esc(r.notes)}</p>` : ''}
+      <p class="muted small">${esc(t('ptSentAt', { d: r.at ? new Date(r.at).toLocaleString(I18n.locale(), { dateStyle: 'medium', timeStyle: 'short' }) : '—' }))}</p>`;
+    if (r.status === 'ok') {
+      return `<div class="card pt-card is-ok">${head}<p class="note ok small"><i class="ti ti-circle-check" aria-hidden="true"></i> ${esc(t('ptConfirmedInfo', { c: courtName(r.courtId), m: r.coachUid ? coachName(r.coachUid) : '—' }))}</p>
+        <div class="btn-row">${r.kind === 'user' ? `<a class="btn small" href="${esc(ptWaLink(r))}" target="_blank" rel="noopener"><i class="ti ti-brand-whatsapp" aria-hidden="true"></i> ${esc(t('ptWaAgain'))}</a>` : telLink(r.phone)}</div></div>`;
+    }
+    if (r.status === 'no') return `<div class="card pt-card is-no">${head}</div>`;
+    const reqCoach = r.coachUid && accCoaches.some(c => c.id === r.coachUid) ? r.coachUid : '';
+    return `<div class="card pt-card">${head}
+      <form class="grid-form pt-confirm" data-form="ptreq-confirm" data-id="${esc(r.id)}">
+        <label>${esc(t('trCoach'))}<select name="coachUid"><option value="">—</option>${accCoaches.map(c => `<option value="${esc(c.id)}" ${c.id === reqCoach ? 'selected' : ''}>${esc(coachName(c.id))}</option>`).join('')}</select>
+          ${r.coachName && !r.coachUid ? `<small class="muted">${esc(t('ptCoachNoAcc', { n: r.coachName }))}</small>` : ''}</label>
+        <label>${esc(t('bkCourt'))}<select name="courtId"><option value="">${esc(auto ? t('ptCourtAuto', { c: auto.name }) : t('ptCourtAutoNone'))}</option>
+          ${(S().courts || []).map(c => `<option value="${esc(c.id)}" ${courtFreeFor(c.id, r.date, r.from, ptEnd(r)) ? '' : 'disabled'}>${esc(c.name)}${courtFreeFor(c.id, r.date, r.from, ptEnd(r)) ? '' : ' — ' + esc(t('bkBusy'))}</option>`).join('')}</select>
+          <small class="muted">${esc(t('ptCourtHelp'))}</small></label>
+        <div class="form-actions span-all"><button type="button" class="btn danger" data-action="ptreq-reject" data-id="${esc(r.id)}"><i class="ti ti-x" aria-hidden="true"></i> ${esc(t('ptReject'))}</button>
+          <button class="btn primary"><i class="ti ti-check" aria-hidden="true"></i> ${esc(t('ptConfirm'))}</button></div>
+      </form></div>`;
+  }
+  function ptStaffSection() {
+    const tab = ui.ptTab || 'pending', all = S().ptreqs || [];
+    const by = k => all.filter(r => r.status === k).sort((a, b) => (k === 'pending' ? 1 : -1) * (a.date + a.from).localeCompare(b.date + b.from));
+    const tabs = `<nav class="tabs">${['pending', 'ok', 'no'].map(k => `<a href="#/ptreq" class="${tab === k ? 'active' : ''}" data-action="pt-tab" data-tab="${k}">${esc(t('ptTab_' + k))} <small>${by(k).length}</small></a>`).join('')}</nav>`;
+    const list = by(tab);
+    return `<section id="pt-staff"><div class="page-head row"><h2><i class="ti ti-inbox" aria-hidden="true"></i> ${esc(t('ptStaffTitle'))}</h2></div>
+      <p class="muted small">${esc(t('ptStaffHelp'))}</p>${tabs}
+      ${list.length ? `<div class="tr-grid">${list.map(ptStaffCard).join('')}</div>` : `<div class="empty"><i class="ti ti-inbox" aria-hidden="true"></i> ${esc(t('ptNone'))}</div>`}</section>`;
+  }
+  function viewPtReq() {
+    const staffView = admin();
+    return `<div class="page-head"><a class="back" href="#/train">← ${esc(t('navTrain'))}</a><h1><i class="ti ti-user-star" aria-hidden="true"></i> ${esc(t('ptTitle'))}</h1>
+        <p class="muted">${esc(t('ptIntro'))}</p></div>
+      ${staffView ? ptStaffSection() : ''}
+      ${staffView ? `<details class="card sub-form" data-keep="pt-own" ${keepOpen('pt-own')}><summary><i class="ti ti-plus" aria-hidden="true"></i> ${esc(t('ptFormTitle'))}</summary>${ptForm().replace('class="card grid-form pt-form"', 'class="grid-form pt-form"')}</details>` : `${myPtReqs()}${ptForm()}`}`;
+  }
+  // pulsante ben visibile nella pagina Allenamenti (anche per i visitatori) e riquadro per lo staff con il contatore
+  function ptCta() {
+    const n = admin() ? ptPending().length : 0;
+    return `<div class="card pt-cta"><div><h2><i class="ti ti-user-star" aria-hidden="true"></i> ${esc(t('ptCtaTitle'))}</h2><p class="muted small">${esc(t('ptCtaText'))}</p></div>
+      <div class="btn-row"><a class="btn primary" href="#/ptreq"><i class="ti ti-user-star" aria-hidden="true"></i> ${esc(t('ptCtaBtn'))}</a>
+      ${admin() ? `<a class="btn" href="#/ptreq"><i class="ti ti-inbox" aria-hidden="true"></i> ${esc(t('ptStaffTitle'))} ${n ? `<span class="badge warn-b">${n}</span>` : ''}</a>` : ''}</div></div>`;
+  }
+  // prima pagina: avviso allo staff con le richieste in attesa
+  function ptAlert() {
+    const n = admin() ? ptPending().length : 0;
+    return n ? `<div class="msg-alert" role="alert"><div class="msg-head"><strong><i class="ti ti-user-star" aria-hidden="true"></i> ${esc(t('ptAlert', { n }))}</strong></div>
+      <a class="btn small" href="#/ptreq">${esc(t('ptStaffTitle'))} →</a></div>` : '';
+  }
+  function ptSend(f) {
+    const m = member() || (admin() && window.Cloud && window.Cloud.adminMember) || null, guest = !myUid() || !m;
+    const v = k => (f[k] ? String(f[k].value || '').trim() : '');
+    const dur = Number((f.querySelector('[name=dur]:checked') || {}).value) || 60;
+    const d = { phone: cleanPhone(v('phone')), date: v('date'), from: v('from'), dur, level: v('level'), notes: v('notes').slice(0, 300), coachUid: '' };
+    ui.ptDraft = Object.assign({}, d, { first: v('first'), last: v('last'), coach: v('coach') });
+    const c = v('coach');
+    if (c.startsWith('u:')) d.coachUid = c.slice(2); else if (c.startsWith('n:')) d.coachName = c.slice(2, 82);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d.date) || d.date < todayStr() || d.date > ptMaxDate()) return warn('ptBadDate');
+    if (d.date === todayStr() && d.from <= nowHM()) return warn('ptBadDate');
+    if (!LEVELS.includes(d.level)) return warn('ptNeedLevel');
+    if (!d.phone || !phoneOk(d.phone)) return warn('phoneBad');
+    if (guest) {
+      if (!v('first') || !v('last')) return warn('errRegFields');
+      if (!f.privacy.checked) return warn('registerPrivacyNeeded');
+      Object.assign(d, { kind: 'guest', first: v('first').slice(0, 60), last: v('last').slice(0, 60), privacy: true });
+      d.name = `${d.last} ${d.first}`;
+    } else Object.assign(d, { kind: 'user', uid: myUid(), name: personName(m).slice(0, 120) });
+    let last = 0; try { last = Number(localStorage.getItem('qm-ptreq-at')) || 0; } catch (e) { /* ignore */ }
+    if (Date.now() - Math.max(last, ui.ptAt || 0) < PT_WAIT) return warn('ptWait');
+    const btn = f.querySelector('button.primary'); btn.disabled = true;
+    window.Cloud.sendPtReq(d).then(() => {
+      ui.ptAt = Date.now(); try { localStorage.setItem('qm-ptreq-at', String(ui.ptAt)); } catch (e) { /* ignore */ }
+      ui.ptDraft = null; (ui.keep || {})['pt-own'] = false;
+      ui.flash = { text: t(guest ? 'ptSentGuest' : 'ptSentUser') }; render();
+      setTimeout(() => window.scrollTo(0, 0), 50);
+    }).catch(e => { btn.disabled = false; warn(e.code === 'permission-denied' ? 'ptDenied' : 'regError', { code: e.code || e.message }); });
+  }
+  function ptConfirm(f) {
+    const r = (S().ptreqs || []).find(x => x.id === f.dataset.id);
+    if (!r || r.status !== 'pending') return;
+    const end = ptEnd(r);
+    let court = f.courtId.value ? courtById(f.courtId.value) : ptAutoCourt(r);
+    if (!court) return warn('ptNoCourt', { a: r.from, b: end });
+    if (!courtFreeFor(court.id, r.date, r.from, end)) return warn('ptCourtTaken', { c: court.name });
+    const coachUid = f.coachUid.value;
+    const d = { type: 'private', name: '', date: r.date, dow: dow(r.date), from: r.from, to: end, level: r.level, max: 1, coachUid, courts: [court.id], req: r.id,
+      reason: `${t('trPrivateBadge')} · ${r.name}${coachUid ? ' · ' + coachName(coachUid) : ''}` };
+    const registered = r.kind === 'user' && !!r.uid;
+    const person = { uid: registered ? r.uid : 'x-' + r.id.replace(/[^A-Za-z0-9]/g, '').slice(0, 30), name: r.name, registered };
+    const note = registered ? `${ptWaText(r)} · ${court.name}${coachUid ? ' · ' + t('trCoach') + ': ' + coachName(coachUid) : ''}` : '';
+    const btn = f.querySelector('button.primary'); btn.disabled = true;
+    window.Cloud.confirmPtReq(r, d, person, note).then(() => {
+      ui.flash = { text: t('ptConfirmed', { c: court.name }) }; render();
+      ptDoneDialog(Object.assign({}, r, { status: 'ok', courtId: court.id, coachUid }));
+    }).catch(e => { btn.disabled = false; warn(e.code === 'court-busy' ? 'ptCourtTaken' : 'regError', { c: court.name, code: e.code || e.message }); });
+  }
+  // dopo la conferma: WhatsApp di chi conferma con il messaggio già pronto (utente registrato) o «Chiama per confermare» (esterno)
+  function ptDoneDialog(r) {
+    const wa = r.kind === 'user';
+    $dialog.innerHTML = `<div class="dialog-body pt-done"><h2><i class="ti ti-circle-check" aria-hidden="true"></i> ${esc(t('ptDoneTitle'))}</h2>
+      <p><strong>${esc(r.name)}</strong> · <span class="cap">${esc(ptWhen(r))}</span><br><small class="muted">${esc(courtName(r.courtId))}${r.coachUid ? ' · ' + esc(coachName(r.coachUid)) : ''}</small></p>
+      ${wa ? `<p class="muted small">${esc(t('ptWaHelp'))}</p><blockquote class="note">${esc(ptWaText(r))}</blockquote>
+        <div class="btn-row"><a class="btn primary" id="pt-wa" href="${esc(ptWaLink(r))}" target="_blank" rel="noopener"><i class="ti ti-brand-whatsapp" aria-hidden="true"></i> ${esc(t('ptWaOpen'))}</a></div>
+        <p class="muted small">${esc(t('ptWaInApp'))}</p>`
+      : `<p class="note warn"><i class="ti ti-phone-call" aria-hidden="true"></i> ${esc(t('ptCallReminder'))}</p><div class="btn-row"><a class="btn primary" href="tel:${esc(String(r.phone).replace(/[^0-9+]/g, ''))}"><i class="ti ti-phone" aria-hidden="true"></i> ${esc(r.phone)}</a></div>`}
+      <div class="form-actions"><button type="button" class="btn" data-action="close-dialog">${esc(t('close'))}</button></div></div>`;
+    if (!$dialog.open) $dialog.showModal();
+  }
+  const ptActions = {
+    'pt-tab': el => { ui.ptTab = el.dataset.tab; render(); },
+    'ptreq-reject': el => {
+      const r = (S().ptreqs || []).find(x => x.id === el.dataset.id);
+      if (!r || !confirmed('ptRejectConfirm', { n: r.name, d: ptWhen(r) })) return;
+      window.Cloud.rejectPtReq(r, t('ptRejectedNote', { d: itLongDate(r.date), h: r.from })).then(() => { ui.flash = { text: t('ptRejected') }; render(); })
+        .catch(e => warn('regError', { code: e.code || e.message }));
+    },
+    'ptreq-withdraw': el => {
+      if (!confirmed('ptWithdrawConfirm')) return;
+      window.Cloud.withdrawPtReq(el.dataset.id).then(() => { ui.flash = { text: t('ptWithdrawn') }; render(); }).catch(e => warn('regError', { code: e.code || e.message }));
+    }
+  };
 
   // ---------- scheda di valutazione dell'allenamento (decisa dal titolare) ----------
   // Per ogni corsista 7 voci con voto da 1 a 10 (6 = sufficienza), tutte facoltative, e la nota del giorno.
@@ -3920,7 +4175,7 @@
   // ---------- azioni ----------
   const confirmed = (key, p) => confirm(t(key, p));
 
-  const actions = Object.assign({}, trActions, occActions, evActions, payActions, statActions, privacyActions, reportActions, cassaActions, {
+  const actions = Object.assign({}, ptActions, trActions, occActions, evActions, payActions, statActions, privacyActions, reportActions, cassaActions, {
     'user-reset': el => {
       const m = memberByUid(el.dataset.uid), email = (S().accounts || {})[el.dataset.uid];
       if (!canEditUser(el.dataset.uid)) return;
@@ -4075,6 +4330,8 @@
   });
 
   const forms = Object.assign({}, trForms, occForms, payForms, cassaForms, {
+    'ptreq-send': f => ptSend(f),
+    'ptreq-confirm': f => ptConfirm(f),
     'user-create': f => {
       const d = { first: f.first.value.trim(), last: f.last.value.trim(), gender: f.gender.value, email: f.email.value.trim(), password: f.password.value, role: f.role.value };
       if (!d.first || !d.last || !d.gender) return warn('errRegFields');
@@ -4196,11 +4453,11 @@
   // Admin Centro: allenamenti (vede tutti, annulla una giornata, elimina)
   const CENTER_ACTIONS = new Set(['tr-delete', 'occ-cancel', 'occ-remove', 'occ-restore', 'occ-copy-group', 'tr-edit', 'tr-edit-cancel', 'tr-copy', 'grp-remove', 'att-force']);
   const CENTER_FORMS = new Set(['tr-save', 'grp-add', 'occ-copy']);
-  const PUBLIC_FORMS = new Set(['login', 'register', 'complete-profile']);
+  const PUBLIC_FORMS = new Set(['login', 'register', 'complete-profile', 'ptreq-send']);
   // solo admin (non la segreteria): impostazioni dei campi, regole di prenotazione, listino, avvisi, articoli, messaggi
   const ADMIN_FORMS = new Set(['court-save', 'recurring-add', 'booking-settings', 'book-rewards-save', 'msg-send', 'nick-save', 'editorial-save', 'notice-save', 'prices-save']);
   const ADMIN_ACTIONS = new Set(['court-open', 'court-close', 'court-delete', 'recurring-delete', 'court-copy', 'msg-delete', 'msg-target', 'editorial-edit', 'editorial-clear', 'notice-edit', 'notice-clear']);
-  const MEMBER_ACTIONS = new Set(['wr-go', 'wr-share', 'tr-past', 'tr-view', 'tr-dmonth', 'notice-read-all', 'profile-edit', 'profile-cancel', 'msg-read', 'verify-resend', 'verify-check', 'booking-open', 'booking-confirm', 'booking-delete', 'notice-dismiss', 'tr-month', 'tr-day', 'tr-tab', 'att-set', 'spot-apply', 'spot-withdraw', 'spot-seen', 'rc-pdf', 'st-period', 'st-ref', 'privacy-accept', 'my-data', 'delete-request']);
+  const MEMBER_ACTIONS = new Set(['wr-go', 'wr-share', 'tr-past', 'tr-view', 'tr-dmonth', 'notice-read-all', 'profile-edit', 'profile-cancel', 'msg-read', 'verify-resend', 'verify-check', 'booking-open', 'booking-confirm', 'booking-delete', 'notice-dismiss', 'tr-month', 'tr-day', 'tr-tab', 'att-set', 'spot-apply', 'spot-withdraw', 'spot-seen', 'rc-pdf', 'st-period', 'st-ref', 'privacy-accept', 'my-data', 'delete-request', 'ptreq-withdraw']);
   const MEMBER_FORMS = new Set(['profile-save']);
   // allenatore: presenze e scheda di valutazione dei propri allenamenti (controllo anche nell'azione e nelle regole)
   const COACH_ACTIONS = new Set(['att-force', 'ev-vote', 'ev-save', 'ev-save-all', 'occ-confirm']);

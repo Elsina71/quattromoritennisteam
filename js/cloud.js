@@ -2,7 +2,7 @@
 import { initializeApp } from '../vendor/firebase/firebase-app.js';
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-  doc, collection, onSnapshot, writeBatch, getDoc, getDocs, setDoc, addDoc, deleteDoc, query, where, connectFirestoreEmulator, arrayUnion, getCountFromServer, updateDoc, runTransaction, deleteField
+  doc, collection, onSnapshot, writeBatch, getDoc, getDocs, setDoc, addDoc, deleteDoc, query, where, connectFirestoreEmulator, arrayUnion, getCountFromServer, updateDoc, runTransaction, deleteField, serverTimestamp
 } from '../vendor/firebase/firebase-firestore.js';
 import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail, connectAuthEmulator,
@@ -60,7 +60,7 @@ const isCenter = () => !isAdmin && !!roles.center;
 // non cambia i ruoli e non gestisce i campi né le regole di prenotazione (solo l'admin).
 const staff = () => isAdmin || isSeg;
 
-const refresh = () => { if (window.App) window.App.refresh(); if (staff()) { schedulePackSync(); schedulePcSync(); } };
+const refresh = () => { if (window.App) window.App.refresh(); if (staff()) { schedulePackSync(); schedulePcSync(); syncPubCoaches(); } };
 
 // L'app è pronta appena arrivano le impostazioni (campi, orari, listino).
 function markLoaded() {
@@ -179,6 +179,7 @@ onAuthStateChanged(auth, async u => {
   listenOccFree();
   listenBkPlayers();
   listenReceipts();
+  listenPtReq();
   authBusy = false;
   refresh();
 });
@@ -287,6 +288,7 @@ async function register(data) {
   listenAttendance();
   listenBkPlayers();
   listenReceipts();
+  listenPtReq();
   refresh();
   return { mailErr };
 }
@@ -316,6 +318,7 @@ async function completeProfile(data) {
   listenAttendance();
   listenBkPlayers();
   listenReceipts();
+  listenPtReq();
   refresh();
 }
 // Email di conferma nella lingua dell'app, con il pulsante
@@ -1537,6 +1540,70 @@ function secondAuth() {
   }
   return second;
 }
+// ---------- richieste di allenamento privato (ptreq) ----------
+// ptreq/{cifre del telefono_giorno_ora}: richiesta di un utente registrato (kind "user", uid) o di un visitatore senza
+// account (kind "guest", nome e cognome, consenso all'informativa). Le scrive chiunque, anche senza accesso, solo con
+// i campi previsti (regole del database); le leggono admin e segreteria (e l'utente le proprie). L'ID con il telefono,
+// il giorno e l'ora impedisce i doppioni: la stessa richiesta non si può mandare due volte.
+// pub/coaches: nomi degli allenatori (pubblico, per scegliere il maestro nel modulo); lo tiene aggiornato lo staff.
+const ptreqId = r => `${String(r.phone).replace(/\D/g, '')}_${r.date}_${r.from.replace(':', '')}`;
+async function sendPtReq(r) {
+  const data = Object.assign({}, r, { status: 'pending', at: serverTimestamp() });
+  await setDoc(doc(db, 'ptreq', ptreqId(r)), data);
+}
+function withdrawPtReq(id) { return deleteDoc(doc(db, 'ptreq', id)); }
+let ptUnsub = null;
+function listenPtReq() {
+  if (ptUnsub) { ptUnsub(); ptUnsub = null; }
+  Store.applyRemote('ptreqs', []);
+  if (!user || !(staff() || member)) return;
+  const src = staff() ? query(collection(db, 'ptreq'), where('date', '>=', monthAgo())) : query(collection(db, 'ptreq'), where('uid', '==', user.uid));
+  ptUnsub = onSnapshot(src, snap => {
+    Store.applyRemote('ptreqs', snap.docs.map(d => { const x = d.data(); return Object.assign({ id: d.id }, x, { at: x.at && x.at.toMillis ? x.at.toMillis() : x.at || 0 }); }));
+    refresh();
+  }, onError);
+}
+onSnapshot(doc(db, 'pub', 'coaches'), snap => { Store.applyRemote('pubCoaches', snap.exists() ? snap.data() : {}); refresh(); }, () => {});
+let pubTimer = null;
+function syncPubCoaches() {
+  clearTimeout(pubTimer);
+  pubTimer = setTimeout(() => {
+    if (!staff() || !pcLoaded.has('coaches')) return;
+    const st = Store.state, mem = uid => (st.members || []).find(m => m.uid === uid);
+    const list = (st.coaches || []).map(c => { const m = mem(c.id); return { uid: c.id, name: (m ? `${m.first} ${m.last}` : c.name || '').trim().slice(0, 80) }; })
+      .filter(c => c.name).sort((a, b) => a.name.localeCompare(b.name)).slice(0, 50);
+    if (JSON.stringify(list) === JSON.stringify((st.pubCoaches || {}).list || [])) return;
+    setDoc(doc(db, 'pub', 'coaches'), { list, updated: Date.now() }).catch(onError);
+  }, 2500);
+}
+// Conferma (admin e segreteria): in un solo invio l'allenamento privato (pubblico senza nomi), il blocco del campo
+// (bookings privato + busy pubblico, come i recuperi), il gruppo con il nome dell'allievo (solo staff e maestro),
+// xmem per l'utente registrato, la richiesta aggiornata e il messaggio nell'app per l'utente registrato.
+// Prima ricontrolla sul server che il campo sia ancora libero.
+async function confirmPtReq(req, d, person, noticeText) {
+  if (!staff()) throw Object.assign(new Error('permission-denied'), { code: 'permission-denied' });
+  const ref = doc(collection(db, 'trainings'));
+  const tr = Object.assign({ id: ref.id }, d);
+  const slots = extraTrainingSlots(tr, d.courts[0]);
+  const taken = await Promise.all(Object.keys(slots).map(id => getDoc(doc(db, 'busy', id)).then(s => s.exists()).catch(() => false)));
+  if (taken.some(Boolean)) throw Object.assign(new Error('court-busy'), { code: 'court-busy' });
+  const month = d.date.slice(0, 7), batch = writeBatch(db);
+  batch.set(ref, Object.assign({}, d, { created: Date.now(), sizes: { [month]: 1 } }));
+  trainingBlocks(batch, tr, false);
+  batch.set(doc(db, 'groups', `${ref.id}_${month}`), { tid: ref.id, month, uids: [person.uid], names: { [person.uid]: person.name }, coachUid: d.coachUid || '', updated: Date.now() });
+  if (person.registered) batch.set(doc(db, 'xmem', `${ref.id}_${person.uid}`), { tid: ref.id, date: d.date, uid: person.uid });
+  batch.update(doc(db, 'ptreq', req.id), { status: 'ok', tid: ref.id, courtId: d.courts[0], coachUid: d.coachUid || '', decidedBy: user.uid, decidedAt: Date.now() });
+  if (person.registered && noticeText) batch.set(doc(collection(db, 'notices')), { to: person.uid, text: String(noticeText).slice(0, 400), at: Date.now(), by: user.uid });
+  await batch.commit();
+  return ref.id;
+}
+function rejectPtReq(req, noticeText) {
+  const batch = writeBatch(db);
+  batch.update(doc(db, 'ptreq', req.id), { status: 'no', decidedBy: user.uid, decidedAt: Date.now() });
+  if (req.kind === 'user' && req.uid && noticeText) batch.set(doc(collection(db, 'notices')), { to: req.uid, text: String(noticeText).slice(0, 400), at: Date.now(), by: user.uid });
+  return batch.commit();
+}
+
 window.Cloud = {
   saveEditorial,
   register,
@@ -1586,6 +1653,7 @@ window.Cloud = {
   decideSpot,
   setOccCancelled,
   setOccFree,
+  sendPtReq, withdrawPtReq, confirmPtReq, rejectPtReq, ptreqId,
   saveBkPlayers, saveBkPhone, moveBkPlayers, extraTrainingBlocks, setOccMembers,
   recordPayment,
   voidReceipt,

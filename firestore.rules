@@ -588,7 +588,7 @@ service cloud.firestore {
     // Avvisi di prenotazioni modificate o cancellate. L'utente scrive solo agli amministratori ("admins").
     match /notices/{id} {
       allow read: if request.auth != null && (resource.data.to == request.auth.uid || (resource.data.to == 'admins' && isStaff()));
-      allow create: if isMember() && safeId(id)
+      allow create: if (isMember() || isStaff()) && safeId(id)
         && request.resource.data.keys().hasOnly(['to', 'text', 'at', 'by'])
         && request.resource.data.by == request.auth.uid
         && request.resource.data.text is string && request.resource.data.text.size() <= 400
@@ -600,6 +600,56 @@ service cloud.firestore {
         && request.resource.data.readBy is list
         && request.resource.data.readBy.hasAll(resource.data.get('readBy', []))
         && request.resource.data.readBy.removeAll(resource.data.get('readBy', [])) == [request.auth.uid];
+    }
+
+    // ---------- richieste di allenamento privato ----------
+    // ptreq/{cifre del telefono_giorno_ora}: le manda un utente registrato (kind "user") o un visitatore senza account
+    // (kind "guest", anche senza accesso). Si accettano solo i campi previsti, con lunghezze massime, telefono valido,
+    // giorno da oggi a 60 giorni, mezz'ore, durata 1 h / 1 h 30 / 2 h, maestro esistente (o "indifferente"),
+    // livello della lista, stato "in attesa" e ora del server. L'ID con telefono, giorno e ora evita i doppioni.
+    // Nessuna lettura pubblica: le leggono admin e segreteria (e l'utente registrato le proprie).
+    // Confermano o rifiutano solo admin e segreteria; l'utente ritira la propria finché è in attesa.
+    function ptDay(ds) {
+      let d = timestamp.date(int(ds[0:4]), int(ds[5:7]), int(ds[8:10]));
+      return d > request.time - duration.value(1, 'd') && d < request.time + duration.value(61, 'd');
+    }
+    function ptOk(id, d) {
+      return phoneOk(d.phone)
+        && d.date is string && d.date.matches('20[0-9]{2}-[01][0-9]-[0-3][0-9]') && ptDay(d.date)
+        && hm(d.from) && mins(d.from) % 30 == 0 && mins(d.from) >= 360 && mins(d.from) + d.dur <= 1440
+        && d.dur in [60, 90, 120]
+        && d.coachUid is string && (d.coachUid == '' || (safeId(d.coachUid) && exists(/databases/$(database)/documents/coaches/$(d.coachUid))))
+        && d.level in ['mini', 'orange', 'green', 'perf', 'preago', 'ago', 'adv', 'adult']
+        && txt(d.notes, 300) && txt(d.get('coachName', ''), 80)
+        && d.status == 'pending' && d.at == request.time
+        && id == d.phone.replace('[^0-9]', '') + '_' + d.date + '_' + d.from.replace(':', '');
+    }
+    match /ptreq/{id} {
+      allow read: if isStaff() || (request.auth != null && resource.data.get('uid', '') == request.auth.uid);
+      // utente registrato: per sé, con il suo nome
+      allow create: if isMember() && request.resource.data.kind == 'user'
+        && request.resource.data.keys().hasOnly(['kind', 'uid', 'name', 'phone', 'date', 'from', 'dur', 'coachUid', 'coachName', 'level', 'notes', 'status', 'at'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 120
+        && ptOk(id, request.resource.data);
+      // visitatore senza account (o chiunque, anche senza accesso): nome, cognome e consenso all'informativa
+      allow create: if request.resource.data.kind == 'guest'
+        && request.resource.data.keys().hasOnly(['kind', 'first', 'last', 'name', 'phone', 'date', 'from', 'dur', 'coachUid', 'coachName', 'level', 'notes', 'status', 'at', 'privacy'])
+        && request.resource.data.first is string && request.resource.data.first.size() > 0 && request.resource.data.first.size() <= 60
+        && request.resource.data.last is string && request.resource.data.last.size() > 0 && request.resource.data.last.size() <= 60
+        && request.resource.data.name == request.resource.data.last + ' ' + request.resource.data.first
+        && request.resource.data.privacy == true
+        && ptOk(id, request.resource.data);
+      allow update: if isStaff()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'tid', 'courtId', 'coachUid', 'decidedBy', 'decidedAt'])
+        && request.resource.data.status in ['pending', 'ok', 'no'];
+      allow delete: if isStaff() || (request.auth != null && resource.data.get('uid', '') == request.auth.uid && resource.data.status == 'pending');
+    }
+    // pub/coaches: nomi degli allenatori (pubblici, per scegliere il maestro nella richiesta); li scrive lo staff.
+    match /pub/{id} {
+      allow read: if true;
+      allow write: if isStaff() && id == 'coaches' && request.resource.data.keys().hasOnly(['list', 'updated'])
+        && request.resource.data.list is list && request.resource.data.list.size() <= 50;
     }
 
     // Chi è admin lo decide solo il database: l'app chiede il documento "probe" (o il proprio) e,

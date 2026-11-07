@@ -1259,8 +1259,15 @@ li.is-void { opacity: .6; }
 .adm-notice-list li { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-top: 1px solid var(--border); }
 .adm-notice-list li span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 /* Recupero allenamento (allenamento extra in una sola data) */
+/* modulo dell'allenamento: settimanale, recupero (una data) o privato (una data, un allievo) */
 .tr-form:not(.is-extra):not(:has([name=kind][value=extra]:checked)) .only-extra { display: none; }
-.tr-form.is-extra .only-weekly, .tr-form:has([name=kind][value=extra]:checked) .only-weekly { display: none; }
+.tr-form:not(.is-extra):not(.is-private):not(:has([name=kind][value=extra]:checked)):not(:has([name=kind][value=private]:checked)) .only-date { display: none; }
+.tr-form:not(.is-private):not(:has([name=kind][value=private]:checked)) .only-private { display: none; }
+.tr-form:is(.is-extra, .is-private) .only-weekly, .tr-form:has([name=kind][value=extra]:checked) .only-weekly, .tr-form:has([name=kind][value=private]:checked) .only-weekly { display: none; }
+.tr-form.is-private .not-private, .tr-form:has([name=kind][value=private]:checked) .not-private { display: none; }
+.badge.tr-private-badge { background: #0f7b6c; color: #fff; border-color: #0f7b6c; }
+.badge.tr-weekly-badge { background: transparent; color: var(--muted); }
+.tr-card.tr-private { border-color: #0f7b6c; box-shadow: inset 6px 0 0 #0f7b6c, var(--shadow, none); }
 .tr-kind { display: flex; flex-wrap: wrap; gap: 8px 18px; }
 .badge.tr-extra-badge { background: #6d3fd1; color: #fff; border-color: #6d3fd1; }
 .badge.kid-badge { background: transparent; color: var(--muted); border-style: dashed; }
@@ -1611,3 +1618,21 @@ li.is-void { opacity: .6; }
   [data-design="padel"] :is(.btn, .slot button) { transition: box-shadow .2s, background-color .2s, border-color .2s; }
 }
 @keyframes padelGlow { from { opacity: .75; } to { opacity: 1; } }
+
+/* ---------- richieste di allenamento privato ---------- */
+.segmented .seg-radio { position: relative; margin: 0; display: flex; }
+.segmented .seg-radio input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.segmented .seg-radio span { padding: 8px 16px; font-weight: 600; color: var(--muted); min-height: 40px; display: flex; align-items: center; }
+.segmented .seg-radio input:checked + span { background: var(--primary); color: var(--primary-ink); }
+.segmented .seg-radio input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: -2px; }
+.pt-durs { border: 0; padding: 0; margin: 0; }
+.pt-durs legend { font-weight: 600; margin-bottom: 4px; }
+.pt-cta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 20px; border-left: 6px solid #0f7b6c; }
+.pt-cta h2 { margin: 0 0 4px; }
+.pt-cta p { margin: 0; }
+.pt-cta .btn-row { margin: 0; }
+.pt-card h3 { margin: 6px 0 4px; }
+.pt-card p { margin: 4px 0; }
+.pt-card.is-no { opacity: .75; }
+.pt-confirm { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 10px; }
+.pt-done blockquote { margin: 8px 0; }

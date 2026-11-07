@@ -1,6 +1,6 @@
 # Regole del progetto (Quattro Mori Tennis Team)
 
-App del circolo Quattro Mori Tennis Team (Cagliari): prenotazione dei campi da tennis e padel, poi corsi, corsisti,
+App del circolo Quattro Mori Tennis Team (Quartu Sant'Elena, Sardegna): prenotazione dei campi da tennis e padel, poi corsi, corsisti,
 allenamenti, allenatori, cassa. Regole decise dal titolare: valgono per ogni modifica.
 
 ## Lingua e lavoro

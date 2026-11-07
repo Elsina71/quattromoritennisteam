@@ -1,6 +1,6 @@
 # Quattro Mori Tennis Team
 
-App del circolo Quattro Mori Tennis Team (Tennis & Padel · Cagliari). Indirizzo: https://quattromoritennisteam.web.app
+App del circolo Quattro Mori Tennis Team (Tennis & Padel · Quartu Sant'Elena · Sardegna). Indirizzo: https://quattromoritennisteam.web.app
 
 L'app parte dal codice di Beach+ Arena (stessa grafica e stessi componenti), senza le parti che qui non servono
 (tornei, classifiche, giochi, sfide, sondaggi, notifiche push).
