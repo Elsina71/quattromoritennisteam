@@ -1,5 +1,5 @@
 /* Quattro Mori Tennis Team (grafica derivata da Beach+ Arena): colori predefiniti; tavolozze e temi grafici in fondo al file.
-   Lo stile predefinito è il design "quattromori" (vedi boot.js e app.js). */
+   Lo stile predefinito è il design "erba" (vedi boot.js e app.js). */
 :root {
   --bg: #f3f8f6;
   --surface: #ffffff;
@@ -974,6 +974,14 @@ dl.summary dd:first-letter { text-transform: uppercase; }
 .court-form table.hours td, .court-form table.hours th { padding: 4px 6px; }
 .court-form table.hours select { padding: 4px 6px; min-height: 34px; }
 .court-form table.hours input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--primary); }
+/* pagina Campi: ogni campo creato è una riga compatta; si apre solo quello in modifica */
+.court-list { display: grid; gap: 8px; margin-bottom: 12px; }
+.court-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 12px 16px; margin: 0; }
+.court-row .btn-row { margin: 0; }
+.court-row-info { min-width: 0; }
+.court-row-info strong { font-size: 1.05rem; }
+.court-form h3 { margin: 0 0 10px; }
+.court-new .court-form { padding: 4px 0 0; }
 .ban-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 6px; font-size: .8rem; color: var(--muted); }
 .ban-row label.check { font-size: .8rem; }
 .users-list li.banned { background: var(--danger-soft); }
@@ -987,6 +995,15 @@ dl.summary dd:first-letter { text-transform: uppercase; }
 .badge.lvl-inter { background: #e6f0fb; color: #1d4f8a; border-color: transparent; }
 .badge.lvl-high { background: #fff1db; color: #8a5300; border-color: transparent; }
 .badge.lvl-pro { background: #fde4e4; color: #9b1c1c; border-color: transparent; }
+/* livelli nuovi (dal più piccolo agli adulti) */
+.badge.lvl-mini { background: #fdeaf3; color: #9b2360; border-color: transparent; }
+.badge.lvl-orange { background: #ffeedd; color: #a14a00; border-color: transparent; }
+.badge.lvl-green { background: #e5f5e3; color: #24692a; border-color: transparent; }
+.badge.lvl-perf { background: #e3f1f8; color: #135c80; border-color: transparent; }
+.badge.lvl-preago { background: #ebe8fb; color: #4b3a9e; border-color: transparent; }
+.badge.lvl-ago { background: #fde4e4; color: #9b1c1c; border-color: transparent; }
+.badge.lvl-adv { background: #2b2b2b; color: #fff; border-color: transparent; }
+.badge.lvl-adult { background: #eef0f2; color: #3b4652; border-color: transparent; }
 
 /* menu in basso con molte voci: si scorre in orizzontale invece di stringere troppo le voci */
 @media (max-width: 1199px) {
@@ -1242,8 +1259,15 @@ li.is-void { opacity: .6; }
 .adm-notice-list li { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-top: 1px solid var(--border); }
 .adm-notice-list li span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 /* Recupero allenamento (allenamento extra in una sola data) */
+/* modulo dell'allenamento: settimanale, recupero (una data) o privato (una data, un allievo) */
 .tr-form:not(.is-extra):not(:has([name=kind][value=extra]:checked)) .only-extra { display: none; }
-.tr-form.is-extra .only-weekly, .tr-form:has([name=kind][value=extra]:checked) .only-weekly { display: none; }
+.tr-form:not(.is-extra):not(.is-private):not(:has([name=kind][value=extra]:checked)):not(:has([name=kind][value=private]:checked)) .only-date { display: none; }
+.tr-form:not(.is-private):not(:has([name=kind][value=private]:checked)) .only-private { display: none; }
+.tr-form:is(.is-extra, .is-private) .only-weekly, .tr-form:has([name=kind][value=extra]:checked) .only-weekly, .tr-form:has([name=kind][value=private]:checked) .only-weekly { display: none; }
+.tr-form.is-private .not-private, .tr-form:has([name=kind][value=private]:checked) .not-private { display: none; }
+.badge.tr-private-badge { background: #0f7b6c; color: #fff; border-color: #0f7b6c; }
+.badge.tr-weekly-badge { background: transparent; color: var(--muted); }
+.tr-card.tr-private { border-color: #0f7b6c; box-shadow: inset 6px 0 0 #0f7b6c, var(--shadow, none); }
 .tr-kind { display: flex; flex-wrap: wrap; gap: 8px 18px; }
 .badge.tr-extra-badge { background: #6d3fd1; color: #fff; border-color: #6d3fd1; }
 .badge.kid-badge { background: transparent; color: var(--muted); border-style: dashed; }
@@ -1594,3 +1618,79 @@ li.is-void { opacity: .6; }
   [data-design="padel"] :is(.btn, .slot button) { transition: box-shadow .2s, background-color .2s, border-color .2s; }
 }
 @keyframes padelGlow { from { opacity: .75; } to { opacity: 1; } }
+
+/* ---------- richieste di allenamento privato ---------- */
+.segmented .seg-radio { position: relative; margin: 0; display: flex; }
+.segmented .seg-radio input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; z-index: 1; width: 100%; height: 100%; }
+.segmented .seg-radio span { padding: 8px 16px; font-weight: 600; color: var(--muted); min-height: 40px; display: flex; align-items: center; }
+.segmented .seg-radio input:checked + span { background: var(--primary); color: var(--primary-ink); }
+.segmented .seg-radio input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: -2px; }
+.pt-durs { border: 0; padding: 0; margin: 0; }
+.pt-durs legend { font-weight: 600; margin-bottom: 4px; }
+.pt-cta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 20px; border-left: 6px solid #0f7b6c; }
+.pt-cta h2 { margin: 0 0 4px; }
+.pt-cta p { margin: 0; }
+.pt-cta .btn-row { margin: 0; }
+.pt-card h3 { margin: 6px 0 4px; }
+.pt-card p { margin: 4px 0; }
+.pt-card.is-no { opacity: .75; }
+.pt-confirm { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 10px; grid-template-columns: 1fr; }
+.pt-done blockquote { margin: 8px 0; }
+
+/* ---------- pagina Il circolo e iscrizione online ---------- */
+.club-facts li, .club-sponsor li { display: flex; gap: 8px; align-items: flex-start; margin: 6px 0; }
+.club-facts .ti, .club-sponsor .ti { color: var(--primary); margin-top: 3px; }
+.club-team-list { list-style: none; padding: 0; margin: 8px 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.club-team-list li { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.club-team-list .ph-avatar { width: 42px; height: 42px; font-size: .95rem; flex: none; border-radius: 50%; background: var(--primary); color: var(--primary-ink); display: flex; align-items: center; justify-content: center; font-weight: 800; }
+.en-form h2 { margin: 12px 0 0; font-size: 1.1rem; }
+.en-images { border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; }
+.en-card h3 { margin: 6px 0 4px; }
+.en-card p { margin: 4px 0; }
+
+/* intestatario della ricevuta scritto a mano: i campi compaiono solo con quella scelta */
+form:not(:has(select[name=holder] option[value="__manual"]:checked)) .mh-fields { display: none; }
+form:has(select[name=holder] option[value="__manual"]:checked) .mh-hide { display: none; }
+.mh-fields { border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; }
+.mh-fields legend { font-weight: 700; }
+.ca-holder .mh-fields { flex-basis: 100%; }
+
+/* ---------- cruscotto delle valutazioni (grafico SVG disegnato a mano) ----------
+   Colori delle voci: tavolozza categoriale verificata per daltonismo (7 colori, ordine fisso);
+   nei design scuri si usano gli stessi colori schiariti per il fondo scuro. */
+.ev-dash { --ev-c1: #2a78d6; --ev-c2: #eb6834; --ev-c3: #1baf7a; --ev-c4: #eda100; --ev-c5: #e87ba4; --ev-c6: #008300; --ev-c7: #6250d6; }
+:is([data-design="padel"], [data-design="mamuthones"], [data-design="arena"], [data-design="halloween"], [data-design="capodanno"], [data-design="befana"], [data-theme="carnevale"], [data-theme="notturna"]) .ev-dash {
+  --ev-c1: #3987e5; --ev-c2: #d95926; --ev-c3: #199e70; --ev-c4: #c98500; --ev-c5: #d55181; --ev-c6: #2e9e2e; --ev-c7: #9085e9; }
+.ev-dash .ev-per { margin: 6px 0; }
+.ev-nav { display: flex; align-items: center; gap: 10px; margin: 6px 0 10px; }
+.ev-nav strong { min-width: 9em; text-align: center; }
+.ev-overall { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
+.ev-overall strong { font-size: 1.6rem; }
+.ev-overall strong.low { color: #c62828; }
+.ev-sw { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+.ev-c1 { --c: var(--ev-c1); } .ev-c2 { --c: var(--ev-c2); } .ev-c3 { --c: var(--ev-c3); } .ev-c4 { --c: var(--ev-c4); }
+.ev-c5 { --c: var(--ev-c5); } .ev-c6 { --c: var(--ev-c6); } .ev-c7 { --c: var(--ev-c7); }
+.ev-sw { background: var(--c); }
+.ev-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px; }
+.ev-chip { border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 999px; padding: 6px 12px; font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer; min-height: 36px; display: inline-flex; align-items: center; }
+.ev-chip[aria-pressed="false"] { opacity: .55; }
+.ev-chip[aria-pressed="false"] .ev-sw { background: transparent; box-shadow: inset 0 0 0 2px var(--c); }
+.ev-chip[aria-pressed="true"] { border-color: var(--text); }
+.ev-chart-wrap { overflow-x: auto; }
+.ev-chart { display: block; max-width: 100%; height: auto; }
+.ev-chart .ev-grid { stroke: var(--text); stroke-opacity: .12; stroke-width: 1; }
+.ev-chart .ev-six { stroke: var(--text); stroke-opacity: .7; stroke-width: 1.5; stroke-dasharray: 6 4; }
+.ev-chart .ev-ax { fill: var(--text); fill-opacity: .75; font-size: 11px; font-family: inherit; }
+.ev-chart .ev-six-l { fill-opacity: .9; font-weight: 600; }
+.ev-chart path.ev-s { stroke: var(--c); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.ev-chart circle.ev-s { fill: var(--c); stroke: var(--surface); stroke-width: 2; }
+.ev-chart path.ev-avgline { stroke: var(--text); stroke-width: 3; stroke-dasharray: 7 4; }
+.ev-chart circle.ev-avgline { fill: var(--text); stroke: var(--surface); stroke-width: 2; }
+.ev-chart .ev-hit { fill: transparent; stroke: none; cursor: help; }
+.ev-chart .ev-pt:hover circle.ev-s, .ev-chart .ev-pt:hover circle.ev-avgline { r: 6; }
+.ev-legend { list-style: none; padding: 0; margin: 6px 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .85rem; }
+.ev-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.ev-ln { display: inline-block; width: 22px; height: 0; border-top: 3px solid var(--c); }
+.ev-ln.ev-avgline { border-top: 3px dashed var(--text); }
+.ev-ln.ev-six { border-top: 2px dashed var(--text); opacity: .7; }
+@media (max-width: 520px) { .ev-avg { grid-template-columns: 8em 1fr 4.6em; gap: 6px; } }

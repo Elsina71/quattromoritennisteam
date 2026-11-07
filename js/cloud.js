@@ -2,7 +2,7 @@
 import { initializeApp } from '../vendor/firebase/firebase-app.js';
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-  doc, collection, onSnapshot, writeBatch, getDoc, getDocs, setDoc, addDoc, deleteDoc, query, where, connectFirestoreEmulator, arrayUnion, getCountFromServer, updateDoc, runTransaction, deleteField
+  doc, collection, onSnapshot, writeBatch, getDoc, getDocs, setDoc, addDoc, deleteDoc, query, where, connectFirestoreEmulator, arrayUnion, getCountFromServer, updateDoc, runTransaction, deleteField, serverTimestamp
 } from '../vendor/firebase/firebase-firestore.js';
 import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail, connectAuthEmulator,
@@ -60,7 +60,7 @@ const isCenter = () => !isAdmin && !!roles.center;
 // non cambia i ruoli e non gestisce i campi né le regole di prenotazione (solo l'admin).
 const staff = () => isAdmin || isSeg;
 
-const refresh = () => { if (window.App) window.App.refresh(); if (staff()) { schedulePackSync(); schedulePcSync(); } };
+const refresh = () => { if (window.App) window.App.refresh(); if (staff()) { schedulePackSync(); schedulePcSync(); syncPubCoaches(); scheduleEaSync(); } };
 
 // L'app è pronta appena arrivano le impostazioni (campi, orari, listino).
 function markLoaded() {
@@ -179,6 +179,9 @@ onAuthStateChanged(auth, async u => {
   listenOccFree();
   listenBkPlayers();
   listenReceipts();
+  listenPtReq();
+  listenEnroll();
+  listenEvAccess();
   authBusy = false;
   refresh();
 });
@@ -287,6 +290,7 @@ async function register(data) {
   listenAttendance();
   listenBkPlayers();
   listenReceipts();
+  listenPtReq();
   refresh();
   return { mailErr };
 }
@@ -316,6 +320,7 @@ async function completeProfile(data) {
   listenAttendance();
   listenBkPlayers();
   listenReceipts();
+  listenPtReq();
   refresh();
 }
 // Email di conferma nella lingua dell'app, con il pulsante
@@ -573,13 +578,22 @@ function saveBooking(b, prev) {
   const batch = writeBatch(db);
   Object.keys(old).forEach(id => { if (!(id in next)) { batch.delete(doc(db, 'bookings', id)); batch.delete(doc(db, 'busy', id)); } });
   Object.entries(next).forEach(([id, data]) => { batch.set(doc(db, 'bookings', id), data); batch.set(doc(db, 'busy', id), busyOf(data)); });
+  // telefono (facoltativo): documento a parte, nello stesso invio; si riscrive anche se la prenotazione si sposta
+  if (b.phone !== undefined) phoneWrite(batch, b, prev);
   return batch.commit();
 }
+// bkphone/{gid}: telefono di chi ha prenotato (solo staff e interessato; mai in "busy" né nelle prenotazioni lette dalla cassa)
+function phoneWrite(batch, b, prev) {
+  const ref = doc(db, 'bkphone', b.id);
+  if (b.phone) batch.set(ref, { gid: b.id, by: b.userId, phone: b.phone, date: b.date, from: b.from, courtId: b.courtId, at: Date.now() });
+  else if (b.phoneWas) batch.delete(ref);
+}
+function saveBkPhone(b) { const batch = writeBatch(db); phoneWrite(batch, b); return batch.commit(); }
 
 function deleteBooking(b) {
   const batch = writeBatch(db);
   Object.keys(slotDocs(b)).forEach(id => { batch.delete(doc(db, 'bookings', id)); batch.delete(doc(db, 'busy', id)); });
-  return batch.commit().then(() => deleteDoc(doc(db, 'bkplayers', b.id)).catch(() => {}));
+  return batch.commit().then(() => { deleteDoc(doc(db, 'bkplayers', b.id)).catch(() => {}); deleteDoc(doc(db, 'bkphone', b.id)).catch(() => {}); });
 }
 // Giocatori della prenotazione e reminder (bkplayers/{gid}); senza giocatori il documento resta per il reminder.
 function saveBkPlayers(d) { return setDoc(doc(db, 'bkplayers', d.gid), Object.assign({}, d, { updated: Date.now() })); }
@@ -589,7 +603,7 @@ function moveBkPlayers(gid, f) { return updateDoc(doc(db, 'bkplayers', gid), Obj
 let bpUnsubs = [];
 function listenBkPlayers() {
   bpUnsubs.forEach(f => f()); bpUnsubs = [];
-  Store.applyRemote('bkplayers', []); Store.applyRemote('bkpReady', false);
+  Store.applyRemote('bkplayers', []); Store.applyRemote('bkpReady', false); Store.applyRemote('bkphones', []);
   if (!user || !(staff() || member || adminMember)) return;
   const parts = {};
   const merge = () => { const all = {}; Object.values(parts).forEach(l => l.forEach(x => { all[x.id] = x; })); Store.applyRemote('bkplayers', Object.values(all)); refresh(); };
@@ -605,12 +619,22 @@ function listenBkPlayers() {
   if (staff()) on('all', query(collection(db, 'bkplayers'), where('date', '>=', yesterday())));
   on('by', query(collection(db, 'bkplayers'), where('by', '==', user.uid)));
   on('in', query(collection(db, 'bkplayers'), where('uids', 'array-contains', user.uid)));
+  // telefoni delle prenotazioni: admin e segreteria tutti (da ieri), l'utente solo i propri
+  const phParts = {};
+  const phOn = (k, q) => bpUnsubs.push(onSnapshot(q, snap => {
+    phParts[k] = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
+    const all = {}; Object.values(phParts).forEach(l => l.forEach(x => { all[x.id] = x; }));
+    Store.applyRemote('bkphones', Object.values(all)); refresh();
+  }, onError));
+  if (staff()) phOn('all', query(collection(db, 'bkphone'), where('date', '>=', yesterday())));
+  phOn('by', query(collection(db, 'bkphone'), where('by', '==', user.uid)));
 }
 
 // admin: dettaglio di una prenotazione (giocatori indicati da chi ha prenotato)
 async function bookingInfo(gid) {
   if (!staff()) return null;
   const out = { players: [] };
+  try { const ph = await getDoc(doc(db, 'bkphone', gid)); if (ph.exists()) out.phone = ph.data().phone || ''; } catch (e) { /* nessun telefono */ }
   const p = await getDoc(doc(db, 'bkplayers', gid));
   if (p.exists()) {
     const x = p.data();
@@ -1518,6 +1542,125 @@ function secondAuth() {
   }
   return second;
 }
+// ---------- richieste di allenamento privato (ptreq) ----------
+// ptreq/{cifre del telefono_giorno_ora}: richiesta di un utente registrato (kind "user", uid) o di un visitatore senza
+// account (kind "guest", nome e cognome, consenso all'informativa). Le scrive chiunque, anche senza accesso, solo con
+// i campi previsti (regole del database); le leggono admin e segreteria (e l'utente le proprie). L'ID con il telefono,
+// il giorno e l'ora impedisce i doppioni: la stessa richiesta non si può mandare due volte.
+// pub/coaches: nomi degli allenatori (pubblico, per scegliere il maestro nel modulo); lo tiene aggiornato lo staff.
+const ptreqId = r => `${String(r.phone).replace(/\D/g, '')}_${r.date}_${r.from.replace(':', '')}`;
+async function sendPtReq(r) {
+  const data = Object.assign({}, r, { status: 'pending', at: serverTimestamp() });
+  await setDoc(doc(db, 'ptreq', ptreqId(r)), data);
+}
+function withdrawPtReq(id) { return deleteDoc(doc(db, 'ptreq', id)); }
+let ptUnsub = null;
+function listenPtReq() {
+  if (ptUnsub) { ptUnsub(); ptUnsub = null; }
+  Store.applyRemote('ptreqs', []);
+  if (!user || !(staff() || member)) return;
+  const src = staff() ? query(collection(db, 'ptreq'), where('date', '>=', monthAgo())) : query(collection(db, 'ptreq'), where('uid', '==', user.uid));
+  ptUnsub = onSnapshot(src, snap => {
+    Store.applyRemote('ptreqs', snap.docs.map(d => { const x = d.data(); return Object.assign({ id: d.id }, x, { at: x.at && x.at.toMillis ? x.at.toMillis() : x.at || 0 }); }));
+    refresh();
+  }, onError);
+}
+onSnapshot(doc(db, 'pub', 'coaches'), snap => { Store.applyRemote('pubCoaches', snap.exists() ? snap.data() : {}); refresh(); }, () => {});
+let pubTimer = null;
+function syncPubCoaches() {
+  clearTimeout(pubTimer);
+  pubTimer = setTimeout(() => {
+    if (!staff() || !pcLoaded.has('coaches')) return;
+    const st = Store.state, mem = uid => (st.members || []).find(m => m.uid === uid);
+    const list = (st.coaches || []).map(c => { const m = mem(c.id); return { uid: c.id, name: (m ? `${m.first} ${m.last}` : c.name || '').trim().slice(0, 80) }; })
+      .filter(c => c.name).sort((a, b) => a.name.localeCompare(b.name)).slice(0, 50);
+    if (JSON.stringify(list) === JSON.stringify((st.pubCoaches || {}).list || [])) return;
+    setDoc(doc(db, 'pub', 'coaches'), { list, updated: Date.now() }).catch(onError);
+  }, 2500);
+}
+// Conferma (admin e segreteria): in un solo invio l'allenamento privato (pubblico senza nomi), il blocco del campo
+// (bookings privato + busy pubblico, come i recuperi), il gruppo con il nome dell'allievo (solo staff e maestro),
+// xmem per l'utente registrato, la richiesta aggiornata e il messaggio nell'app per l'utente registrato.
+// Prima ricontrolla sul server che il campo sia ancora libero.
+async function confirmPtReq(req, d, person, noticeText) {
+  if (!staff()) throw Object.assign(new Error('permission-denied'), { code: 'permission-denied' });
+  const ref = doc(collection(db, 'trainings'));
+  const tr = Object.assign({ id: ref.id }, d);
+  const slots = extraTrainingSlots(tr, d.courts[0]);
+  const taken = await Promise.all(Object.keys(slots).map(id => getDoc(doc(db, 'busy', id)).then(s => s.exists()).catch(() => false)));
+  if (taken.some(Boolean)) throw Object.assign(new Error('court-busy'), { code: 'court-busy' });
+  const month = d.date.slice(0, 7), batch = writeBatch(db);
+  batch.set(ref, Object.assign({}, d, { created: Date.now(), sizes: { [month]: 1 } }));
+  trainingBlocks(batch, tr, false);
+  batch.set(doc(db, 'groups', `${ref.id}_${month}`), { tid: ref.id, month, uids: [person.uid], names: { [person.uid]: person.name }, coachUid: d.coachUid || '', updated: Date.now() });
+  if (person.registered) batch.set(doc(db, 'xmem', `${ref.id}_${person.uid}`), { tid: ref.id, date: d.date, uid: person.uid });
+  batch.update(doc(db, 'ptreq', req.id), { status: 'ok', tid: ref.id, courtId: d.courts[0], coachUid: d.coachUid || '', decidedBy: user.uid, decidedAt: Date.now() });
+  if (person.registered && noticeText) batch.set(doc(collection(db, 'notices')), { to: person.uid, text: String(noticeText).slice(0, 400), at: Date.now(), by: user.uid });
+  await batch.commit();
+  return ref.id;
+}
+function rejectPtReq(req, noticeText) {
+  const batch = writeBatch(db);
+  batch.update(doc(db, 'ptreq', req.id), { status: 'no', decidedBy: user.uid, decidedAt: Date.now() });
+  if (req.kind === 'user' && req.uid && noticeText) batch.set(doc(collection(db, 'notices')), { to: req.uid, text: String(noticeText).slice(0, 400), at: Date.now(), by: user.uid });
+  return batch.commit();
+}
+
+// ---------- iscrizioni online dei minori (enroll) ----------
+// enroll/{id}: modulo pubblico (genitore, allievo, livello, consenso immagini, informativa). Solo creazione per tutti;
+// lettura, «gestita» e «archiviata» solo per admin e segreteria.
+function sendEnroll(d) { return setDoc(doc(collection(db, 'enroll')), Object.assign({}, d, { status: 'new', at: serverTimestamp() })); }
+function setEnroll(id, f) { return updateDoc(doc(db, 'enroll', id), Object.assign({}, f, { decidedBy: user.uid, decidedAt: Date.now() })); }
+// «Crea scheda corsista»: la scheda senza account e l'iscrizione segnata come gestita, nello stesso invio
+function createKidFromEnroll(a, enrollId) {
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'athletes', a.id), stripId(a));
+  batch.update(doc(db, 'enroll', enrollId), { status: 'done', athleteId: a.id, decidedBy: user.uid, decidedAt: Date.now() });
+  return batch.commit();
+}
+let enUnsub = null;
+function listenEnroll() {
+  if (enUnsub) { enUnsub(); enUnsub = null; }
+  Store.applyRemote('enrolls', []);
+  if (!user || !staff()) return;
+  enUnsub = onSnapshot(collection(db, 'enroll'), snap => {
+    Store.applyRemote('enrolls', snap.docs.map(d => { const x = d.data(); return Object.assign({ id: d.id }, x, { at: x.at && x.at.toMillis ? x.at.toMillis() : x.at || 0 }); }));
+    refresh();
+  }, onError);
+}
+
+// ---------- valutazioni visibili agli allenatori (evaccess) ----------
+// evaccess/{uid corsista} = { coachUids }: gli allenatori dei gruppi del corsista (ultimi 12 mesi e mese prossimo).
+// Lo tiene aggiornato l'app di admin e segreteria; le regole lo usano per far leggere all'allenatore tutte le schede
+// di valutazione dei propri corsisti, anche quelle scritte da altri allenatori.
+let eaDocs = null, eaUnsub = null, eaTimer = null, eaBusy = false;
+function listenEvAccess() {
+  if (eaUnsub) { eaUnsub(); eaUnsub = null; }
+  eaDocs = null;
+  if (!user || !staff()) return;
+  eaUnsub = onSnapshot(collection(db, 'evaccess'), snap => { eaDocs = Object.fromEntries(snap.docs.map(d => [d.id, d.data().coachUids || []])); scheduleEaSync(); }, onError);
+}
+function scheduleEaSync() {
+  clearTimeout(eaTimer);
+  eaTimer = setTimeout(() => {
+    if (!staff() || !eaDocs || eaBusy || !pcLoaded.has('groups')) return;
+    const d = new Date(); d.setMonth(d.getMonth() - 12); const from = d.toLocaleDateString('sv').slice(0, 7);
+    const want = {};
+    (Store.state.groups || []).filter(g => g.month >= from && g.coachUid).forEach(g => (g.uids || []).forEach(u => { (want[u] = want[u] || new Set()).add(g.coachUid); }));
+    const batch = writeBatch(db); let n = 0;
+    Object.entries(want).forEach(([u, set]) => { const list = [...set].sort(); if (JSON.stringify(list) !== JSON.stringify((eaDocs[u] || []).slice().sort())) { batch.set(doc(db, 'evaccess', u), { coachUids: list, updated: Date.now() }); n++; } });
+    Object.keys(eaDocs).forEach(u => { if (!want[u]) { batch.delete(doc(db, 'evaccess', u)); n++; } });
+    if (!n) return;
+    eaBusy = true;
+    batch.commit().catch(onError).finally(() => { eaBusy = false; });
+  }, 3000);
+}
+// allenatore: le schede di un suo corsista (tutte, anche di altri allenatori)
+async function loadEvalsOf(uid) {
+  const snap = await getDocs(query(collection(db, 'evals'), where('uid', '==', uid)));
+  return snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
+}
+
 window.Cloud = {
   saveEditorial,
   register,
@@ -1567,7 +1710,9 @@ window.Cloud = {
   decideSpot,
   setOccCancelled,
   setOccFree,
-  saveBkPlayers, moveBkPlayers, extraTrainingBlocks, setOccMembers,
+  sendEnroll, setEnroll, createKidFromEnroll, loadEvalsOf,
+  sendPtReq, withdrawPtReq, confirmPtReq, rejectPtReq, ptreqId,
+  saveBkPlayers, saveBkPhone, moveBkPlayers, extraTrainingBlocks, setOccMembers,
   recordPayment,
   voidReceipt,
   renumberReceipts,
