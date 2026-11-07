@@ -1858,7 +1858,7 @@
       <text x="${m.l - 6}" y="${y(v) + 4}" class="ev-ax" text-anchor="end">${v}</text>`).join('');
     const every = Math.max(1, Math.ceil(n / Math.floor(iw / 52)));
     const xl = series.map((p, i) => i % every === 0
-      ? `<text x="${x(i)}" y="${H - 12}" class="ev-ax" text-anchor="middle">${esc(shortDate(p.date))}</text>` : '').join('');
+      ? `<text x="${x(i)}" y="${H - 12}" class="ev-ax" text-anchor="${n > 1 && i === 0 ? 'start' : n > 1 && i === n - 1 ? 'end' : 'middle'}">${esc(shortDate(p.date))}</text>` : '').join('');
     // linea con i buchi: segmenti tra punti consecutivi con valore; i punti isolati restano come pallini
     const line = (get, cls, label) => {
       let d = '', open = false;
