@@ -60,7 +60,7 @@ const isCenter = () => !isAdmin && !!roles.center;
 // non cambia i ruoli e non gestisce i campi né le regole di prenotazione (solo l'admin).
 const staff = () => isAdmin || isSeg;
 
-const refresh = () => { if (window.App) window.App.refresh(); if (staff()) schedulePackSync(); };
+const refresh = () => { if (window.App) window.App.refresh(); if (staff()) { schedulePackSync(); schedulePcSync(); } };
 
 // L'app è pronta appena arrivano le impostazioni (campi, orari, listino).
 function markLoaded() {
@@ -646,17 +646,21 @@ function deleteRecurring(r) {
 // athletes/{uid}: scheda corsista (anagrafica, tesseramento, certificato): la leggono solo l'admin e l'interessato.
 // groups/{tid_YYYY-MM}: gruppo del mese di un allenamento (nomi): solo admin e coach.
 // plans/{uid_YYYY-MM}: piano del mese del corsista (allenamenti, quanti a settimana, prezzo): solo admin e interessato.
+let trLoaded = false;
 onSnapshot(collection(db, 'trainings'), snap => {
   Store.applyRemote('trainings', snap.docs.map(d => Object.assign({ id: d.id }, d.data())));
+  trLoaded = true;
   refresh();
 }, onError);
 let trUnsubs = [];
 function listenTraining() {
   trUnsubs.forEach(f => f()); trUnsubs = [];
-  ['coaches', 'athletes', 'groups', 'plans', 'packs', 'packuse', 'xmem'].forEach(k => Store.applyRemote(k, []));
+  ['coaches', 'athletes', 'groups', 'plans', 'packs', 'packcount', 'packuse', 'xmem'].forEach(k => Store.applyRemote(k, []));
+  pcLoaded.clear();
   if (!user) return;
   const on = (src, kind) => trUnsubs.push(onSnapshot(src, snap => {
     Store.applyRemote(kind, snap.docs.map(d => Object.assign({ id: d.id }, d.data())));
+    pcLoaded.add(kind);
     refresh();
   }, onError));
   if (staff() || roles.cash) {
@@ -668,7 +672,7 @@ function listenTraining() {
     }, onError));
   }
   if (staff()) {
-    ['coaches', 'groups', 'plans', 'packs', 'packuse'].forEach(k => on(collection(db, k), k));
+    ['coaches', 'groups', 'plans', 'packs', 'packcount', 'packuse'].forEach(k => on(collection(db, k), k));
     trUnsubs.push(onSnapshot(collection(db, 'athletes'), snap => {
       Store.applyRemote('athletes', snap.docs.map(d => Object.assign({ id: d.id }, d.data())));
       athLoaded = true; syncTess(); refresh();
@@ -683,6 +687,15 @@ function listenTraining() {
   if (!isCenter()) on(query(collection(db, 'plans'), where('uid', '==', user.uid)), 'plans');
   on(query(collection(db, 'packs'), where('uid', '==', user.uid)), 'packs');
   on(query(collection(db, 'packuse'), where('uid', '==', user.uid)), 'packuse');
+  // contatori dei pacchetti (senza prezzi): i propri e, per l'allenatore, quelli dei corsisti dei suoi allenamenti
+  const pcParts = {};
+  const pcAdd = (key, src) => trUnsubs.push(onSnapshot(src, snap => {
+    pcParts[key] = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
+    const all = {}; Object.values(pcParts).forEach(l => l.forEach(x => { all[x.id] = x; }));
+    Store.applyRemote('packcount', Object.values(all)); refresh();
+  }, onError));
+  pcAdd('m', query(collection(db, 'packcount'), where('uid', '==', user.uid)));
+  if (coach) pcAdd('c', query(collection(db, 'packcount'), where('coachUids', 'array-contains', user.uid)));
   on(query(collection(db, 'xmem'), where('uid', '==', user.uid)), 'xmem');
   if (isCenter()) { on(collection(db, 'groups'), 'groups'); on(collection(db, 'plans'), 'plans'); on(collection(db, 'coaches'), 'coaches'); }
   else if (coach) on(coach.all ? collection(db, 'groups') : query(collection(db, 'groups'), where('coachUid', '==', user.uid)), 'groups');
@@ -694,8 +707,11 @@ function tessMirror(a) {
   const m = (Store.state.members || []).find(x => x.uid === a.id);
   const seasons = Object.keys(a.tess || {}).filter(k => a.tess[k]).sort();
   if (!seasons.length) return null;
-  return { name: m ? `${m.first} ${m.last}` : `${a.first || ''} ${a.last || ''}`.trim(), gender: (m && m.gender) || 'M', birthPlace: a.birthPlace || '', birthDate: a.birthDate || '',
+  const x = { name: m ? `${m.first} ${m.last}` : `${a.first || ''} ${a.last || ''}`.trim(), gender: (m && m.gender) || a.gender || 'M', birthPlace: a.birthPlace || '', birthDate: a.birthDate || '',
     city: a.city || '', address: a.address || '', cf: a.cf || '', seasons };
+  // ragazzo senza account: il genitore compare nella ricevuta
+  if (a.parent && a.parent.name) x.parent = a.parent.name;
+  return x;
 }
 function syncTess() {
   if (!staff() || !athLoaded || !tessDocs || tessSyncing) return;
@@ -869,6 +885,64 @@ function setAttendanceTx(tid, date, uid, status, extra) {
     else tr.delete(aref);
   });
 }
+// Presenza segnata (presente / assente / niente) dall'allenatore di quell'allenamento o da admin e segreteria.
+// Il pacchetto del corsista si scala SUBITO: admin e segreteria con syncPackUse; l'allenatore (che non vede prezzi né
+// piani) in un'unica transazione con presenza, packuse e contatore (packcount, senza dati economici).
+// Se le regole rifiutano lo scalo (es. mese già pagato con il piano) si salva solo la presenza.
+async function markAttendance(tid, date, uid, status, coachUid) {
+  if (staff()) {
+    await setAttendance(tid, date, uid, status, { coachUid: coachUid || '', forced: true });
+    return syncPackUse(tid, date, uid);
+  }
+  try { return await withFreshToken(() => coachMarkTx(tid, date, uid, status, coachUid, true)); }
+  catch (e) {
+    if (e && e.code === 'permission-denied') return coachMarkTx(tid, date, uid, status, coachUid, false);
+    throw e;
+  }
+}
+function coachMarkTx(tid, date, uid, status, coachUid, withPack) {
+  return runTransaction(db, async tx => {
+    const oid = `${tid}_${date}`, attId = `${oid}_${uid}`;
+    const oref = doc(db, 'occ', oid), aref = doc(db, 'att', attId), uref = doc(db, 'packuse', attId);
+    const [os, as] = await Promise.all([tx.get(oref), tx.get(aref)]);
+    const us = withPack ? await tx.get(uref) : null;
+    const has = us && us.exists() ? us.data() : null;
+    // contatori leggibili dall'allenatore (quelli dei corsisti dei suoi allenamenti)
+    const pcs = {};
+    if (withPack) {
+      const ids = (Store.state.packcount || []).filter(c => c.uid === uid).map(c => c.id);
+      for (const id of ids) { const s = await tx.get(doc(db, 'packcount', id)); if (s.exists()) pcs[id] = s.data(); }
+    }
+    const o = os.exists() ? os.data() : occBase(tid, date), a = as.exists() ? as.data() : null;
+    const before = a ? a.status : 'none', after = status || 'none';
+    let wrote = false;
+    if (before !== after || (status && !a.forced)) {
+      const p = (o.p || 0) + (after === 'in' ? 1 : 0) - (before === 'in' ? 1 : 0);
+      const ab = (o.a || 0) + (after === 'out' ? 1 : 0) - (before === 'out' ? 1 : 0);
+      if (os.exists()) tx.update(oref, { p, a: ab }); else tx.set(oref, Object.assign(occBase(tid, date), { p, a: ab }));
+      if (status) tx.set(aref, { tid, date, uid, status, at: Date.now(), coachUid: coachUid || '', forced: true, by: user.uid });
+      else tx.delete(aref);
+      wrote = true;
+    }
+    if (!withPack) return 'none';
+    const want = after === 'in' && !o.cancelled;
+    if (has && !want && pcs[has.pack]) {
+      tx.delete(uref);
+      tx.update(doc(db, 'packcount', has.pack), { used: Math.max(0, (pcs[has.pack].used || 0) - 1), last: attId });
+      return 'released';
+    }
+    if (!has && want) {
+      const pick = Object.entries(pcs).filter(([, c]) => (c.from || '') <= date && (c.used || 0) < (c.n || 0))
+        .sort(([, x], [, y]) => (x.from || '').localeCompare(y.from || '') || (x.created || 0) - (y.created || 0))[0];
+      if (!pick) return wrote ? 'nopack' : 'none';
+      if (!os.exists() && !wrote) tx.set(oref, occBase(tid, date));
+      tx.set(uref, { pack: pick[0], uid, tid, date, at: Date.now(), by: user.uid });
+      tx.update(doc(db, 'packcount', pick[0]), { used: (pick[1].used || 0) + 1, last: attId });
+      return 'used';
+    }
+    return 'none';
+  });
+}
 // Scheda di valutazione: list = [{ tid, date, uid, coachUid, v: { tec: 7, … }, note }]; senza voti né nota si elimina.
 function saveEvals(list) {
   const batch = writeBatch(db);
@@ -894,9 +968,9 @@ function decideSpot(sp, ok, price, packId) {
     const was = prev.status === 'ok';
     const use = ok && packId ? packId : null, back = was && prev.pack && !prev.packBack ? prev.pack : null;
     const pks = {};
-    for (const id of new Set([use, back].filter(Boolean))) pks[id] = await tr.get(doc(db, 'packs', id));
+    for (const id of new Set([use, back].filter(Boolean))) pks[id] = await pcRead(tr, id);
     if (use) {
-      const pk = pks[use].exists() ? pks[use].data() : null;
+      const pk = pks[use];
       const left = pk ? pk.n - (pk.used || 0) + (back === use ? 1 : 0) : 0;
       if (left <= 0) throw Object.assign(new Error('pack-empty'), { code: 'pack-empty' });
     }
@@ -907,7 +981,7 @@ function decideSpot(sp, ok, price, packId) {
     const delta = {};
     if (use) delta[use] = (delta[use] || 0) + 1;
     if (back) delta[back] = (delta[back] || 0) - 1;
-    Object.entries(delta).forEach(([id, d]) => { if (d && pks[id].exists()) tr.update(doc(db, 'packs', id), { used: Math.max(0, (pks[id].data().used || 0) + d) }); });
+    Object.entries(delta).forEach(([id, d]) => { if (d && pks[id]) pcWrite(tr, pks[id], Math.max(0, (pks[id].used || 0) + d)); });
     const data = { status: ok ? 'ok' : 'no', decidedAt: Date.now(), seen: false };
     if (ok) data.price = use ? 0 : price;
     if (use) data.pack = use;
@@ -935,14 +1009,14 @@ function setOccCancelled(tid, date, cancelled, note, packSpots, removed) {
     const list = (packSpots || []).filter(sp => sp.pack && !!sp.packBack !== cancelled);
     const ids = [...new Set(list.map(sp => sp.pack))];
     const pks = {};
-    for (const id of ids) pks[id] = await tr.get(doc(db, 'packs', id));
+    for (const id of ids) pks[id] = await pcRead(tr, id);
     const st = { cancelled, note: note || '', removed: !!(cancelled && removed) };
     if (os.exists()) tr.update(oref, st);
     else tr.set(oref, Object.assign(occBase(tid, date), st));
     ids.forEach(id => {
-      if (!pks[id].exists()) return;
+      if (!pks[id]) return;
       const k = list.filter(sp => sp.pack === id).length;
-      tr.update(doc(db, 'packs', id), { used: Math.max(0, (pks[id].data().used || 0) + (cancelled ? -k : k)) });
+      pcWrite(tr, pks[id], Math.max(0, (pks[id].used || 0) + (cancelled ? -k : k)));
     });
     list.forEach(sp => tr.update(doc(db, 'spots', sp.id), { packBack: cancelled ? true : deleteField() }));
   });
@@ -1127,45 +1201,77 @@ function clearPaid(batch, kind, ref) {
   else batch.update(doc(db, payCol(kind), ref), { paid: deleteField() });
 }
 // ---------- pacchetti: ogni presenza scala un allenamento dal pacchetto (senza Cloud Functions) ----------
-// Sul piano Spark non c'è il motore che lo faceva nell'app di origine: lo scalo lo fa l'app di admin e segreteria,
-// in una transazione (tutto o niente), con le stesse regole di prima:
-// - vale per le presenze ("presente") dal giorno di inizio del pacchetto (from, altrimenti il giorno di registrazione);
+// packs/{id}: pacchetto con prezzo e pagamento (solo staff e interessato).
+// packcount/{id}: contatore senza dati economici { uid, n, used, from, created, coachUids } che legge anche
+// l'allenatore dei corsisti (coachUids, tenuto aggiornato da admin e segreteria): è lui a scalare subito
+// quando segna «presente» (markAttendance). Regole dello scalo (come in Beach+):
+// - vale per le presenze SEGNATE (dall'allenatore, da admin o segreteria) dal giorno di inizio del pacchetto;
+//   la risposta del corsista («ci sarò») non scala nulla;
 // - non si scala se l'allenamento è annullato o se il mese è coperto dal piano pagato (mensile, trimestrale, corso intero);
 // - packuse/{id della presenza} ricorda quale pacchetto è stato usato: presenza tolta, allenamento annullato o
 //   pacchetto spostato più avanti → l'allenamento torna nel pacchetto.
-// Quando admin o segreteria segnano una presenza lo scalo è immediato; le presenze date dal corsista o segnate
-// dall'allenatore (che non vede i pacchetti) si allineano da sole appena admin o segreteria aprono l'app, e con "Ricalcola".
+// Admin e segreteria allineano da soli presenze e contatori quando aprono l'app, e con «Ricalcola pacchetti».
 const packStart = k => k.from || new Date(k.created || 0).toLocaleDateString('sv');
+// allenatori degli allenamenti in cui il corsista è nel gruppo (mese scorso, questo e il prossimo)
+function coachUidsFor(uid) {
+  const s = Store.state, now = new Date().toLocaleDateString('sv').slice(0, 7);
+  const sh = n => { const d = new Date(now + '-15T12:00'); d.setMonth(d.getMonth() + n); return d.toLocaleDateString('sv').slice(0, 7); };
+  const months = [sh(-1), now, sh(1)];
+  const out = new Set();
+  (s.groups || []).filter(g => months.includes(g.month) && (g.uids || []).includes(uid)).forEach(g => {
+    const tr = (s.trainings || []).find(x => x.id === g.tid);
+    if (tr && tr.coachUid) out.add(tr.coachUid);
+  });
+  return [...out].sort();
+}
+// contatore di un pacchetto in una transazione; se manca (pacchetti di prima) si prepara dai dati del pacchetto
+async function pcRead(tx, id) {
+  const s = await tx.get(doc(db, 'packcount', id));
+  if (s.exists()) return Object.assign({ id, exists: true }, s.data());
+  const k = await tx.get(doc(db, 'packs', id));
+  if (!k.exists()) return null;
+  const d = k.data();
+  return { id, exists: false, uid: d.uid, n: d.n || 0, used: Math.min(d.used || 0, d.n || 0), from: packStart(d), created: d.created || 0, coachUids: coachUidsFor(d.uid) };
+}
+function pcWrite(tx, c, used) {
+  const ref = doc(db, 'packcount', c.id);
+  if (c.exists) tx.update(ref, { used });
+  else { tx.set(ref, { uid: c.uid, n: c.n, used, from: c.from, created: c.created, coachUids: c.coachUids || [] }); c.exists = true; }
+  c.used = used;
+}
 function syncPackUse(tid, date, uid) {
   if (!staff()) return Promise.resolve('none');
   const attId = `${tid}_${date}_${uid}`, m = date.slice(0, 7);
   const ids = new Set((Store.state.packs || []).filter(k => k.uid === uid).map(k => k.id));
+  (Store.state.packcount || []).filter(k => k.uid === uid).forEach(k => ids.add(k.id));
   const used = (Store.state.packuse || []).find(u => u.id === attId);
   if (used && used.pack) ids.add(used.pack);
   return runTransaction(db, async tx => {
     const refs = { a: doc(db, 'att', attId), u: doc(db, 'packuse', attId), o: doc(db, 'occ', `${tid}_${date}`), p: doc(db, 'plans', `${uid}_${m}`), ath: doc(db, 'athletes', uid), tr: doc(db, 'trainings', tid) };
     const keys = Object.keys(refs), snaps = await Promise.all(keys.map(k => tx.get(refs[k])));
     const g = Object.fromEntries(keys.map((k, i) => [k, snaps[i].exists() ? snaps[i].data() : null]));
-    const ks = (await Promise.all([...ids].map(id => tx.get(doc(db, 'packs', id))))).filter(x => x.exists()).map(x => Object.assign({ id: x.id }, x.data()));
+    const ks = [];
+    for (const id of ids) { const c = await pcRead(tx, id); if (c) ks.push(c); }
     const a = g.a, has = g.u;
-    let want = !!(a && a.status === 'in');
+    // presenza segnata (forced); una risposta del corsista già scalata con le regole di prima resta scalata
+    let want = !!(a && a.status === 'in' && (a.forced || has));
     if (want && g.o && g.o.cancelled) want = false;
     if (want) {
       const pre = g.ath && (g.ath.prepaid || {})[m], extra = !!(g.tr && g.tr.date);
       if (g.p && (extra || (g.p.tids || []).includes(tid)) && (g.p.paid || pre)) want = false;
     }
     const cur = has ? ks.find(k => k.id === has.pack) : null;
-    if (has && want && cur && packStart(cur) <= date) return 'kept';
+    if (has && want && cur && cur.from <= date) return 'kept';
     if (!has && !want) return 'none';
     const delta = {};
     if (has && cur) delta[cur.id] = -1;
     let pick = null;
     if (want) {
-      pick = ks.filter(k => packStart(k) <= date && (k.n || 0) - (k.used || 0) + (has && cur && cur.id === k.id ? 1 : 0) > 0)
-        .sort((x, y) => packStart(x).localeCompare(packStart(y)) || (x.created || 0) - (y.created || 0))[0] || null;
+      pick = ks.filter(k => k.from <= date && (k.n || 0) - (k.used || 0) + (has && cur && cur.id === k.id ? 1 : 0) > 0)
+        .sort((x, y) => x.from.localeCompare(y.from) || (x.created || 0) - (y.created || 0))[0] || null;
       if (pick) delta[pick.id] = (delta[pick.id] || 0) + 1;
     }
-    Object.entries(delta).forEach(([id, d]) => { if (d) { const k = ks.find(x => x.id === id); tx.update(doc(db, 'packs', id), { used: Math.max(0, (k.used || 0) + d) }); } });
+    Object.entries(delta).forEach(([id, d]) => { if (d) { const k = ks.find(x => x.id === id); pcWrite(tx, k, Math.max(0, (k.used || 0) + d)); } });
     if (pick) tx.set(refs.u, { pack: pick.id, uid, tid, date, at: Date.now(), by: user.uid });
     else if (has) tx.delete(refs.u);
     return pick ? 'used' : has ? 'released' : 'nopack';
@@ -1189,15 +1295,17 @@ async function recalcPacks(uids) {
 // Allineamento automatico (admin e segreteria): presenze dell'ultimo mese che non corrispondono a packuse.
 let packTimer = null, packBusy = false;
 const packTried = new Map();
-function packWantLocal(a) {
+const pcOf = id => (Store.state.packcount || []).find(c => c.id === id);
+const pcUsed = k => { const c = pcOf(k.id); return c ? c.used || 0 : k.used || 0; };
+function packWantLocal(a, has) {
   const s = Store.state, m = a.date.slice(0, 7);
-  if (a.status !== 'in') return false;
+  if (a.status !== 'in' || !(a.forced || has)) return false;
   const o = (s.occ || []).find(x => x.tid === a.tid && x.date === a.date);
   if (o && o.cancelled) return false;
   const p = (s.plans || []).find(x => x.uid === a.uid && x.month === m), ath = (s.athletes || []).find(x => x.id === a.uid);
   const tr = (s.trainings || []).find(x => x.id === a.tid), pre = ath && (ath.prepaid || {})[m];
   if (p && ((tr && tr.date) || (p.tids || []).includes(a.tid)) && (p.paid || pre)) return false;
-  return (s.packs || []).some(k => k.uid === a.uid && packStart(k) <= a.date && ((k.n || 0) - (k.used || 0) > 0 || (s.packuse || []).some(u => u.pack === k.id && u.id === `${a.tid}_${a.date}_${a.uid}`)));
+  return (s.packs || []).some(k => k.uid === a.uid && packStart(k) <= a.date && ((k.n || 0) - pcUsed(k) > 0 || (s.packuse || []).some(u => u.pack === k.id && u.id === `${a.tid}_${a.date}_${a.uid}`)));
 }
 function schedulePackSync() {
   if (packTimer || packBusy) return;
@@ -1209,7 +1317,7 @@ function schedulePackSync() {
     const used = new Map((s.packuse || []).map(u => [u.id, u]));
     const todo = [];
     (s.att || []).filter(a => withPack.has(a.uid) && a.tid && a.date).forEach(a => {
-      const id = `${a.tid}_${a.date}_${a.uid}`, want = packWantLocal(a), has = used.has(id);
+      const id = `${a.tid}_${a.date}_${a.uid}`, has = used.has(id), want = packWantLocal(a, has);
       if (want !== has) todo.push({ id, tid: a.tid, date: a.date, uid: a.uid, sig: `${want}|${has}|${a.status}` });
     });
     // packuse senza presenza (presenza tolta) dell'ultimo mese
@@ -1224,9 +1332,115 @@ function schedulePackSync() {
     } finally { packBusy = false; }
   }, 3000);
 }
-// Pacchetti (admin): crea, modifica numero/prezzo, elimina (solo se non usato e non pagato).
-function savePack(id, data) { return id ? updateDoc(doc(db, 'packs', id), data) : addDoc(collection(db, 'packs'), Object.assign({ used: 0, created: Date.now(), by: user.uid }, data)); }
-function deletePack(id) { return deleteDoc(doc(db, 'packs', id)); }
+// Contatori dei pacchetti (admin e segreteria): uno per pacchetto, creati per i pacchetti di prima (con gli
+// allenamenti già usati), con gli allenatori aggiornati quando cambiano gruppi o allenatori; tolti con il pacchetto.
+const pcLoaded = new Set();
+let pcTimer = null, pcBusy = false;
+function schedulePcSync() {
+  if (pcTimer || pcBusy) return;
+  pcTimer = setTimeout(() => {
+    pcTimer = null;
+    if (!staff() || !trLoaded || !['packs', 'packcount', 'groups'].every(k => pcLoaded.has(k))) return;
+    const s = Store.state, have = new Map((s.packcount || []).map(c => [c.id, c]));
+    const batch = writeBatch(db);
+    let n = 0;
+    (s.packs || []).forEach(k => {
+      const want = { uid: k.uid, n: k.n || 0, from: packStart(k), created: k.created || 0, coachUids: coachUidsFor(k.uid) };
+      const c = have.get(k.id);
+      if (!c) { batch.set(doc(db, 'packcount', k.id), Object.assign({ used: Math.min(k.used || 0, k.n || 0) }, want)); n++; return; }
+      const diff = Object.keys(want).filter(f => JSON.stringify(want[f]) !== JSON.stringify(c[f] == null ? (f === 'coachUids' ? [] : c[f]) : c[f]));
+      if (diff.length) { batch.update(doc(db, 'packcount', k.id), Object.fromEntries(diff.map(f => [f, want[f]]))); n++; }
+    });
+    const ids = new Set((s.packs || []).map(k => k.id));
+    (s.packcount || []).forEach(c => { if (!ids.has(c.id)) { batch.delete(doc(db, 'packcount', c.id)); n++; } });
+    if (!n) return;
+    pcBusy = true;
+    batch.commit().catch(onError).finally(() => { pcBusy = false; });
+  }, 1500);
+}
+// Pacchetti (admin e segreteria): crea (con il suo contatore), modifica l'inizio, elimina (solo se non usato e non pagato).
+function savePack(id, data) {
+  const batch = writeBatch(db);
+  if (id) {
+    batch.update(doc(db, 'packs', id), data);
+    const pc = {};
+    if (data.from) pc.from = data.from;
+    if (data.n) pc.n = data.n;
+    if (Object.keys(pc).length && pcOf(id)) batch.update(doc(db, 'packcount', id), pc);
+    return batch.commit();
+  }
+  const ref = doc(collection(db, 'packs')), created = Date.now();
+  const d = Object.assign({ used: 0, created, by: user.uid }, data);
+  batch.set(ref, d);
+  batch.set(doc(db, 'packcount', ref.id), { uid: d.uid, n: d.n, used: 0, from: packStart(d), created, coachUids: coachUidsFor(d.uid) });
+  return batch.commit().then(() => ref);
+}
+function deletePack(id) {
+  const batch = writeBatch(db);
+  batch.delete(doc(db, 'packs', id)); batch.delete(doc(db, 'packcount', id));
+  return batch.commit();
+}
+
+// Scheda di un ragazzo SENZA ACCOUNT: ID "k-" + codice casuale (mai uguale all'UID di un account), usato come un UID
+// in gruppi, presenze, piani, pacchetti, valutazioni e ricevute. La creano e la vedono solo admin e segreteria.
+const newKidId = () => 'k-' + doc(collection(db, 'athletes')).id;
+// Elimina la scheda senza account: tolta dai gruppi, piani (da questo mese) e pacchetti non usati cancellati.
+// Ricevute, incassi, presenze e valutazioni passate restano (storico e obbligo fiscale).
+function deleteKid(uid, groups, planIds, packIds) {
+  if (!/^k-/.test(uid)) return Promise.reject(new Error('not-kid'));
+  const batch = writeBatch(db);
+  groups.forEach(g => batch.set(doc(db, 'groups', g.id), g.data));
+  groups.filter(g => g.tr).forEach(g => batch.update(doc(db, 'trainings', g.data.tid), { ['sizes.' + g.data.month]: (g.data.uids || []).length }));
+  planIds.forEach(id => batch.delete(doc(db, 'plans', id)));
+  packIds.forEach(id => { batch.delete(doc(db, 'packs', id)); batch.delete(doc(db, 'packcount', id)); });
+  batch.delete(doc(db, 'athletes', uid)); batch.delete(doc(db, 'tesserati', uid));
+  return batch.commit();
+}
+// Collega la scheda senza account (from = "k-…") all'account del ragazzo che si è registrato (to = UID):
+// tutto ciò che usava l'ID della scheda passa all'UID (gruppi, giornate, presenze, packuse, valutazioni, piani,
+// pacchetti e contatori, spot, recuperi, ricevute, incassi), poi la scheda senza account si chiude.
+// Prima gruppi e giornate (le regole delle valutazioni controllano il gruppo), poi il resto a blocchi di 400.
+async function linkKid(from, to, toName) {
+  if (!staff() || !/^k-/.test(from) || !to || /^k-/.test(to)) throw new Error('link');
+  const q = (c, ...w) => getDocs(query(collection(db, c), ...w)).then(x => x.docs);
+  const byUid = c => q(c, where('uid', '==', from));
+  const [ath, groups, occs, plans, packs, pcs, pus, atts, evs, spots, xm, rcs, incs] = await Promise.all([
+    getDoc(doc(db, 'athletes', from)), q('groups', where('uids', 'array-contains', from)), q('occ', where('members', 'array-contains', from)),
+    ...['plans', 'packs', 'packcount', 'packuse', 'att', 'evals', 'spots', 'xmem', 'receipts', 'incassi'].map(byUid)]);
+  if (!ath.exists()) throw new Error('no-sheet');
+  const swap = l => (l || []).map(u => (u === from ? to : u));
+  const ops = [];
+  let b1 = writeBatch(db);
+  groups.forEach(d => { const g = d.data(), names = Object.assign({}, g.names || {}); names[to] = toName || names[from] || ''; delete names[from];
+    b1.update(d.ref, { uids: [...new Set(swap(g.uids))], names, updated: Date.now() }); });
+  occs.forEach(d => b1.update(d.ref, { members: [...new Set(swap(d.data().members))] }));
+  await b1.commit();
+  const moveId = (col, d, newId, extra) => { ops.push(['set', doc(db, col, newId), Object.assign({}, d.data(), { uid: to }, extra || {})]); ops.push(['del', d.ref]); };
+  // prima pacchetti e contatori (le regole di packuse controllano che il contatore sia dello stesso corsista)
+  [packs, pcs].forEach(l => l.forEach(d => ops.push(['upd', d.ref, { uid: to }])));
+  plans.forEach(d => moveId('plans', d, `${to}_${d.data().month}`));
+  pus.forEach(d => { const x = d.data(); moveId('packuse', d, `${x.tid}_${x.date}_${to}`, { by: user.uid }); });
+  atts.forEach(d => { const x = d.data(); moveId('att', d, `${x.tid}_${x.date}_${to}`); });
+  spots.forEach(d => { const x = d.data(); moveId('spots', d, `${x.tid}_${x.date}_${to}`); });
+  xm.forEach(d => { const x = d.data(); moveId('xmem', d, `${x.tid}_${to}`); });
+  // valutazioni: nuova copia (movedFrom = scheda di origine, controllata dalle regole), poi la vecchia si cancella
+  evs.forEach(d => { const x = d.data(); ops.push(['set', doc(db, 'evals', `${x.tid}_${x.date}_${to}`), Object.assign({}, x, { uid: to, movedFrom: from })]); });
+  [rcs, incs].forEach(l => l.forEach(d => ops.push(['upd', d.ref, { uid: to }])));
+  const a = Object.assign({}, ath.data());
+  delete a.noAccount;
+  ops.push(['set', doc(db, 'athletes', to), Object.assign(a, { linkedFrom: from, updated: Date.now() })]);
+  for (let i = 0; i < ops.length; i += 400) {
+    const b = writeBatch(db);
+    ops.slice(i, i + 400).forEach(([k, ref, data]) => { if (k === 'set') b.set(ref, data); else if (k === 'upd') b.update(ref, data); else b.delete(ref); });
+    await b.commit();
+  }
+  // vecchie valutazioni e scheda senza account: solo dopo che le copie sono salvate
+  const b2 = writeBatch(db);
+  evs.forEach(d => b2.delete(d.ref));
+  b2.delete(doc(db, 'athletes', from)); b2.delete(doc(db, 'tesserati', from));
+  await b2.commit();
+  return groups.length + occs.length + [plans, packs, pcs, pus, atts, evs, spots, xm, rcs, incs].reduce((n, l) => n + l.length, 0) + 1;
+}
 
 function saveAthlete(uid, data) { return setDoc(doc(db, 'athletes', uid), data, { merge: true }); }
 function savePlan(p) { return setDoc(doc(db, 'plans', p.id), stripId(p)); }
@@ -1245,7 +1459,7 @@ function deleteUser(uid, groups, planIds, packIds) {
   groups.forEach(g => batch.set(doc(db, 'groups', g.id), g.data));
   groups.filter(g => g.tr).forEach(g => batch.update(doc(db, 'trainings', g.data.tid), { ['sizes.' + g.data.month]: (g.data.uids || []).length }));
   planIds.forEach(id => batch.delete(doc(db, 'plans', id)));
-  (packIds || []).forEach(id => batch.delete(doc(db, 'packs', id)));
+  (packIds || []).forEach(id => { batch.delete(doc(db, 'packs', id)); batch.delete(doc(db, 'packcount', id)); });
   ['members', 'accounts', 'athletes', 'tesserati', 'verified', 'bans', 'coaches'].forEach(c => batch.delete(doc(db, c, uid)));
   return batch.commit();
 }
@@ -1333,6 +1547,10 @@ window.Cloud = {
   saveAthlete,
   savePlan,
   setAttendance,
+  markAttendance,
+  newKidId,
+  deleteKid,
+  linkKid,
   saveEvals,
   syncPackUse,
   recalcPacks,

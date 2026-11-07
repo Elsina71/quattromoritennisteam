@@ -7,7 +7,7 @@ const Store = (() => {
   function empty() {
     return { notice: '', noticeUntil: '', editorial: [null, null], members: [], messages: [], inbox: [], nicks: {}, accounts: {}, courts: [], booking: null, bookRewards: null,
       bookings: [], bookingsMine: [], bookingsPast: [], bkplayersPast: [], bkpReady: false, weekly: [], recurring: [], manualVerified: {}, emailVerified: {},
-      trainings: [], coaches: [], athletes: [], groups: [], plans: [], packs: [], packuse: [], xmem: [], occ: [], att: [], spots: [], receipts: [],
+      trainings: [], coaches: [], athletes: [], groups: [], plans: [], packs: [], packcount: [], packuse: [], xmem: [], occ: [], att: [], spots: [], receipts: [],
       roles: {}, incassi: [], bkpaid: {}, tesserati: [], occfree: {}, bkplayers: [], prices: null, bans: {}, notices: [], evals: [] };
   }
 
@@ -30,7 +30,7 @@ const Store = (() => {
 
   // Dati arrivati dal database: le impostazioni hanno una forma propria, il resto si copia così com'è.
   const PLAIN = ['roles', 'incassi', 'tesserati', 'occfree', 'bkplayers', 'bkpaid', 'bookings', 'bookingsMine', 'bookingsPast', 'bkplayersPast', 'bkpReady',
-    'weekly', 'recurring', 'manualVerified', 'emailVerified', 'trainings', 'coaches', 'athletes', 'groups', 'plans', 'packs', 'packuse', 'xmem', 'occ', 'att',
+    'weekly', 'recurring', 'manualVerified', 'emailVerified', 'trainings', 'coaches', 'athletes', 'groups', 'plans', 'packs', 'packcount', 'packuse', 'xmem', 'occ', 'att',
     'spots', 'receipts', 'bans', 'notices', 'members', 'messages', 'inbox', 'accounts', 'evals'];
   function applyRemote(kind, value) {
     if (kind === 'settings') {

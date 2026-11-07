@@ -433,5 +433,20 @@ await test('la risposta del corsista non cambia una presenza segnata dall\'allen
   await assertFails(deleteDoc(doc(db('mario'), 'att/t1_2030-05-22_mario')));
 });
 
+// ---------- collegamento della scheda senza account all'account del ragazzo ----------
+await test('collegamento: lo staff copia la valutazione sul nuovo ID con gli stessi voti', async () => {
+  let src = null;
+  await env.withSecurityRulesDisabled(async c => { src = (await getDoc(doc(c.firestore(), `evals/t1_2030-05-06_${KID}`))).data(); });
+  const copy = Object.assign({}, src, { uid: 'luca', movedFrom: KID });
+  await assertFails(setDoc(doc(db('coach1'), 'evals/t1_2030-05-06_luca'), copy));
+  await assertFails(setDoc(doc(db('segr'), 'evals/t1_2030-05-06_luca'), Object.assign({}, copy, { v: { tec: 10 } })));
+  await assertFails(setDoc(doc(db('segr'), 'evals/t1_2030-05-06_luca'), Object.assign({}, copy, { by: 'segr' })));
+  await assertSucceeds(setDoc(doc(db('segr'), 'evals/t1_2030-05-06_luca'), copy));
+});
+await test('collegamento: la scheda passa all\'UID dell\'account (non più "senza account")', async () => {
+  await assertSucceeds(setDoc(doc(db('segr'), 'athletes/luca'), Object.assign({}, kid, { noAccount: false, linkedFrom: KID })));
+  await assertSucceeds(deleteDoc(doc(db('segr'), `athletes/${KID}`)));
+});
+
 await env.cleanup();
 console.log(`prove delle regole: ${n} superate`);

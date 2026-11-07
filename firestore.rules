@@ -446,6 +446,15 @@ service cloud.firestore {
     match /evals/{id} {
       allow read: if isStaff() || (request.auth != null && (resource.data.by == request.auth.uid || resource.data.coachUid == request.auth.uid));
       allow create, update: if (isStaff() || coachOfTr(request.resource.data.tid)) && evOk(id, request.resource.data);
+      // scheda senza account collegata all'account del ragazzo: lo staff copia la valutazione con l'ID nuovo
+      // (stessi voti, nota e autore della valutazione di origine, che poi si cancella)
+      allow create: if isStaff()
+        && request.resource.data.keys().hasOnly(['tid', 'date', 'uid', 'coachUid', 'by', 'v', 'note', 'at', 'movedFrom'])
+        && request.resource.data.movedFrom is string && kidId(request.resource.data.movedFrom)
+        && id == request.resource.data.tid + '_' + request.resource.data.date + '_' + request.resource.data.uid
+        && get(/databases/$(database)/documents/evals/$(request.resource.data.tid + '_' + request.resource.data.date + '_' + request.resource.data.movedFrom)).data.v == request.resource.data.v
+        && get(/databases/$(database)/documents/evals/$(request.resource.data.tid + '_' + request.resource.data.date + '_' + request.resource.data.movedFrom)).data.note == request.resource.data.note
+        && get(/databases/$(database)/documents/evals/$(request.resource.data.tid + '_' + request.resource.data.date + '_' + request.resource.data.movedFrom)).data.by == request.resource.data.by;
       allow delete: if isStaff() || coachOfTr(resource.data.tid);
     }
     // occfree/{tid_data}: posti spot liberi decisi dall'admin (il numero lo vede solo l'admin; in occ resta "open").

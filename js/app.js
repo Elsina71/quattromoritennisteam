@@ -389,7 +389,7 @@
   // UTENTI REGISTRATI, REWARD, MESSAGGI
   // ====================================================================
   const member = () => (window.Cloud && !window.Cloud.isAdmin && window.Cloud.member) || null;
-  const personName = p => `${p.last} ${p.first}`;
+  const personName = p => `${p.last || ''} ${p.first || ''}`.trim();
   // Nome mostrato agli altri: alias dell'admin se l'utente ne ha uno.
   const personLabel = p => (p && p.uid && (S().nicks || {})[p.uid])
     || personName((p && p.uid && (S().members || []).find(m => m.uid === p.uid)) || p);
@@ -553,7 +553,22 @@
   const bookingAt = (courtId, date, hm) => (S().bookings || []).concat(date < todayStr() ? S().bookingsPast || [] : [], weeklyOn(date)).find(b => b.courtId === courtId && b.date === date && b.from <= hm && hm < b.to);
   const recurringReason = rid => { const r = (S().recurring || []).find(x => x.id === rid); return r ? r.reason : ''; };
   const bookingText = b => `${courtName(b.courtId)}, ${fmtDate(b.date)} ${esc(b.from)}–${esc(b.to)}`;
-  const memberByUid = uid => (S().members || []).find(m => m.uid === uid);
+  // Ragazzo SENZA ACCOUNT (scheda athletes/k-…): si usa come un utente nei servizi (gruppi, presenze, pacchetti,
+  // valutazioni, cassa). La scheda la leggono solo admin e segreteria; la cassa ha solo il nome (tesserati).
+  const isKid = uid => /^k-/.test(uid || '');
+  function kidMember(uid) {
+    if (!isKid(uid)) return null;
+    const a = (S().athletes || []).find(x => x.id === uid);
+    if (a) return { uid, first: a.first || '', last: a.last || '', gender: a.gender || 'M', kid: true };
+    const x = (S().tesserati || []).find(y => y.id === uid);
+    return x ? { uid, first: x.name || '', last: '', gender: x.gender || 'M', kid: true } : null;
+  }
+  const kidMembers = () => [...new Set((S().athletes || []).filter(a => a.noAccount).map(a => a.id)
+    .concat((S().tesserati || []).map(x => x.id).filter(isKid)))].map(kidMember).filter(Boolean);
+  const memberByUid = uid => (S().members || []).find(m => m.uid === uid) || kidMember(uid);
+  // utenti registrati e ragazzi senza account, per gli elenchi a scelta dei moduli
+  const traineePeople = () => (S().members || []).concat(kidMembers());
+  const kidTag = m => (m && m.kid ? ` · ${t('kidOpt')}` : '');
   const uidName = uid => { const m = memberByUid(uid); return m ? personLabel(m) : uid === myUid() && admin() ? 'Admin' : '?'; };
   const banOf = uid => (S().bans || {})[uid] || {};
 
@@ -1331,11 +1346,11 @@
     }).join('');
     let add = '';
     if (centerAdm()) {
-      const members = (S().members || []).filter(m => !uids.includes(m.uid)).sort((a, b) => personName(a).localeCompare(personName(b)));
+      const members = traineePeople().filter(m => !uids.includes(m.uid)).sort((a, b) => personName(a).localeCompare(personName(b)));
       add = `<details class="sub-form" data-keep="grp-${esc(tr.id)}" ${keepOpen('grp-' + tr.id)}><summary><i class="ti ti-user-plus" aria-hidden="true"></i> ${esc(t('grpAdd'))}</summary>
         <form class="grid-form" data-form="grp-add" data-tid="${esc(tr.id)}" data-m="${month}">
           <label class="span-all">${esc(t('athPerson'))}<select name="uid" required data-change="grp-pick"><option value="">— ${esc(t('chooseUser'))} —</option>
-            ${members.map(m => `<option value="${m.uid}">${esc(personName(m))}${athleteOf(m.uid) || !admin() ? '' : ' ·  ' + esc(t('athNew'))}</option>`).join('')}</select></label>
+            ${members.map(m => `<option value="${m.uid}">${esc(personName(m))}${esc(kidTag(m))}${athleteOf(m.uid) || !admin() ? '' : ' ·  ' + esc(t('athNew'))}</option>`).join('')}</select></label>
           <label class="check"><input type="checkbox" name="tess"> ${esc(t('tessLabel', { s: seasonOf(todayStr()) }))}</label>
           ${admin() ? certTypeSelect('') : ''}
           <label>${esc(t('certExp'))}<input type="date" name="certExp"></label>
@@ -1430,9 +1445,12 @@
     const q = (ui.athFilter || '').toLowerCase();
     const due = certDue;
     // solo certificati scaduti o in scadenza (dall'avviso): prima i più vecchi
-    const list = (S().athletes || []).map(a => ({ a, m: memberByUid(a.id) }))
+    const kind = certOnly ? 'all' : ui.athKind || 'all';
+    const all = (S().athletes || []).map(a => ({ a, m: memberByUid(a.id) }));
+    const list = all
       .filter(x => !certOnly || due(x.a))
-      .filter(x => !q || personName(x.m || { first: x.a.first || '', last: x.a.last || '' }).toLowerCase().includes(q))
+      .filter(x => kind === 'all' || (kind === 'kid') === !!x.a.noAccount)
+      .filter(x => !q || `${personName(x.m || { first: x.a.first || '', last: x.a.last || '' })} ${(x.a.parent && x.a.parent.name) || ''}`.toLowerCase().includes(q))
       .sort(certOnly ? (x, y) => (x.a.certExp || '').localeCompare(y.a.certExp || '') : (x, y) => (x.m ? personName(x.m) : '').localeCompare(y.m ? personName(y.m) : ''));
     const noSheet = (S().members || []).filter(m => !athleteOf(m.uid)).sort((a, b) => personName(a).localeCompare(personName(b)));
     const warnN = (S().athletes || []).filter(certDue).length;
@@ -1448,9 +1466,20 @@
         <button class="btn small" data-action="tr-month" data-m="${shiftMonth(month, 1)}" aria-label="${esc(t('nextMonth'))}"><i class="ti ti-chevron-right" aria-hidden="true"></i></button>
         <input type="search" data-change="ath-filter" placeholder="${esc(t('search'))}" value="${esc(ui.athFilter || '')}">
       </div>
+      ${certOnly ? '' : `<nav class="tabs">${[['all', 'athKindAll', 'users'], ['acc', 'athKindAcc', 'user-check'], ['kid', 'athKindKid', 'user-off']].map(([k, l, i]) =>
+        `<a href="#/athletes" class="${kind === k ? 'active' : ''}" data-action="ath-kind" data-k="${k}"><i class="ti ti-${i}" aria-hidden="true"></i> ${esc(t(l))} <small>${k === 'all' ? all.length : all.filter(x => (k === 'kid') === !!x.a.noAccount).length}</small></a>`).join('')}</nav>`}
       ${certOnly ? '' : `<details class="card sub-form" data-keep="ath-new" ${keepOpen('ath-new')}><summary><i class="ti ti-plus" aria-hidden="true"></i> ${esc(t('athNewTitle'))}</summary>
-        <form class="grid-form" data-form="ath-new" data-m="${month}">
-          <label class="span-all">${esc(t('athPerson'))}<select name="uid" required><option value="">— ${esc(t('chooseUser'))} —</option>${noSheet.map(m => `<option value="${m.uid}">${esc(personName(m))}</option>`).join('')}</select></label>
+        <form class="grid-form ath-form" data-form="ath-new" data-m="${month}">
+          <fieldset class="span-all tr-kind"><legend>${esc(t('athNewKind'))}</legend>
+            <label class="check"><input type="radio" name="kind" value="acc" checked> ${esc(t('athNewAcc'))}</label>
+            <label class="check"><input type="radio" name="kind" value="kid"> <span class="badge kid-badge">${esc(t('kidBadge'))}</span> ${esc(t('athNewKid'))}</label></fieldset>
+          <label class="span-all only-acc">${esc(t('athPerson'))}<select name="uid"><option value="">— ${esc(t('chooseUser'))} —</option>${noSheet.map(m => `<option value="${m.uid}">${esc(personName(m))}</option>`).join('')}</select></label>
+          <p class="muted small span-all only-kid"><i class="ti ti-shield-lock" aria-hidden="true"></i> ${esc(t('kidHelp'))}</p>
+          <label class="only-kid">${esc(t('firstName'))}<input name="first" maxlength="60" autocomplete="off"></label>
+          <label class="only-kid">${esc(t('lastName'))}<input name="last" maxlength="60" autocomplete="off"></label>
+          <label class="only-kid">${esc(t('gender'))}<select name="gender"><option value="M">${esc(t('male'))}</option><option value="F">${esc(t('female'))}</option></select></label>
+          <label class="only-kid">${esc(t('athBirthDate'))}<input type="date" name="birthDate"></label>
+          ${parentFields({}, 'only-kid')}
           <label class="check"><input type="checkbox" name="tess"> ${esc(t('tessLabel', { s: seasonOf(todayStr()) }))}</label>
           ${certTypeSelect('')}
           <label>${esc(t('certExp'))}<input type="date" name="certExp"></label>
@@ -1460,12 +1489,25 @@
       ${certOnly || !fullAdmin() ? '' : pricesCard()}`;
   }
 
+  // genitore / contatto e note (schede senza account e, se serve, anche le altre): solo admin e segreteria
+  function parentFields(a, cls) {
+    const pa = a.parent || {}, c = cls ? ` ${cls}` : '';
+    return `<h3 class="span-all${c}">${esc(t('parentTitle'))}</h3>
+      <label class="${cls || ''}">${esc(t('parentName'))}<input name="pName" maxlength="80" value="${esc(pa.name || '')}" autocomplete="off"></label>
+      <label class="${cls || ''}">${esc(t('parentPhone'))}<input type="tel" name="pPhone" maxlength="30" value="${esc(pa.phone || '')}" inputmode="tel" autocomplete="off"></label>
+      <label class="${cls || ''}">${esc(t('parentEmail'))}<input type="email" name="pEmail" maxlength="100" value="${esc(pa.email || '')}" autocomplete="off"></label>
+      <label class="span-all${c}">${esc(t('athNotes'))}<input name="notes" maxlength="300" value="${esc(a.notes || '')}" placeholder="${esc(t('athNotesPh'))}" autocomplete="off"></label>`;
+  }
+  const parentOf = f => ({ name: f.pName.value.trim(), phone: f.pPhone.value.trim(), email: f.pEmail.value.trim().toLowerCase() });
+  // contatto del genitore nella scheda (telefono e email cliccabili)
+  const parentInfo = a => { const pa = a.parent || {}; if (!pa.name && !pa.phone && !pa.email) return '';
+    return `<br><small class="muted"><i class="ti ti-user-heart" aria-hidden="true"></i> ${esc(t('parentLine', { n: pa.name || '—' }))}${pa.phone ? ` · <a href="tel:${esc(pa.phone.replace(/[^\d+]/g, ''))}">${esc(pa.phone)}</a>` : ''}${pa.email ? ` · <a href="mailto:${esc(pa.email)}">${esc(pa.email)}</a>` : ''}</small>`; };
   function athleteCard(a, m, month) {
     const name = m ? personName(m) : `${a.last || ''} ${a.first || ''}`.trim() || '?';
     const p = planOf(a.id, month);
     const editing = ui.athEdit === a.id;
     const planLine = p ? `${esc(t('planN', { n: p.n }))} · ${esc(planDesc(p).join(' / '))}` : esc(t('planNone'));
-    const head = `<div class="ath-head"><div><strong>${esc(name)}</strong> ${tessBadge(a)} ${certBadge(a)}
+    const head = `<div class="ath-head"><div><strong>${esc(name)}</strong> ${a.noAccount ? `<span class="badge kid-badge"><i class="ti ti-user-off" aria-hidden="true"></i> ${esc(t('kidBadge'))}</span> ` : ''}${tessBadge(a)} ${certBadge(a)}${parentInfo(a)}
         <br><small class="muted">${planLine}${p ? ` · <b>${esc(euro(p.price))}</b>${p.manual ? ` <span class="badge">${esc(t('priceManual'))}</span>` : ''} ${payBadge(p)}` : ''}</small>
         ${packsOf(a.id).length ? `<br><small class="muted"><i class="ti ti-ticket" aria-hidden="true"></i> ${activePack(a.id) ? esc(t('packLeftShort', { l: packsOf(a.id).reduce((s, k) => s + packLeft(k), 0) })) : esc(t('packNoneLeft'))}</small>` : ''}</div>
         <button class="btn small" data-action="ath-edit" data-uid="${esc(a.id)}">${esc(t(editing ? 'close' : 'athOpen'))}</button></div>`;
@@ -1475,6 +1517,9 @@
       <form class="grid-form" data-form="ath-save" data-uid="${esc(a.id)}">
         <h3 class="span-all">${esc(t('athData'))}</h3>
         <p class="muted small span-all"><i class="ti ti-shield-lock" aria-hidden="true"></i> ${t('athDataNote')}</p>
+        ${a.noAccount ? `<label>${esc(t('firstName'))}<input name="first" maxlength="60" required value="${esc(a.first || '')}"></label>
+        <label>${esc(t('lastName'))}<input name="last" maxlength="60" required value="${esc(a.last || '')}"></label>
+        <label>${esc(t('gender'))}<select name="gender"><option value="M" ${a.gender === 'F' ? '' : 'selected'}>${esc(t('male'))}</option><option value="F" ${a.gender === 'F' ? 'selected' : ''}>${esc(t('female'))}</option></select></label>` : ''}
         <label>${esc(t('athBirthPlace'))}<input name="birthPlace" maxlength="60" value="${esc(a.birthPlace || '')}"></label>
         <label>${esc(t('athBirthDate'))}<input type="date" name="birthDate" value="${esc(a.birthDate || '')}"></label>
         <label>${esc(t('athCity'))}<input name="city" maxlength="60" value="${esc(a.city || '')}"></label>
@@ -1483,6 +1528,7 @@
         ${certTypeSelect(a.certType || '')}
         <label>${esc(t('certExp'))}<input type="date" name="certExp" value="${esc(a.certExp || '')}"></label>
         <label class="check span-all"><input type="checkbox" name="tess" ${a.tess && a.tess[s] ? 'checked' : ''}> ${esc(t('tessLabel', { s }))}</label>
+        ${parentFields(a, '')}
         <div class="form-actions span-all"><button class="btn primary">${esc(t('save'))}</button></div>
       </form>
       <form class="grid-form" data-form="ath-trs" data-uid="${esc(a.id)}" data-m="${month}">${trChecks(a.id, month)}
@@ -1498,7 +1544,19 @@
         <p class="muted small">${esc(t('fitpHelp'))}</p>${payBox('fitp', fitpObj(a.id, s), a.id, fitpPrice())}</div>
       ${packCard(a.id)}
       ${evalSummary(a.id)}
+      ${a.noAccount ? kidLinkForm(a, name) : ''}
     </div>`;
+  }
+  // Scheda senza account: collegarla all'account (se il ragazzo si registra) o eliminarla.
+  function kidLinkForm(a, name) {
+    const free = (S().members || []).filter(m => !athleteOf(m.uid)).sort((x, y) => personName(x).localeCompare(personName(y)));
+    return `<details class="sub-form kid-link" data-keep="kidlink-${esc(a.id)}" ${keepOpen('kidlink-' + a.id)}><summary><i class="ti ti-link" aria-hidden="true"></i> ${esc(t('linkTitle'))}</summary>
+      <form class="grid-form" data-form="kid-link" data-uid="${esc(a.id)}">
+        <p class="muted small span-all">${esc(t('linkHelp'))}</p>
+        <label class="span-all">${esc(t('athPerson'))}<select name="to" required><option value="">— ${esc(t('chooseUser'))} —</option>${free.map(m => `<option value="${m.uid}">${esc(personName(m))}</option>`).join('')}</select></label>
+        <div class="form-actions span-all"><button class="btn primary"><i class="ti ti-link" aria-hidden="true"></i> ${esc(t('linkBtn'))}</button></div>
+      </form></details>
+      <div class="btn-row"><button class="btn small danger" data-action="kid-del" data-uid="${esc(a.id)}"><i class="ti ti-trash" aria-hidden="true"></i> ${esc(t('kidDel'))}</button></div>`;
   }
   // Valutazioni del corsista (admin e segreteria): media per voce (6 = sufficienza) e ultime schede con la nota.
   function evalSummary(uid) {
@@ -1530,7 +1588,7 @@
           <span class="badge ${packLeft(k) ? 'st-done' : 'st-full'}">${esc(t('packLeft', { l: packLeft(k), n: k.n }))}</span><br><small class="muted">${esc(t('packCreatedOn', { d: fmtDate(new Date(k.created || 0).toLocaleDateString('sv')) }))}</small>
           <form class="inline-form pack-from" data-form="pack-from" data-id="${esc(k.id)}"><label class="small">${esc(t('packFrom'))}<input type="date" name="from" value="${esc(packFrom(k))}" required></label><button class="btn small">${esc(t('save'))}</button></form>
           ${packUseList(k)}</span>
-          ${!(k.used || 0) && !k.paid ? `<button class="btn small danger" data-action="pack-del" data-id="${esc(k.id)}">${esc(t('packDel'))}</button>` : ''}
+          ${!packUsed(k) && !k.paid ? `<button class="btn small danger" data-action="pack-del" data-id="${esc(k.id)}">${esc(t('packDel'))}</button>` : ''}
           <div class="pay-wrap">${payBox('pack', k, uid, k.price)}</div></li>`).join('')}</ul>` : ''}
       <form class="inline-form" data-form="pack-new" data-uid="${uid}">
         <label class="small">${esc(t('packFrom'))}<input type="date" name="from" value="${todayStr()}" required></label>
@@ -1669,7 +1727,7 @@
     if (!tr) return;
     const cur = groupOf(tid, month) || { id: `${tid}_${month}`, tid, month, uids: [], names: {} };
     const g = Object.assign({}, cur, { uids: (cur.uids || []).slice(), names: Object.assign({}, cur.names || {}), coachUid: tr.coachUid || '' });
-    if (add) { if (!g.uids.includes(uid)) g.uids.push(uid); const m = memberByUid(uid); if (m) g.names[uid] = personName(m); }
+    if (add) { if (!g.uids.includes(uid)) g.uids.push(uid); const m = memberByUid(uid) || athleteData; if (m && (m.first || m.last)) g.names[uid] = personName(m); }
     else { g.uids = g.uids.filter(x => x !== uid); delete g.names[uid]; }
     g.updated = Date.now();
     const all = (S().groups || []).filter(x => x.id !== g.id).concat([g]);
@@ -1689,7 +1747,8 @@
   }
   // Mette il corsista esattamente negli allenamenti scelti per il mese (aggiunge e toglie dai gruppi), con il piano.
   function setAthleteTrainings(uid, month, tids, athleteData) {
-    const m = memberByUid(uid), changed = [], full = [];
+    // scheda senza account appena creata: il nome viene dai dati della scheda
+    const m = memberByUid(uid) || (athleteData && athleteData.first ? athleteData : null), changed = [], full = [];
     trainings().forEach(tr => {
       const cur = groupOf(tr.id, month), has = !!(cur && (cur.uids || []).includes(uid)), want = tids.includes(tr.id);
       if (has === want) return;
@@ -1748,9 +1807,10 @@
   // prossimo allenamento del mese mostrato (da oggi in poi; il 5° giorno del mese è solo spot)
   const nextOcc = (tr, month) => { if (isExtraTr(tr)) return tr.date.slice(0, 7) === month ? tr.date : null; let d = month === curMonth() ? todayStr() : month > curMonth() ? month + '-01' : null; if (!d) return null;
     for (; d.slice(0, 7) === month; d = addDays(d, 1)) if (dow(d) === tr.dow && !extraDay(d)) return d; return null; };
+  // Risposta del corsista: "ci sarò / non ci sarò" (serve per i posti spot). La presenza vera la segna l'allenatore.
   const attButtons = (tr, date, cur) => `<div class="btn-row att-btns">
-      <button class="btn ${cur === 'in' ? 'primary' : ''}" data-action="att-set" data-tid="${esc(tr.id)}" data-date="${date}" data-st="in"><i class="ti ti-check" aria-hidden="true"></i> ${esc(t('attPresent'))}</button>
-      <button class="btn ${cur === 'out' ? 'danger' : ''}" data-action="att-set" data-tid="${esc(tr.id)}" data-date="${date}" data-st="out"><i class="ti ti-x" aria-hidden="true"></i> ${esc(t('attAbsent'))}</button>
+      <button class="btn ${cur === 'in' ? 'primary' : ''}" data-action="att-set" data-tid="${esc(tr.id)}" data-date="${date}" data-st="in"><i class="ti ti-check" aria-hidden="true"></i> ${esc(t('attWillCome'))}</button>
+      <button class="btn ${cur === 'out' ? 'danger' : ''}" data-action="att-set" data-tid="${esc(tr.id)}" data-date="${date}" data-st="out"><i class="ti ti-x" aria-hidden="true"></i> ${esc(t('attWontCome'))}</button>
       ${cur ? `<button class="btn small" data-action="att-set" data-tid="${esc(tr.id)}" data-date="${date}" data-st=""><i class="ti ti-arrow-back-up" aria-hidden="true"></i> ${esc(t('attUndo'))}</button>` : ''}</div>`;
 
   // Avvisi in prima pagina per il corsista: conferma di oggi, allenamenti annullati, esito di spot e recuperi.
@@ -1814,7 +1874,7 @@
       <ul class="reg-list">${list.map(({ tr, date }) => {
         const o = occOf(tr.id, date) || {}, a = attOf(tr.id, date, m.uid);
         return `<li><span class="reg-names"><strong>${esc(occLabel(tr, date))}</strong><br>${o.cancelled ? `<span class="badge st-full">${esc(t('occCancelled'))}</span>` : attChip(a && a.status, date)}</span>
-          ${o.cancelled ? '' : attButtons(tr, date, a && a.status)}</li>`;
+          ${o.cancelled || (a && a.forced) ? '' : attButtons(tr, date, a && a.status)}</li>`;
       }).join('')}
       ${spots.map(sp => { const tr = trainingById(sp.tid); return tr ? `<li><span class="reg-names"><strong>${esc(occLabel(tr, sp.date))}</strong><br>
         <span class="badge ${sp.status === 'ok' ? 'st-done' : sp.status === 'no' ? 'st-full' : ''}">${esc(t(sp.recovery ? 'recoveryBadge' : 'spotBadge'))} · ${esc(t('spotSt_' + sp.status))}</span></span></li>` : ''; }).join('')}</ul>`;
@@ -1979,15 +2039,18 @@
     const late = afterNoon(date);
     const rows = uids.map(uid => {
       const a = attOf(tr.id, date, uid), st = a && a.status, key = `${esc(tr.id)}_${date}_${uid}`;
+      // presenza SEGNATA (allenatore, admin, segreteria) o solo risposta del corsista ("ci sarò / non ci sarò")
+      const mark = a && a.forced ? st : null, resp = a && !a.forced ? st : null;
       const absent = st === 'out' || (!st && late);
       const rec = (S().spots || []).find(sp => sp.uid === uid && sp.recovery && sp.recovery.tid === tr.id && sp.recovery.date === date);
-      return `<li><span class="reg-names"><strong>${esc(names[uid] || coachName(uid))}</strong><br>${attChip(st, date)}${a && a.forced ? ` <small class="muted">${esc(t('attForced'))}</small>` : ''}
+      const left = packLeftOf(uid), b = (k, ic, lbl, on, cls) => `<button class="btn small ${on ? cls : ''}" aria-pressed="${on}" data-action="att-force" data-tid="${esc(tr.id)}" data-date="${date}" data-uid="${uid}" data-st="${k}"><i class="ti ti-${ic}" aria-hidden="true"></i> ${esc(t(lbl))}</button>`;
+      return `<li><span class="reg-names"><strong>${esc(names[uid] || coachName(uid))}</strong>${isKid(uid) && admin() ? ` <span class="badge kid-badge">${esc(t('kidBadge'))}</span>` : ''}<br>${resp ? `<span class="badge att-chip att-resp">${esc(t(resp === 'in' ? 'attWillIn' : 'attWillOut'))}</span>` : attChip(mark, date)}${mark && a.by && a.by !== myUid() ? ` <small class="muted">${esc(t('attForced'))}</small>` : ''}
+          ${left != null ? ` <span class="badge ${left ? 'st-done' : 'st-full'}" title="${esc(t('packLeftTip'))}"><i class="ti ti-ticket" aria-hidden="true"></i> ${esc(t('packLeftChip', { l: left }))}</span>` : ''}
           ${canEval(tr) && evalOf(tr.id, date, uid) ? ` <span class="badge ev-chip" title="${esc(t('evTitle'))}"><i class="ti ti-clipboard-check" aria-hidden="true"></i> ${esc(t('evChip', { n: Object.keys(evalOf(tr.id, date, uid).v || {}).length }))}</span>` : ''}
           ${rec ? ` <span class="badge">${esc(t('recoveryGiven', { d: fmtDate(rec.date) }))}</span>` : ''}</span>
-        ${canMark(tr) && !o.cancelled ? `<span class="btn-row">
-          ${st !== 'in' ? `<button class="btn small" data-action="att-force" data-tid="${esc(tr.id)}" data-date="${date}" data-uid="${uid}" data-st="in">${esc(t('attPresent'))}</button>` : ''}
-          ${st !== 'out' ? `<button class="btn small" data-action="att-force" data-tid="${esc(tr.id)}" data-date="${date}" data-uid="${uid}" data-st="out">${esc(t('attAbsent'))}</button>` : ''}
-          ${st ? `<button class="btn small" data-action="att-force" data-tid="${esc(tr.id)}" data-date="${date}" data-uid="${uid}" data-st=""><i class="ti ti-arrow-back-up" aria-hidden="true"></i> ${esc(t('attNoReply'))}</button>` : ''}
+        ${canMark(tr) && !o.cancelled ? `<span class="btn-row att-mark">
+          ${b('in', 'check', 'attPresent', mark === 'in', 'primary')}${b('out', 'x', 'attAbsent', mark === 'out', 'danger')}
+          ${a ? `<button class="btn small" data-action="att-force" data-tid="${esc(tr.id)}" data-date="${date}" data-uid="${uid}" data-st="" aria-label="${esc(t('attNoReply'))}" title="${esc(t('attNoReply'))}"><i class="ti ti-arrow-back-up" aria-hidden="true"></i></button>` : ''}
           ${admin() && absent && !rec ? `<button class="btn small" data-action="rec-open" data-key="${key}"><i class="ti ti-arrow-back-up" aria-hidden="true"></i> ${esc(t('recovery'))}</button>` : ''}</span>` : ''}
         ${admin() && ui.recFor === key ? recoveryForm(tr, date, uid, names[uid] || coachName(uid)) : ''}</li>`;
     }).join('');
@@ -2002,6 +2065,7 @@
       <p class="muted"><i class="ti ti-clock" aria-hidden="true"></i> ${esc(tr.from)}–${esc(tr.to)}${tr.coachUid ? ` · ${esc(coachName(tr.coachUid))}` : ''}</p>
       ${o.cancelled && o.note ? `<p class="note warn">${esc(o.note)}</p>` : ''}
       <p class="occ-sum">${esc(t('occSummary', { p: o.p || 0, a: o.a || 0, u: Math.max(0, n - (o.p || 0) - (o.a || 0)), s: o.s || 0, m: tr.max }))}</p>
+      ${canMark(tr) && !o.cancelled && uids.length ? `<p class="muted small"><i class="ti ti-hand-finger" aria-hidden="true"></i> ${esc(t('attMarkHelp'))}</p>` : ''}
       ${admin() && !o.cancelled ? `<form class="inline-form occ-free" data-form="occ-free" data-tid="${esc(tr.id)}" data-date="${date}">
         <label class="small">${esc(t('occFreeLabel'))}<input type="number" name="free" min="0" max="99" step="1" inputmode="numeric" value="${(S().occfree || {})[`${esc(tr.id)}_${date}`] != null ? S().occfree[`${esc(tr.id)}_${date}`] : ''}" style="width:5em"></label>
         <button class="btn small primary">${esc(t('save'))}</button>
@@ -2044,14 +2108,14 @@
   // come spot (prezzo modificabile, anche 0) o scalando un allenamento dal suo pacchetto.
   function occAddForm(tr, date, uids, sps) {
     const taken = new Set(uids.concat(sps.filter(sp => sp.status !== 'no').map(sp => sp.uid)));
-    const mem = (S().members || []).filter(m => !taken.has(m.uid)).sort((a, b) => personName(a).localeCompare(personName(b)));
+    const mem = traineePeople().filter(m => !taken.has(m.uid)).sort((a, b) => personName(a).localeCompare(personName(b)));
     const left = uid => packsOf(uid).reduce((s, k) => s + packLeft(k), 0);
     const key = `occadd-${esc(tr.id)}-${date}`, sp0 = (S().prices || {}).spot;
     return `<details class="sub-form occ-add" data-keep="${key}" ${keepOpen(key)}><summary><i class="ti ti-user-plus" aria-hidden="true"></i> ${esc(t('occAdd'))}</summary>
       <form class="grid-form" data-form="occ-add" data-tid="${esc(tr.id)}" data-date="${date}">
         <p class="muted small span-all">${esc(t('occAddHelp'))}</p>
         <label class="span-all">${esc(t('athPerson'))}<select name="uid" required><option value="">— ${esc(t('chooseUser'))} —</option>
-          ${mem.map(m => `<option value="${m.uid}">${esc(personName(m))}${left(m.uid) ? ' · ' + esc(t('occAddPackLeft', { l: left(m.uid) })) : ''}</option>`).join('')}</select></label>
+          ${mem.map(m => `<option value="${m.uid}">${esc(personName(m))}${esc(kidTag(m))}${left(m.uid) ? ' · ' + esc(t('occAddPackLeft', { l: left(m.uid) })) : ''}</option>`).join('')}</select></label>
         <fieldset class="span-all occ-add-as"><legend>${esc(t('occAddAs'))}</legend>
           <label class="check"><input type="radio" name="as" value="spot" checked> ${esc(t('occAddSpot'))}</label>
           <label class="check"><input type="radio" name="as" value="pack"> ${esc(t('occAddPack'))}</label></fieldset>
@@ -2091,6 +2155,7 @@
       if ((occOf(tr.id, date) || {}).cancelled) return warn('occCancelled');
       if (Date.now() > trStartMs(tr, date)) return warn('attStarted');
       const cur = attOf(tr.id, date, m.uid), st = el.dataset.st;
+      if (cur && cur.forced) return warn('attMarkedLocked');
       // dopo le 13 si torna presenti solo se i posti non sono già andati agli spot
       if (st === 'in' && afterNoon(date) && !(cur && cur.status === 'in') && ((occOf(tr.id, date) || {}).s || 0) > 0 && spotsFree(tr, date) <= 0) return warn('attFullContact');
       window.Cloud.setAttendance(tr.id, date, m.uid, st || null, { coachUid: tr.coachUid || '' }).then(() => { ui.flash = { text: t(st === 'in' ? 'attSavedIn' : st === 'out' ? 'attSavedOut' : 'attSavedNone') }; render(); })
@@ -2101,10 +2166,12 @@
       if (!tr || !canMark(tr)) return;
       // data-st vuoto: torna "senza risposta" (si toglie la risposta e i contatori si aggiornano).
       // Admin e segreteria: il pacchetto del corsista si scala (o si restituisce) subito.
-      const date = el.dataset.date, uid = el.dataset.uid;
-      window.Cloud.setAttendance(tr.id, date, uid, el.dataset.st || null, { coachUid: tr.coachUid || '', forced: true })
-        .then(() => (admin() ? window.Cloud.syncPackUse(tr.id, date, uid) : null))
-        .then(r => { if (r === 'used' || r === 'released') ui.flash = { text: t(r === 'used' ? 'packScaledOne' : 'packBackOne', { n: coachName(uid) }) }; render(); }).catch(trErr);
+      // Lo scalo del pacchetto avviene subito, anche quando segna l'allenatore (contatore senza prezzi).
+      const date = el.dataset.date, uid = el.dataset.uid, nm = (((groupOf(tr.id, date.slice(0, 7)) || {}).names || {})[uid]) || coachName(uid);
+      el.disabled = true;
+      window.Cloud.markAttendance(tr.id, date, uid, el.dataset.st || null, tr.coachUid || '')
+        .then(r => { if (r === 'used' || r === 'released') ui.flash = { text: t(r === 'used' ? 'packScaledOne' : 'packBackOne', { n: nm }) }; render(); })
+        .catch(e => { el.disabled = false; trErr(e); });
     },
     'spot-apply': el => {
       const tr = trainingById(el.dataset.tid), date = el.dataset.date, m = self();
@@ -2243,7 +2310,9 @@
   }
   const PERSON_FIELDS = ['birthPlace', 'birthDate', 'city', 'address', 'cf'];
   const missingPerson = a => PERSON_FIELDS.filter(k => !(a && a[k]));
-  const personOf = (uid, a) => { const m = memberByUid(uid); return { name: m ? `${m.first} ${m.last}` : `${(a && a.first) || ''} ${(a && a.last) || ''}`.trim(), gender: (m && m.gender) || 'M', birthPlace: a.birthPlace, birthDate: a.birthDate, city: a.city, address: a.address, cf: a.cf }; };
+  // intestatario della ricevuta; ragazzo senza account: il genitore indicato nella scheda compare nella ricevuta
+  const personOf = (uid, a) => { const m = memberByUid(uid); return Object.assign({ name: m ? `${m.first} ${m.last}`.trim() : `${(a && a.first) || ''} ${(a && a.last) || ''}`.trim(), gender: (m && m.gender) || (a && a.gender) || 'M', birthPlace: a.birthPlace, birthDate: a.birthDate, city: a.city, address: a.address, cf: a.cf },
+    a && a.parent && a.parent.name ? { parent: a.parent.name } : {}); };
   const causaleMonth = m => `Quota sociale allenamenti - mese di ${itMonth(m)}`;
   const causaleSpot = d => `Quota sociale allenamenti - allenamento del ${itDate(d)}`;
   const paidLine = (p, pd) => { pd = pd || (p && p.paid); return pd ? `${esc(t('paidOn', { d: fmtDate(pd.date), m: t('pay_' + pd.method) }))}${pd.quarter ? ` · ${esc(t(pd.course ? 'payCourseOf' : 'payQuarterOf', { a: monthLabel(pd.months[0]), b: monthLabel(pd.months[pd.months.length - 1]) }))}` : ''}${pd.rn ? ` · ${esc(t('receiptN', { n: rnFmt(pd.rn) }))}` : ''}` : ''; };
@@ -2272,7 +2341,10 @@
   const payBadge = p => `<span class="badge pay-${payState(p)}">${esc(t('payState_' + payState(p)))}</span>`;
   // pacchetti di allenamenti: si usa il più vecchio con allenamenti rimasti
   const packsOf = uid => (S().packs || []).filter(k => k.uid === uid).sort((a, b) => (a.created || 0) - (b.created || 0));
-  const packLeft = k => Math.max(0, (k.n || 0) - (k.used || 0));
+  // allenamenti usati: dal contatore senza prezzi (packcount); "used" del pacchetto vale solo per quelli di prima
+  const pcOf = id => (S().packcount || []).find(c => c.id === id);
+  const packUsed = k => { const c = pcOf(k.id); return c ? c.used || 0 : k.used || 0; };
+  const packLeft = k => Math.max(0, (k.n || 0) - packUsed(k));
   const activePack = uid => packsOf(uid).find(k => packLeft(k) > 0) || null;
   // giorno da cui il pacchetto scala le presenze (scelto alla creazione, altrimenti il giorno in cui è stato registrato)
   const packFrom = k => k.from || new Date(k.created || 0).toLocaleDateString('sv');
@@ -2284,6 +2356,8 @@
     return `<li><i class="ti ti-${x.kind === 'att' ? 'check' : 'ticket'}" aria-hidden="true"></i> ${esc(fmtDate(x.date))}${tr ? ' · ' + esc(trTitle(tr)) : ''} <small class="muted">${esc(t(x.kind === 'att' ? 'packUseAtt' : 'packUseSpot'))}</small></li>`; }).join('')}</ul></details>` : ''; };
   const causalePack = k => `Quota sociale allenamenti - pacchetto di ${k.n} allenamenti`;
   const packById = id => (S().packs || []).find(k => k.id === id);
+  // allenamenti rimasti nei pacchetti già iniziati del corsista (dai contatori senza prezzi: li vede anche l'allenatore)
+  const packLeftOf = uid => { const cs = (S().packcount || []).filter(c => c.uid === uid && (c.from || '') <= todayStr()); return cs.length ? cs.reduce((x, c) => x + Math.max(0, (c.n || 0) - (c.used || 0)), 0) : null; };
 
   // Ricevuta nei moduli di pagamento: di base non si emette, con qualsiasi modalità; si spunta "Emetti ricevuta" per farla.
   const rcChecks = () => `<label class="check span-all ca-rc"><input type="checkbox" name="receipt"> ${esc(t('caReceiptCash'))}</label>`;
@@ -2355,6 +2429,7 @@
     const blank = '______________________________';
     const rows = named ? [['Nome e Cognome', p.name], [F ? 'Nata a' : 'Nato a', p.birthPlace || p.birthDate ? `${p.birthPlace || ''} il ${itDate(p.birthDate)}` : ''], ['Residente a', p.city || p.address ? `${p.city || ''}, ${p.address || ''}` : ''], ['Codice Fiscale', p.cf || '']]
       : [['Nome e Cognome', blank], ['Codice Fiscale', blank]];
+    if (named && p.parent) rows.push(['Genitore (o chi ne fa le veci)', p.parent]);
     rows.forEach(([k, v]) => { y += 8; pdf.text('•', L + 3, y); pdf.setFont('helvetica', 'bold'); pdf.text(`${k}:`, L + 8, y); const w = pdf.getTextWidth(`${k}: `); pdf.setFont('helvetica', 'normal'); pdf.text(String(v || ''), L + 8 + w, y); });
     y += 13; pdf.text(`ha versato in data ${itDate(r.payDate)} la somma complessiva di:`, L, y);
     y += 8; pdf.text('•', L + 3, y); pdf.setFont('helvetica', 'bold'); pdf.text(`Euro ${euroIt(r.amount)}`, L + 8, y); pdf.setFont('helvetica', 'normal');
@@ -2589,7 +2664,7 @@
   const isTess = (uid, date) => tessFor(date).some(x => x.id === uid);
   const caBookings = () => (S().bookings || []).filter(b => b.userId && !b.blocked && !(S().bkpaid || {})[b.id]).sort((a, b) => (a.date + a.from).localeCompare(b.date + b.from));
   // nuovo incasso: qualsiasi utente registrato (i non tesserati vengono segnati con ★ nelle ricevute)
-  const caMemberOpts = () => `<option value="">— ${esc(t('caNoHolder'))} —</option>${(S().members || []).slice().sort((a, b) => personName(a).localeCompare(personName(b))).map(m => `<option value="${m.uid}">${esc(personName(m))}${isTess(m.uid) ? '' : ' ★'}</option>`).join('')}`;
+  const caMemberOpts = () => `<option value="">— ${esc(t('caNoHolder'))} —</option>${traineePeople().sort((a, b) => personName(a).localeCompare(personName(b))).map(m => `<option value="${m.uid}">${esc(personName(m))}${esc(kidTag(m))}${isTess(m.uid) ? '' : ' ★'}</option>`).join('')}`;
   // ricevuta intestata a una persona non tesserata nella stagione della ricevuta
   const rcNotTess = r => !r.void && !!r.uid && !!(r.person && r.person.name) && !isTess(r.uid, r.issued);
   const notTessReceipts = () => (S().receipts || []).filter(rcNotTess).sort((a, b) => (b.issued || '').localeCompare(a.issued || ''));
@@ -2674,7 +2749,7 @@
   function caPerson(uid) {
     if (!uid) return null;
     const x = (S().tesserati || []).find(y => y.id === uid);
-    if (x) return { name: x.name, gender: x.gender || 'M', birthPlace: x.birthPlace || '', birthDate: x.birthDate || '', city: x.city || '', address: x.address || '', cf: x.cf || '' };
+    if (x) return Object.assign({ name: x.name, gender: x.gender || 'M', birthPlace: x.birthPlace || '', birthDate: x.birthDate || '', city: x.city || '', address: x.address || '', cf: x.cf || '' }, x.parent ? { parent: x.parent } : {});
     const a = admin() && athleteOf(uid);
     // dati mancanti nella scheda: campi vuoti (il database non accetta valori indefiniti)
     if (a) return Object.fromEntries(Object.entries(personOf(uid, a)).map(([k, v]) => [k, v == null ? '' : v]));
@@ -3015,7 +3090,7 @@
       .concat(sps.map(s => { const tr = trainingById(s.tid); return [itDate(s.date), tr ? trTitle(tr) : t('rpDeleted'), s.name || coachName(s.uid),
         s.pack ? (s.packBack ? 'pacchetto (restituito)' : 'pacchetto') : s.recovery ? 'recupero' : 'spot', s.pack ? 0 : s.price || 0, s.pack ? '' : s.paid ? 'sì' : 'no', s.paid && s.paid.rn ? s.paid.rn : '']; }));
     const sheetPk = [['Corsista', 'Allenamenti', 'Prezzo', 'Usati', 'Rimasti', 'Creato il', 'Pagato', 'Ricevuta']]
-      .concat((S().packs || []).slice().sort((a, b) => (a.created || 0) - (b.created || 0)).map(k => [coachName(k.uid), k.n || 0, k.price || 0, k.used || 0, packLeft(k),
+      .concat((S().packs || []).slice().sort((a, b) => (a.created || 0) - (b.created || 0)).map(k => [coachName(k.uid), k.n || 0, k.price || 0, packUsed(k), packLeft(k),
         itDate(new Date(k.created || 0).toLocaleDateString('sv')), k.paid ? 'sì' : 'no', k.paid && k.paid.rn ? k.paid.rn : '']));
     const rev = revenueRows(month, d);
     const sheetRv = [['Allenamento', 'Quote mensili', 'Spot e recuperi', 'Pacchetti', 'Totale', 'Da incassare']]
@@ -3145,9 +3220,20 @@
       grpChange(tid, month, uid, true, ad).then(() => { ui.flash = { text: t('grpAdded', { n: personName(m) }) }; render(); }).catch(e => warn('regError', { code: e.code || e.message }));
     },
     'ath-new': f => {
-      const m = memberByUid(f.uid.value);
-      if (!m) return;
-      const ad = { id: m.uid, first: m.first, last: m.last, tess: { [seasonOf(todayStr())]: f.tess.checked }, created: Date.now(), updated: Date.now() };
+      const kid = (f.querySelector('[name=kind]:checked') || {}).value === 'kid';
+      let m;
+      if (kid) {
+        // ragazzo senza account: scheda con ID "k-…", genitore e note
+        const first = f.first.value.trim(), last = f.last.value.trim(), parent = parentOf(f);
+        if (!first || !last) return warn('athNeedName');
+        if (!parent.name || !parent.phone) return warn('athNeedParent');
+        m = { uid: window.Cloud.newKidId(), first, last, gender: f.gender.value === 'F' ? 'F' : 'M' };
+        m.extra = { noAccount: true, gender: m.gender, birthDate: f.birthDate.value || '', parent, notes: f.notes.value.trim() };
+      } else {
+        m = memberByUid(f.uid.value);
+        if (!m) return warn('athNeedUser');
+      }
+      const ad = Object.assign({ id: m.uid, first: m.first, last: m.last, tess: { [seasonOf(todayStr())]: f.tess.checked }, created: Date.now(), updated: Date.now() }, m.extra || {});
       if (f.certExp.value) ad.certExp = f.certExp.value;
       if (f.certType.value) ad.certType = f.certType.value;
       const tids = [...f.querySelectorAll('[name=tid]:checked')].map(x => x.value);
@@ -3163,9 +3249,25 @@
       const uid = f.dataset.uid, a = athleteOf(uid) || {}, m = memberByUid(uid), s = seasonOf(todayStr());
       const cf = f.cf.value.trim().toUpperCase();
       const d = { birthPlace: f.birthPlace.value.trim(), birthDate: f.birthDate.value, city: f.city.value.trim(), address: f.address.value.trim(), cf,
-        certExp: f.certExp.value, certType: f.certType.value, tess: Object.assign({}, a.tess || {}, { [s]: f.tess.checked }), updated: Date.now() };
-      if (m) Object.assign(d, { first: m.first, last: m.last });
-      window.Cloud.saveAthlete(uid, d).then(() => { ui.flash = { text: t('athSaved') }; render(); }).catch(e => warn('regError', { code: e.code || e.message }));
+        certExp: f.certExp.value, certType: f.certType.value, tess: Object.assign({}, a.tess || {}, { [s]: f.tess.checked }), parent: parentOf(f), notes: f.notes.value.trim(), updated: Date.now() };
+      if (a.noAccount) {
+        if (!f.first.value.trim() || !f.last.value.trim()) return warn('athNeedName');
+        Object.assign(d, { first: f.first.value.trim(), last: f.last.value.trim(), gender: f.gender.value === 'F' ? 'F' : 'M' });
+      } else if (m) Object.assign(d, { first: m.first, last: m.last });
+      const nn = a.noAccount ? personName(d) : null;
+      const gs = nn ? (S().groups || []).filter(g => g.month >= shiftMonth(curMonth(), -1) && (g.uids || []).includes(uid) && (g.names || {})[uid] !== nn)
+        .map(g => Object.assign({}, g, { names: Object.assign({}, g.names || {}, { [uid]: nn }), updated: Date.now() })) : [];
+      (gs.length ? window.Cloud.saveGroups(gs, [], [Object.assign({ id: uid }, d)]) : window.Cloud.saveAthlete(uid, d)).then(() => { ui.flash = { text: t('athSaved') }; render(); }).catch(e => warn('regError', { code: e.code || e.message }));
+    },
+    // il ragazzo si è registrato: la scheda senza account passa al suo account
+    'kid-link': f => {
+      const from = f.dataset.uid, k = kidMember(from), m = (S().members || []).find(x => x.uid === f.to.value);
+      if (!k || !m || !admin()) return;
+      if (athleteOf(m.uid)) return warn('linkHasSheet', { m: personName(m) });
+      if (!confirmed('linkConfirm', { n: personName(k), m: personName(m) })) return;
+      f.querySelector('button.primary').disabled = true;
+      window.Cloud.linkKid(from, m.uid, personName(m)).then(n => { ui.athEdit = m.uid; ui.flash = { text: t('linkDone', { m: personName(m), k: n }) }; render(); })
+        .catch(e => { f.querySelector('button.primary').disabled = false; warn('regError', { code: e.code || e.message }); });
     },
     'plan-price': f => {
       const p = planOf(f.dataset.uid, f.dataset.m);
@@ -3219,6 +3321,21 @@
       window.Cloud.setCoach(el.dataset.uid, null).then(() => render()).catch(e => warn('regError', { code: e.code || e.message }));
     },
     'ath-edit': el => { ui.athEdit = ui.athEdit === el.dataset.uid ? null : el.dataset.uid; render(); },
+    'ath-kind': el => { ui.athKind = el.dataset.k; render(); },
+    // scheda senza account eliminata: tolta dai gruppi, piani e pacchetti cancellati (ricevute e storico restano)
+    'kid-del': el => {
+      const uid = el.dataset.uid, m = kidMember(uid);
+      if (!m || !admin() || !confirmed('kidDelConfirm', { n: personName(m) })) return;
+      const groups = (S().groups || []).filter(g => (g.uids || []).includes(uid)).map(g => {
+        const names = Object.assign({}, g.names || {}); delete names[uid];
+        const data = Object.assign({}, g, { uids: g.uids.filter(x => x !== uid), names, updated: Date.now() }); delete data.id;
+        return { id: g.id, data, tr: !!trainingById(g.tid) };
+      });
+      const planIds = (S().plans || []).filter(p => p.uid === uid && p.month >= curMonth()).map(p => p.id);
+      const packIds = (S().packs || []).filter(k => k.uid === uid && !k.paid && !packUsed(k)).map(k => k.id);
+      window.Cloud.deleteKid(uid, groups, planIds, packIds).then(() => { ui.athEdit = null; ui.flash = { text: t('kidDeleted', { n: personName(m) }) }; render(); })
+        .catch(e => warn('regError', { code: e.code || e.message }));
+    },
     'plan-auto': el => {
       const p = planOf(el.dataset.uid, el.dataset.m);
       if (!p) return;

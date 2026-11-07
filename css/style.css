@@ -1246,6 +1246,13 @@ li.is-void { opacity: .6; }
 .tr-form.is-extra .only-weekly, .tr-form:has([name=kind][value=extra]:checked) .only-weekly { display: none; }
 .tr-kind { display: flex; flex-wrap: wrap; gap: 8px 18px; }
 .badge.tr-extra-badge { background: #6d3fd1; color: #fff; border-color: #6d3fd1; }
+.badge.kid-badge { background: transparent; color: var(--muted); border-style: dashed; }
+/* nuova scheda corsista: campi del ragazzo senza account o scelta dell'utente registrato */
+.ath-form:not(:has([name=kind][value=kid]:checked)) .only-kid { display: none; }
+.ath-form:has([name=kind][value=kid]:checked) .only-acc { display: none; }
+/* presenze segnate dall'allenatore: risposta del corsista (non ancora segnata) in grigio chiaro */
+.badge.att-resp { background: transparent !important; color: var(--muted) !important; border: 1px dashed var(--border) !important; }
+.att-mark .btn { min-width: 6.5em; }
 .tr-card.tr-extra { border-color: #6d3fd1; box-shadow: inset 6px 0 0 #6d3fd1, var(--shadow, none); background: linear-gradient(180deg, rgba(109, 63, 209, .10), rgba(109, 63, 209, 0) 70%), var(--surface); }
 .tr-pick input { min-height: 36px; }
 .tr-month-list { display: flex; flex-direction: column; gap: 4px; }
