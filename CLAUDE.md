@@ -107,6 +107,9 @@ allenamenti, allenatori, cassa. Regole decise dal titolare: valgono per ogni mod
   con la condivisione del dispositivo (`navigator.share` con il file) si sceglie WhatsApp o la posta con il PDF allegato;
   altrimenti si scarica il PDF e si apre `wa.me` (numero della scheda o del genitore, o quello scritto a mano) o `mailto:`
   (l'email si copia anche negli appunti), con la nota «Allega il PDF appena scaricato».
+- «Invia ricevuta» apre prima il riquadro **Numero WhatsApp** (già scritto se la scheda lo ha, altrimenti lo scrive
+  chi incassa, anche la cassa): con un numero si scarica il PDF e si apre la chat di quel numero (`wa.me`, 39 se manca
+  il prefisso); lasciato vuoto si usa la condivisione del dispositivo. Il numero non si salva da nessuna parte.
 
 ## Grafica
 - L'app deriva da Beach+ Arena (stessa grafica e stessi componenti): lo stile predefinito è il design **Erba**
