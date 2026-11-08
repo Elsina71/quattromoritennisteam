@@ -1750,3 +1750,18 @@ form:has(select[name=holder] option[value="__manual"]:checked) .mh-hide { displa
 .pub-tr-list li { padding: 10px 0; border-top: 1px dashed var(--line, #ddd); }
 .pub-tr-list li:first-child { border-top: 0; }
 .pub-tr-days { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 4px; color: var(--muted, #666); font-size: .92rem; }
+
+/* Livelli dei gruppi (admin) e colori dei livelli aggiunti */
+.lv-list { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
+.lv-list li { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto; gap: 8px; align-items: center; padding-bottom: 8px; border-bottom: 1px dashed var(--line, #ddd); }
+.lv-list li > small { grid-column: 1 / -1; }
+.lv-list .btn-row { flex-wrap: nowrap; }
+@media (max-width: 560px) { .lv-list li { grid-template-columns: minmax(0, 1fr) auto; } .lv-list li > .badge { grid-column: 1 / -1; justify-self: start; } }
+.badge.lvl-c0 { background: #e8eefc; color: #2f4ea0; border-color: transparent; }
+.badge.lvl-c1 { background: #fde8e8; color: #9b2c2c; border-color: transparent; }
+.badge.lvl-c2 { background: #e6f6f3; color: #0f6b5c; border-color: transparent; }
+.badge.lvl-c3 { background: #f3e8fd; color: #6b2fa0; border-color: transparent; }
+.badge.lvl-c4 { background: #fff1d6; color: #8a5300; border-color: transparent; }
+.badge.lvl-c5 { background: #e3f4fb; color: #0e5e7e; border-color: transparent; }
+.badge.lvl-c6 { background: #f1f5e1; color: #4d6114; border-color: transparent; }
+.badge.lvl-c7 { background: #fbe9f3; color: #8a2464; border-color: transparent; }

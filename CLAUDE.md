@@ -79,6 +79,12 @@ allenamenti, allenatori, cassa. Regole decise dal titolare: valgono per ogni mod
 - Livelli, in quest'ordine: Minitennis 4-6 anni, Scuola Tennis Orange 6-8 anni, Scuola Tennis Green 8-10 anni,
   Bambini misti, Perfezionamento 10-13 anni, Preagonistica 11-14 anni, Agonistica 12-18 anni, Performance - Avanzato,
   Tennis Adulti (chiavi `mini, orange, green, kids, perf, preago, ago, adv, adult`; un livello vecchio si mostra com'è scritto).
+- **Livelli modificabili dall'admin**: in «Allenamenti e gruppi» il riquadro «Livelli dei gruppi» (`levelsCard`) per
+  rinominare, riordinare (frecce), aggiungere e togliere i livelli. Si salvano in `data/settings` → `levels: [{ key, name }]`
+  (senza modifiche valgono quelli di serie `DEFAULT_LEVELS`; nome vuoto = nome di serie tradotto). Un livello nuovo ha una
+  chiave ricavata dal nome (`lvSlug`, solo a-z0-9) e un colore del badge a rotazione (`lvl-c0…c7`); un livello usato da un
+  allenamento non si toglie. I livelli valgono anche per richieste di allenamento privato e iscrizioni online: le regole
+  controllano solo che la chiave sia `[a-z0-9]{1,20}`.
 
 ## Richieste di allenamento personalizzato (privato)
 - Bottone «Richiedi un allenamento personalizzato» in Allenamenti (anche per i visitatori), pagina `#/ptreq`:

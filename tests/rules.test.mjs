@@ -499,7 +499,7 @@ await test('la stessa richiesta non si manda due volte (stesso telefono, giorno 
 await test('richiesta del visitatore: niente campi in più, lunghezze, consenso, stato e data controllati', async () => {
   const bad = [ptGuest({ phone: '333 999 0000', extra: 'x' }), ptGuest({ phone: '333 999 0001', first: 'x'.repeat(61) }), ptGuest({ phone: '333 999 0002', privacy: false }),
     ptGuest({ phone: '333 999 0003', status: 'ok' }), ptGuest({ phone: '333 999 0004', date: ptd(-2) }), ptGuest({ phone: '333 999 0005', date: ptd(70) }),
-    ptGuest({ phone: '333 999 0006', dur: 45 }), ptGuest({ phone: '333 999 0007', from: '17:15' }), ptGuest({ phone: '333 999 0008', level: 'pro' }),
+    ptGuest({ phone: '333 999 0006', dur: 45 }), ptGuest({ phone: '333 999 0007', from: '17:15' }), ptGuest({ phone: '333 999 0008', level: 'Livello non valido!' }),
     ptGuest({ phone: '333 999 0009', notes: 'x'.repeat(301) }), ptGuest({ phone: '333 999 0010', coachUid: 'nessuno' }), ptGuest({ phone: 'ciao' }),
     ptGuest({ phone: '333 999 0011', at: 5 }), ptGuest({ phone: '333 999 0012', name: 'Altro Nome' })];
   for (const r of bad) await assertFails(setDoc(doc(anon(), 'ptreq', /^[0-9 ]+$/.test(r.phone) ? ptId(r) : 'x_' + r.date + '_1730'), r));
@@ -587,7 +587,7 @@ await test('iscrizione online: un visitatore senza accesso la manda con i campi 
   await assertSucceeds(setDoc(doc(anon(), 'enroll/e2'), enroll({ kid: Object.assign({}, enK, { phone: '347 000 1111', email: 'pietro@esempio.it' }), images: true })));
 });
 await test('iscrizione: campi in più, codice fiscale, consenso, livello, stato e lunghezze controllati', async () => {
-  const bad = [enroll({ extra: 1 }), enroll({ parent: Object.assign({}, enP, { cf: 'CORTO' }) }), enroll({ privacy: false }), enroll({ level: 'pro' }), enroll({ status: 'done' }),
+  const bad = [enroll({ extra: 1 }), enroll({ parent: Object.assign({}, enP, { cf: 'CORTO' }) }), enroll({ privacy: false }), enroll({ level: 'Livello non valido!' }), enroll({ status: 'done' }),
     enroll({ parent: Object.assign({}, enP, { first: 'x'.repeat(61) }) }), enroll({ kid: Object.assign({}, enK, { gender: 'X' }) }), enroll({ parent: Object.assign({}, enP, { phone: '' }) }),
     enroll({ parent: Object.assign({}, enP, { email: 'non-email' }) }), enroll({ images: 'si' }), enroll({ kid: Object.assign({}, enK, { note: 'x' }) }), enroll({ at: 1 })];
   let i = 0;

@@ -5,7 +5,7 @@ const Store = (() => {
   }
 
   function empty() {
-    return { notice: '', noticeUntil: '', editorial: [null, null], members: [], messages: [], inbox: [], nicks: {}, accounts: {}, courts: [], booking: null, bookRewards: null,
+    return { notice: '', noticeUntil: '', editorial: [null, null], members: [], messages: [], inbox: [], nicks: {}, accounts: {}, courts: [], booking: null, bookRewards: null, levels: null,
       bookings: [], bookingsMine: [], bookingsPast: [], bkplayersPast: [], bkpReady: false, weekly: [], recurring: [], manualVerified: {}, emailVerified: {},
       trainings: [], coaches: [], athletes: [], groups: [], plans: [], packs: [], packcount: [], packuse: [], xmem: [], occ: [], att: [], spots: [], receipts: [],
       roles: {}, incassi: [], bkpaid: {}, tesserati: [], contatti: [], occfree: {}, bkplayers: [], prices: null, bans: {}, notices: [], evals: [], bkphones: [], ptreqs: [], pubCoaches: {}, enrolls: [] };
@@ -39,6 +39,7 @@ const Store = (() => {
       state.courts = (value.courts || []).map(normCourt);
       state.booking = value.booking || null;
       state.bookRewards = value.bookRewards || null;
+      state.levels = Array.isArray(value.levels) ? value.levels.filter(x => x && typeof x.key === 'string') : null;
       state.prices = value.prices || null;
     } else if (kind === 'editorial') {
       state.editorial = (state.editorial || [null, null]).slice();
