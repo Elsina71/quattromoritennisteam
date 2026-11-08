@@ -8,7 +8,7 @@ const Store = (() => {
     return { notice: '', noticeUntil: '', editorial: [null, null], members: [], messages: [], inbox: [], nicks: {}, accounts: {}, courts: [], booking: null, bookRewards: null, levels: null,
       bookings: [], bookingsMine: [], bookingsPast: [], bkplayersPast: [], bkpReady: false, weekly: [], recurring: [], manualVerified: {}, emailVerified: {},
       trainings: [], coaches: [], athletes: [], groups: [], plans: [], packs: [], packcount: [], packuse: [], xmem: [], occ: [], att: [], spots: [], receipts: [],
-      roles: {}, incassi: [], bkpaid: {}, tesserati: [], contatti: [], occfree: {}, bkplayers: [], prices: null, bans: {}, notices: [], evals: [], bkphones: [], ptreqs: [], pubCoaches: {}, enrolls: [] };
+      roles: {}, incassi: [], bkpaid: {}, tesserati: [], contatti: [], occfree: {}, bkplayers: [], prices: null, bans: {}, notices: [], evals: [], bkphones: [], ptreqs: [], pubCoaches: {}, enrolls: [], events: [], evcalls: [] };
   }
 
   // Campo: nome, tipo (tennis o padel), visibile (prenotabile) e orari di apertura per giorno della settimana (1 = lunedì … 7 = domenica).
@@ -31,7 +31,7 @@ const Store = (() => {
   // Dati arrivati dal database: le impostazioni hanno una forma propria, il resto si copia così com'è.
   const PLAIN = ['roles', 'incassi', 'tesserati', 'contatti', 'occfree', 'bkplayers', 'bkpaid', 'bookings', 'bookingsMine', 'bookingsPast', 'bkplayersPast', 'bkpReady',
     'weekly', 'recurring', 'manualVerified', 'emailVerified', 'trainings', 'coaches', 'athletes', 'groups', 'plans', 'packs', 'packcount', 'packuse', 'xmem', 'occ', 'att',
-    'spots', 'receipts', 'bans', 'notices', 'members', 'messages', 'inbox', 'accounts', 'evals', 'bkphones', 'ptreqs', 'pubCoaches', 'enrolls'];
+    'spots', 'receipts', 'bans', 'notices', 'members', 'messages', 'inbox', 'accounts', 'evals', 'bkphones', 'ptreqs', 'pubCoaches', 'enrolls', 'events', 'evcalls'];
   function applyRemote(kind, value) {
     if (kind === 'settings') {
       state.notice = value.notice || ''; state.noticeUntil = value.noticeUntil || '';

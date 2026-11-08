@@ -592,6 +592,28 @@ service cloud.firestore {
       allow read: if isCash();
       allow write: if isStaff();
     }
+    // Calendario eventi: events/{id} pubblico (nome, raduno, luoghi, orari), lo scrivono admin e segreteria.
+    // evcall/{id}: convocati (atleti e allenatori): li leggono admin, segreteria e i convocati (all = ID convocati).
+    function dOk(v) { return v is string && (v == '' || v.matches('20[0-9]{2}-[01][0-9]-[0-3][0-9]')); }
+    function tOk(v) { return v is string && (v == '' || v.matches('[0-2][0-9]:[0-5][0-9]')); }
+    match /events/{id} {
+      allow read: if true;
+      allow delete: if isStaff();
+      allow create, update: if isStaff()
+        && request.resource.data.keys().hasOnly(['name', 'meetDate', 'meetTime', 'meetPlace', 'place', 'startDate', 'startTime', 'endDate', 'created', 'updated', 'by'])
+        && txt(request.resource.data.name, 100) && request.resource.data.name.size() > 0
+        && dOk(request.resource.data.meetDate) && request.resource.data.meetDate != ''
+        && tOk(request.resource.data.meetTime) && txt(request.resource.data.meetPlace, 150) && txt(request.resource.data.place, 150)
+        && dOk(request.resource.data.get('startDate', '')) && tOk(request.resource.data.get('startTime', '')) && dOk(request.resource.data.get('endDate', ''));
+    }
+    match /evcall/{id} {
+      allow read: if isStaff() || (request.auth != null && request.auth.uid in resource.data.get('all', []));
+      allow delete: if isStaff();
+      allow create, update: if isStaff()
+        && request.resource.data.keys().hasOnly(['uids', 'coachUids', 'names', 'all', 'updated'])
+        && request.resource.data.uids is list && request.resource.data.coachUids is list && request.resource.data.all is list
+        && request.resource.data.names is map && request.resource.data.uids.size() <= 200 && request.resource.data.coachUids.size() <= 50;
+    }
     // contatti/{uid}: solo telefono ed email della persona (e del genitore, per i ragazzi senza account),
     // per l'invio delle ricevute. La legge la cassa; la scrive l'app di admin e segreteria (copia delle schede).
     match /contatti/{uid} {

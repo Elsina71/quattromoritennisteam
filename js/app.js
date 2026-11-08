@@ -80,6 +80,7 @@
     else if (r[0] === 'ptreq') { nav = 'train'; html = viewPtReq(); }
     else if (r[0] === 'valutazioni' && (coach() || admin())) { nav = 'train'; html = viewCoachEvals(); }
     else if (r[0] === 'club') { nav = 'home'; html = viewClub(); }
+    else if (r[0] === 'eventi') { nav = 'events'; html = viewEvents(); }
     else if (r[0] === 'iscrizione') { nav = 'home'; html = viewEnroll(); }
     else if (r[0] === 'iscrizioni' && admin()) { nav = 'train'; html = viewEnrolls(); }
     else if (r[0] === 'privacy' || r[0] === 'cookie' || r[0] === 'termini') { nav = 'settings'; html = viewLegal(r[0]); }
@@ -297,10 +298,75 @@
     </article>`;
   }
 
+  // ---------- CALENDARIO EVENTI (#/eventi) ----------
+  // Visibile a tutti: nome, raduno (data, ora, luogo), luogo dell'evento, inizio ed eventuale fine.
+  // I convocati (atleti e allenatori) li vedono solo admin, segreteria e i convocati. Li gestiscono admin e segreteria.
+  const evEnd = e => e.endDate || e.startDate || e.meetDate;
+  const evCall = id => (S().evcalls || []).find(c => c.id === id) || null;
+  const capFirst = x => x.charAt(0).toUpperCase() + x.slice(1);
+  function eventCard(e) {
+    if (admin() && ui.evEdit === e.id) return `<div class="card ev-card">${eventForm(e)}</div>`;
+    const c = evCall(e.id), me = myUid(), names = (c && c.names) || {};
+    const isMine = !!(c && me && (c.all || []).includes(me));
+    const nm = uid => names[uid] || (memberByUid(uid) ? personName(memberByUid(uid)) : '?');
+    const sameDay = !e.startDate || e.startDate === e.meetDate;
+    const start = `${sameDay ? '' : capFirst(longDate(e.startDate)) + ' · '}${e.startTime ? t('evAt', { h: e.startTime }) : ''}`;
+    return `<article class="card ev-card" id="ev-${esc(e.id)}">
+      <h3><i class="ti ti-trophy" aria-hidden="true"></i> ${esc(e.name)} ${isMine ? `<span class="badge st-done">${esc(t('evMine'))}</span>` : ''}</h3>
+      <dl class="ev-info">
+        <dt><i class="ti ti-users-group" aria-hidden="true"></i> ${esc(t('evMeet'))}</dt><dd>${esc(capFirst(longDate(e.meetDate)))}${e.meetTime ? ' · ' + esc(t('evAt', { h: e.meetTime })) : ''}${e.meetPlace ? `<br>${esc(e.meetPlace)}` : ''}</dd>
+        ${e.place ? `<dt><i class="ti ti-map-pin" aria-hidden="true"></i> ${esc(t('evPlace'))}</dt><dd>${esc(e.place)}</dd>` : ''}
+        ${start ? `<dt><i class="ti ti-flag" aria-hidden="true"></i> ${esc(t('evStart'))}</dt><dd>${esc(start)}</dd>` : ''}
+        ${e.endDate && e.endDate !== (e.startDate || e.meetDate) ? `<dt><i class="ti ti-flag-check" aria-hidden="true"></i> ${esc(t('evEnd'))}</dt><dd>${esc(capFirst(longDate(e.endDate)))}</dd>` : ''}
+      </dl>
+      ${c && ((c.uids || []).length || (c.coachUids || []).length) ? `<div class="ev-call">
+        ${(c.coachUids || []).length ? `<h4><i class="ti ti-school" aria-hidden="true"></i> ${esc(t('evCoaches'))} (${c.coachUids.length})</h4><p>${c.coachUids.map(nm).map(esc).join(', ')}</p>` : ''}
+        ${(c.uids || []).length ? `<h4><i class="ti ti-users" aria-hidden="true"></i> ${esc(t('evAthletes'))} (${c.uids.length})</h4><p>${c.uids.map(nm).sort((a, b) => a.localeCompare(b)).map(esc).join(', ')}</p>` : ''}
+      </div>` : admin() ? `<p class="muted small">${esc(t('evNoCall'))}</p>` : ''}
+      ${admin() ? `<div class="btn-row"><button class="btn small" data-action="ev-edit" data-id="${esc(e.id)}"><i class="ti ti-pencil" aria-hidden="true"></i> ${esc(t('edit'))}</button>
+        <button class="btn small danger" data-action="ev-delete" data-id="${esc(e.id)}"><i class="ti ti-trash" aria-hidden="true"></i> ${esc(t('evDelete'))}</button></div>` : ''}
+    </article>`;
+  }
+  function eventForm(e) {
+    const v = e || { name: '', meetDate: '', meetTime: '', meetPlace: '', place: '', startDate: '', startTime: '', endDate: '' };
+    const c = (e && evCall(e.id)) || { uids: [], coachUids: [] };
+    const people = traineePeople().slice().sort((a, b) => personName(a).localeCompare(personName(b)));
+    const coaches = (S().coaches || []).slice().sort((a, b) => coachName(a.id).localeCompare(coachName(b.id)));
+    const blocks = trBlocks(weeklyTrainings());
+    return `<form class="grid-form ev-form" data-form="ev-save" data-id="${e ? esc(e.id) : ''}">
+      ${e ? `<h3 class="span-all">${esc(t('evEditTitle'))}</h3>` : ''}
+      <label class="span-all">${esc(t('evName'))}<input name="name" required maxlength="100" value="${esc(v.name)}" placeholder="${esc(t('evNamePh'))}"></label>
+      <label>${esc(t('evMeetDate'))}<input type="date" name="meetDate" required value="${esc(v.meetDate)}"></label>
+      <label>${esc(t('evMeetTime'))}<input type="time" name="meetTime" step="300" value="${esc(v.meetTime)}"></label>
+      <label class="span-all">${esc(t('evMeetPlace'))}<input name="meetPlace" maxlength="150" value="${esc(v.meetPlace)}" placeholder="${esc(t('evMeetPlacePh'))}"></label>
+      <label class="span-all">${esc(t('evPlace'))}<input name="place" maxlength="150" value="${esc(v.place)}" placeholder="${esc(t('evPlacePh'))}"></label>
+      <label>${esc(t('evStartDate'))}<input type="date" name="startDate" value="${esc(v.startDate)}"><small class="muted">${esc(t('evStartDateHelp'))}</small></label>
+      <label>${esc(t('evStartTime'))}<input type="time" name="startTime" step="300" value="${esc(v.startTime)}"></label>
+      <label>${esc(t('evEndDate'))}<input type="date" name="endDate" value="${esc(v.endDate)}"><small class="muted">${esc(t('evEndDateHelp'))}</small></label>
+      <details class="span-all ev-pick" open><summary><i class="ti ti-school" aria-hidden="true"></i> ${esc(t('evCoaches'))} <small class="muted" data-ev-count="coach"></small></summary>
+        <div class="ev-checks">${coaches.map(x => `<label class="check"><input type="checkbox" name="coach" value="${esc(x.id)}" ${(c.coachUids || []).includes(x.id) ? 'checked' : ''}> ${esc(coachName(x.id))}</label>`).join('') || `<span class="muted small">${esc(t('trNoCoaches'))}</span>`}</div></details>
+      <details class="span-all ev-pick" open><summary><i class="ti ti-users" aria-hidden="true"></i> ${esc(t('evAthletes'))} <small class="muted" data-ev-count="ath"></small></summary>
+        ${blocks.length ? `<label>${esc(t('evFromGroup'))}<select data-change="ev-group"><option value="">—</option>${blocks.map(b => `<option value="${esc(b.trs.map(x => x.id).join(','))}">${esc(trTitle(b.trs[0]))} · ${esc(b.trs.map(trLabel).join(' · '))}</option>`).join('')}</select></label>` : ''}
+        <input type="search" data-ev-search placeholder="${esc(t('evSearch'))}" aria-label="${esc(t('evSearch'))}">
+        <div class="ev-checks">${people.map(m => `<label class="check" data-n="${esc(L.norm(personName(m)))}"><input type="checkbox" name="ath" value="${esc(m.uid)}" ${(c.uids || []).includes(m.uid) ? 'checked' : ''}> ${esc(personName(m))}${esc(kidTag(m))}</label>`).join('')}</div></details>
+      <div class="form-actions span-all">${e ? `<button type="button" class="btn" data-action="ev-edit-cancel">${esc(t('cancel'))}</button>` : ''}
+        <button class="btn primary">${esc(t(e ? 'save' : 'evCreate'))}</button></div>
+    </form>`;
+  }
+  function viewEvents() {
+    const today = todayStr();
+    const all = (S().events || []).slice().sort((a, b) => (a.meetDate + (a.meetTime || '')).localeCompare(b.meetDate + (b.meetTime || '')));
+    const next = all.filter(e => evEnd(e) >= today), past = all.filter(e => evEnd(e) < today).reverse();
+    return `<div class="page-head"><h1><i class="ti ti-trophy" aria-hidden="true"></i> ${esc(t('evTitle'))}</h1><p class="muted">${esc(t('evIntro'))}</p></div>
+      ${admin() ? `<details class="card sub-form" data-keep="ev-new" ${keepOpen('ev-new')}><summary><i class="ti ti-plus" aria-hidden="true"></i> ${esc(t('evNew'))}</summary>${eventForm(null)}</details>` : ''}
+      ${next.length ? `<div class="ev-list">${next.map(eventCard).join('')}</div>` : `<div class="empty"><i class="ti ti-trophy" aria-hidden="true"></i> ${esc(t('evNone'))}</div>`}
+      ${past.length ? `<details class="card sub-form"><summary><i class="ti ti-history" aria-hidden="true"></i> ${esc(t('evPast'))} (${past.length})</summary><div class="ev-list">${past.map(eventCard).join('')}</div></details>` : ''}`;
+  }
+
   // ---------- prima pagina ----------
   // Avvisi, prossime prenotazioni e allenamenti dell'utente, collegamenti rapidi alle sezioni.
   function homeQuickLinks() {
-    const links = [['#/club', 'building-community', 'clubTitle'], ['#/book', 'calendar-time', 'navBook'], ['#/train', 'barbell', 'navTrain'], ['#/ptreq', 'user-star', 'ptTitle']];
+    const links = [['#/club', 'building-community', 'clubTitle'], ['#/book', 'calendar-time', 'navBook'], ['#/train', 'barbell', 'navTrain'], ['#/eventi', 'trophy', 'evTitle'], ['#/ptreq', 'user-star', 'ptTitle']];
     if (member() || (admin() && window.Cloud && window.Cloud.adminMember)) links.push(['#/me', 'user', 'profile']);
     if (cashier()) links.push(['#/cassa', 'cash-register', 'navCassa']);
     if (admin()) links.push(['#/users', 'users', 'usersTitle'], ['#/athletes', 'id-badge-2', 'athTitle'], ['#/iscrizioni', 'clipboard-list', 'enStaffTitle']);
@@ -4226,6 +4292,13 @@
     'tr-month': el => { ui.trMonth = el.dataset.m; render(); },
     'tr-edit': el => { ui.trEdit = el.dataset.id; render(); },
     'tr-mine': el => { ui.trMine = el.dataset.v === '1'; render(); },
+    'ev-edit': el => { ui.evEdit = el.dataset.id; render(); },
+    'ev-edit-cancel': () => { ui.evEdit = null; render(); },
+    'ev-delete': el => {
+      const e = (S().events || []).find(x => x.id === el.dataset.id);
+      if (!e || !confirmed('evDeleteConfirm', { n: e.name })) return;
+      window.Cloud.deleteEvent(e.id).then(() => { ui.flash = { text: t('evDeleted') }; render(); }).catch(err => warn('regError', { code: err.code || err.message }));
+    },
     'lv-move': el => {
       const list = lvEditable(), i = list.findIndex(x => x.key === el.dataset.k), j = i + Number(el.dataset.d);
       if (i < 0 || j < 0 || j >= list.length) return;
@@ -4959,6 +5032,24 @@
     'ptreq-send': f => ptSend(f),
     'enroll-send': f => enSend(f),
     'ptreq-confirm': f => ptConfirm(f),
+    'ev-save': f => {
+      const v = n => (f.elements[n] ? f.elements[n].value.trim() : '');
+      const ev = { name: v('name').slice(0, 100), meetDate: v('meetDate'), meetTime: v('meetTime'), meetPlace: v('meetPlace').slice(0, 150), place: v('place').slice(0, 150),
+        startDate: v('startDate'), startTime: v('startTime'), endDate: v('endDate') };
+      if (!ev.name || !ev.meetDate) return warn('evNeed');
+      if (ev.startDate && ev.startDate < ev.meetDate) return warn('evStartBefore');
+      if (ev.endDate && ev.endDate < (ev.startDate || ev.meetDate)) return warn('evEndBefore');
+      const uids = [...f.querySelectorAll('[name=ath]:checked')].map(x => x.value), coachUids = [...f.querySelectorAll('[name=coach]:checked')].map(x => x.value);
+      const names = {};
+      uids.forEach(u => { const m = memberByUid(u); if (m) names[u] = personName(m); });
+      coachUids.forEach(u => { names[u] = coachName(u); });
+      const call = { uids, coachUids, names, all: [...new Set(uids.concat(coachUids))] };
+      const id = f.dataset.id || null;
+      window.Cloud.saveEvent(id, ev, call).then(() => {
+        if (id) ui.evEdit = null; else (ui.keep || {})['ev-new'] = false;
+        ui.flash = { text: t(id ? 'evSaved' : 'evCreated', { n: ev.name }) }; render();
+      }).catch(err => warn('regError', { code: err.code || err.message }));
+    },
     'lv-save': f => {
       const list = lvEditable();
       list.forEach(x => { const inp = f.elements['n_' + x.key]; if (inp) x.name = inp.value.trim().slice(0, 40); });
@@ -5154,9 +5245,30 @@
     submitMode = 'save';
   });
 
+  // Evento: quanti convocati spuntati e ricerca tra gli atleti
+  function evCounts(f) {
+    const n = sel => f.querySelectorAll(sel + ':checked').length;
+    const a = f.querySelector('[data-ev-count=ath]'), c = f.querySelector('[data-ev-count=coach]');
+    if (a) a.textContent = `(${n('[name=ath]')})`; if (c) c.textContent = `(${n('[name=coach]')})`;
+  }
+  document.addEventListener('input', e => {
+    const el = e.target;
+    if (!el.matches || !el.matches('[data-ev-search]')) return;
+    const q = L.norm(el.value);
+    el.closest('details').querySelectorAll('.ev-checks > label').forEach(l => { l.hidden = !!q && !(l.dataset.n || '').includes(q); });
+  });
+  document.addEventListener('toggle', e => { if (e.target.matches && e.target.matches('.ev-pick') && e.target.closest('form')) evCounts(e.target.closest('form')); }, true);
   document.addEventListener('change', e => {
     const el = e.target;
+    if (el.form && el.form.dataset.form === 'ev-save') evCounts(el.form);
     switch (el.dataset.change) {
+      case 'ev-group': {   // spunta i corsisti del gruppo del mese di quell'allenamento (tutti i suoi giorni)
+        const f = el.form, month = curMonth(), ids = el.value ? el.value.split(',') : [];
+        const uids = new Set(ids.flatMap(id => ((groupOf(id, month) || groupOf(id, shiftMonth(month, -1)) || {}).uids) || []));
+        f.querySelectorAll('[name=ath]').forEach(x => { if (uids.has(x.value)) x.checked = true; });
+        el.value = ''; evCounts(f);
+        break;
+      }
       case 'grp-pick': {   // scheda già esistente: precompila tesseramento e certificato
         const a = athleteOf(el.value), f = el.form;
         f.tess.checked = !!(a && a.tess && a.tess[seasonOf(todayStr())]); f.certExp.value = (a && a.certExp) || '';
