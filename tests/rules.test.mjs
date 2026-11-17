@@ -705,5 +705,30 @@ await test('chi non è allenatore di quell\'allenamento resta fuori', async () =
   await assertFails(setDoc(doc(db('coach2'), 'att/t1_2030-05-06_mario'), Object.assign(att('mario', 'in'), { by: 'coach2', coach2Uid: 'coach2' })));
 });
 
+// ---------- calendario eventi ----------
+const evt = { name: 'Campionato regionale', meetDate: '2030-06-10', meetTime: '08:00', meetPlace: 'Campi del circolo', place: 'TC Cagliari', startDate: '2030-06-10', startTime: '09:30', endDate: '2030-06-12', updated: 1, by: 'segr', created: 1 };
+const call = { uids: ['mario'], coachUids: ['coach1'], names: { mario: 'Mario', coach1: 'Coach Uno' }, all: ['mario', 'coach1'], updated: 1 };
+await test('eventi: li scrivono admin e segreteria, li vedono tutti', async () => {
+  await assertSucceeds(setDoc(doc(db('segr'), 'events/e1'), evt));
+  await assertSucceeds(setDoc(doc(db('capo'), 'events/e2'), Object.assign({}, evt, { by: 'capo' })));
+  await assertFails(setDoc(doc(db('mario'), 'events/e3'), evt));
+  await assertFails(setDoc(doc(db('coach1'), 'events/e3'), evt));
+  await assertFails(setDoc(doc(db('segr'), 'events/e3'), Object.assign({}, evt, { extra: 1 })));
+  await assertFails(setDoc(doc(db('segr'), 'events/e3'), Object.assign({}, evt, { meetDate: 'domani' })));
+  await assertSucceeds(getDoc(doc(anon(), 'events/e1')));
+});
+await test('convocati: li vedono solo staff e convocati', async () => {
+  await assertSucceeds(setDoc(doc(db('segr'), 'evcall/e1'), call));
+  await assertFails(setDoc(doc(db('coach1'), 'evcall/e1'), call));
+  await assertSucceeds(getDoc(doc(db('segr'), 'evcall/e1')));
+  await assertSucceeds(getDoc(doc(db('mario'), 'evcall/e1')));
+  await assertSucceeds(getDocs(query(collection(db('mario'), 'evcall'), where('all', 'array-contains', 'mario'))));
+  await assertSucceeds(getDoc(doc(db('coach1'), 'evcall/e1')));
+  await assertFails(getDoc(doc(db('luca'), 'evcall/e1')));
+  await assertFails(getDoc(doc(db('coach2'), 'evcall/e1')));
+  await assertFails(getDoc(doc(anon(), 'evcall/e1')));
+  await assertFails(getDocs(collection(db('luca'), 'evcall')));
+});
+
 await env.cleanup();
 console.log(`prove delle regole: ${n} superate`);

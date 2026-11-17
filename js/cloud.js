@@ -178,6 +178,7 @@ onAuthStateChanged(auth, async u => {
   listenBookings();
   listenVerified();
   listenTraining();
+  listenEvCalls();
   listenAttendance();
   listenOccFree();
   listenBkPlayers();
@@ -291,6 +292,7 @@ async function register(data) {
   listenBookings();
   listenVerified();
   listenTraining();
+  listenEvCalls();
   listenAttendance();
   listenBkPlayers();
   listenReceipts();
@@ -321,6 +323,7 @@ async function completeProfile(data) {
   listenBookings();
   listenVerified();
   listenTraining();
+  listenEvCalls();
   listenAttendance();
   listenBkPlayers();
   listenReceipts();
@@ -846,6 +849,31 @@ function saveTraining(old, d, groups) {
   if (old && (old.coachUid !== d.coachUid || (old.coach2Uid || '') !== (d.coach2Uid || ''))) (groups || []).forEach(g => batch.update(doc(db, 'groups', g.id), { coachUid: d.coachUid || '', coach2Uid: d.coach2Uid || '' }));
   return batch.commit().then(() => ref.id);
 }
+// ---------- calendario eventi (campionati, tornei, raduni) ----------
+// events/{id}: pubblico (nome, raduno, luoghi, orari). evcall/{id}: convocati (atleti e allenatori con i nomi),
+// li leggono solo admin, segreteria e i convocati (campo all = tutti gli ID convocati).
+onSnapshot(collection(db, 'events'), snap => { Store.applyRemote('events', snap.docs.map(d => Object.assign({ id: d.id }, d.data()))); refresh(); }, onError);
+let evUnsub = null;
+function listenEvCalls() {
+  if (evUnsub) { evUnsub(); evUnsub = null; }
+  Store.applyRemote('evcalls', []);
+  if (!user) return;
+  const src = staff() ? collection(db, 'evcall') : query(collection(db, 'evcall'), where('all', 'array-contains', user.uid));
+  evUnsub = onSnapshot(src, snap => { Store.applyRemote('evcalls', snap.docs.map(d => Object.assign({ id: d.id }, d.data()))); refresh(); }, onError);
+}
+function saveEvent(id, ev, call) {
+  const ref = id ? doc(db, 'events', id) : doc(collection(db, 'events'));
+  const batch = writeBatch(db);
+  batch.set(ref, Object.assign({}, ev, { updated: Date.now(), by: user.uid }, id ? {} : { created: Date.now() }), { merge: true });
+  batch.set(doc(db, 'evcall', ref.id), Object.assign({}, call, { updated: Date.now() }));
+  return batch.commit().then(() => ref.id);
+}
+function deleteEvent(id) {
+  const batch = writeBatch(db);
+  batch.delete(doc(db, 'events', id)); batch.delete(doc(db, 'evcall', id));
+  return batch.commit();
+}
+
 // Nuovo allenamento su più giorni: un documento per giorno, tutti nello stesso invio, con i loro blocchi dei campi.
 // Con più giorni hanno lo stesso «series» (l'ID del primo), così l'app li tiene insieme (corsisti, scheda).
 function saveTrainingSeries(list) {
@@ -1776,7 +1804,7 @@ window.Cloud = {
   saveSelfProfile,
   renameMember,
   deleteUser,
-  saveTraining, saveTrainingSeries,
+  saveTraining, saveTrainingSeries, saveEvent, deleteEvent,
   deleteTraining,
   saveGroups,
   saveAthlete,

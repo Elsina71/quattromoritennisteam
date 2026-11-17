@@ -99,6 +99,16 @@ allenamenti, allenatori, cassa. Regole decise dal titolare: valgono per ogni mod
   («Allenamento privato confermato per il giorno … alle ore … – Quattro Mori Tennis Team», link `wa.me`, 39 se manca il prefisso).
   Per l'esterno: «Chiama per confermare» con il link `tel:`. Il telefono lo vedono solo admin e segreteria.
 
+## Calendario eventi (campionati, tornei, trasferte)
+- Pagina `#/eventi` («Eventi» nel menu e nei collegamenti rapidi), **visibile a tutti** anche senza accesso: nome, data e ora
+  del raduno, luogo del raduno, luogo dell'evento, giorno (vuoto = quello del raduno) e ora di inizio, ultimo giorno
+  facoltativo per gli eventi di più giorni. Prossimi eventi in alto, «Eventi passati» chiusi in fondo.
+- La compilano **admin e segreteria** («Nuovo evento», «Modifica», «Elimina l'evento»), con i **convocati**: allenatori e
+  atleti (anche ragazzi senza account), ricerca per nome e «Spunta i corsisti di un allenamento» (gruppo del mese).
+- I nomi dei convocati li vedono **solo staff e convocati** (il convocato vede «Sei convocato»); nessuna risposta dei convocati.
+- Dati: `events/{id}` pubblico (campi controllati dalle regole), `evcall/{id}` = { uids, coachUids, names, all } letto da
+  staff e da chi è in `all` (`Cloud.saveEvent`, `Cloud.deleteEvent`, `listenEvCalls`).
+
 ## Il circolo e iscrizioni online
 - Pagina pubblica «Il circolo» (`#/club`): chi siamo, il team (in `js/club.js`), calendario della scuola
   (15 settembre – 15 giugno, agonisti fino al 31 luglio: date di serie del «corso intero» nel listino), valori,
